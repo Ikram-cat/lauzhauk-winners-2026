@@ -51,3 +51,13 @@ data class JourneySearchResponseDto(
     val request: SearchRequestDto,
     val journeys: List<JourneyDto>
 )
+
+@Serializable
+data class ModelInfoDto(
+    val modelVersion: String?,
+    val generatedAt: String?,
+    val coverage: kotlinx.serialization.json.JsonElement?,
+    val source: String,
+    val keysLoaded: Int,
+    val status: String
+)
