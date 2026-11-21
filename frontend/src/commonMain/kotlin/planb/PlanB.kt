@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,11 +23,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
@@ -72,6 +75,10 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
     var searchedRoute by remember { mutableStateOf<Pair<String, String>?>(null) }
     var loading by remember { mutableStateOf(false) }
     var journeys by remember { mutableStateOf(emptyList<Journey>()) }
+    var recommendations by remember { mutableStateOf<Recommendations?>(null) }
+    var preference by remember { mutableStateOf(Preference.FASTEST) }
+    var firstClass by remember { mutableStateOf(false) }
+    var halfFare by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<String?>(null) }
     var request by remember { mutableStateOf<Job?>(null) }
     var railRun by remember { mutableStateOf(0) }
@@ -84,7 +91,11 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
         val to = destination.trim()
         val day = date
         val departure = hour
+        val mode = preference
+        val first = firstClass
+        val half = halfFare
         journeys = emptyList()
+        recommendations = null
         status = Copy.Searching
         searchedRoute = null
         loading = true
@@ -93,7 +104,9 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                 if (from.isEmpty() || to.isEmpty() || from.equals(to, ignoreCase = true)) {
                     throw SearchInputException(Copy.DistinctStations)
                 }
-                journeys = source.search(from, to, swissDeparture(day, departure))
+                val response = source.search(from, to, swissDeparture(day, departure), mode, first, half)
+                journeys = response.journeys
+                recommendations = response.recommendations
                 selected = journeys.firstOrNull()?.id
                 status = if (journeys.isEmpty()) {
                     if (source.demo) Copy.EmptyDemo else Copy.EmptyJourney
@@ -185,6 +198,28 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                         }
                         if (feedback != null) {
                             Text(copy(Copy.Journeys), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            SingleChoiceSegmentedButtonRow(Modifier.semantics { contentDescription = copy(Copy.SortBy) }) {
+                                for ((index, mode) in Preference.entries.withIndex()) SegmentedButton(
+                                    selected = preference == mode,
+                                    onClick = { if (preference != mode) { preference = mode; search() } },
+                                    shape = SegmentedButtonDefaults.itemShape(index, Preference.entries.size)
+                                ) { Text(copy(mode.label)) }
+                            }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+                                itemVerticalAlignment = Alignment.CenterVertically) {
+                                SingleChoiceSegmentedButtonRow(Modifier.semantics { contentDescription = copy(Copy.TravelClass) }) {
+                                    for ((index, first) in listOf(false, true).withIndex()) SegmentedButton(
+                                        selected = firstClass == first,
+                                        onClick = { if (firstClass != first) { firstClass = first; search() } },
+                                        shape = SegmentedButtonDefaults.itemShape(index, 2)
+                                    ) { Text(copy(if (first) Copy.FirstClass else Copy.SecondClass)) }
+                                }
+                                Row(Modifier.toggleable(halfFare, role = Role.Switch) { halfFare = it; search() },
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Switch(halfFare, onCheckedChange = null)
+                                    Text(copy(Copy.HalfFare))
+                                }
+                            }
                             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                             Text(feedback, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.onSurfaceVariant)
                             for (journey in journeys) {
@@ -196,7 +231,17 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                                         val crossesDay = start.toLocalDateTime(Zurich).date != end.toLocalDateTime(Zurich).date
                                         fun label(instant: Instant) = time(instant) +
                                             if (crossesDay) " · ${instant.toLocalDateTime(Zurich).date}" else ""
-                                        Text("${label(start)} → ${label(end)}", fontWeight = FontWeight.Bold)
+                                        val badges = Preference.entries.filter { recommendations?.id(it) == journey.id }
+                                        if (badges.isNotEmpty()) Text(badges.joinToString(" · ") { copy(it.label) },
+                                            color = colors.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("${label(start)} → ${label(end)}", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                                            journey.fare(firstClass, halfFare)?.let { Text(chf(it), fontWeight = FontWeight.Bold) }
+                                        }
+                                        if (halfFare && journey.fare(firstClass, true) != null) journey.fullFare(firstClass)?.let {
+                                            Text(chf(it), Modifier.align(Alignment.End).semantics { contentDescription = "${copy(Copy.FullPrice)} ${chf(it)}" },
+                                                color = colors.onSurfaceVariant, fontSize = 12.sp, textDecoration = TextDecoration.LineThrough)
+                                        }
                                         val provenance = when (journey.dataStatus) {
                                             "MOCK" -> Copy.Demo
                                             "LIVE_SCHEDULE" -> Copy.ProviderSchedule

@@ -5,8 +5,8 @@ package planb
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
-import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.URLBuilder
 import kotlinx.coroutines.delay
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
@@ -17,6 +17,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
+import kotlin.math.roundToLong
 import kotlin.time.Instant
 
 internal val Zurich = TimeZone.of("Europe/Zurich")
@@ -47,11 +48,61 @@ internal data class Leg(
 @Serializable
 internal data class Journey(
     val id: String, val departure: String, val arrival: String, val durationMinutes: Int,
-    val transfers: Int, val dataStatus: String, val legs: List<Leg>
-)
+    val transfers: Int, val dataStatus: String, val legs: List<Leg>,
+    val estimatedFareChf: Double? = null, val halfFareChf: Double? = null, val firstClassFareChf: Double? = null,
+    val fareProduct: String? = null, val fareSource: String? = null, val fareStatus: String? = null,
+    val fareChf: Double? = null, val firstClassHalfFareChf: Double? = null
+) {
+    private val known get() = fareStatus != "UNAVAILABLE"
+    /** Undiscounted fare for the class; null means unknown and must not be rendered. */
+    fun fullFare(firstClass: Boolean) = (if (firstClass) firstClassFareChf else estimatedFareChf)?.takeIf { known }
+    /** Price the user pays: backend `fareChf`, else the contract v2 field for the selection (older backends). */
+    fun fare(firstClass: Boolean, halfFare: Boolean) = (fareChf ?: when {
+        !halfFare -> fullFare(firstClass)
+        firstClass -> firstClassHalfFareChf
+        else -> halfFareChf
+    })?.takeIf { known }
+}
+
+internal enum class Preference(val label: Copy) { FASTEST(Copy.Fastest), CHEAPEST(Copy.Cheapest), SIMPLEST(Copy.Simplest) }
 
 @Serializable
-private data class JourneyResponse(val journeys: List<Journey>)
+internal data class Recommendations(val fastest: String? = null, val cheapest: String? = null, val simplest: String? = null) {
+    fun id(preference: Preference) = when (preference) {
+        Preference.FASTEST -> fastest
+        Preference.CHEAPEST -> cheapest
+        Preference.SIMPLEST -> simplest
+    }
+}
+
+@Serializable
+internal data class JourneyResponse(val journeys: List<Journey>, val recommendations: Recommendations? = null)
+
+private val json = Json { ignoreUnknownKeys = true }
+
+internal fun parseJourneys(body: String): JourneyResponse = json.decodeFromString<JourneyResponse>(body).also { response ->
+    response.journeys.forEach { journey ->
+        Instant.parse(journey.departure)
+        Instant.parse(journey.arrival)
+        journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
+    }
+}
+
+internal fun journeysUrl(base: String, origin: String, destination: String, departure: Instant?, preference: Preference,
+                         firstClass: Boolean = false, halfFare: Boolean = false) =
+    URLBuilder(base.trimEnd('/') + "/api/journeys").apply {
+        parameters.append("origin", origin)
+        parameters.append("destination", destination)
+        departure?.let { parameters.append("departure", it.toString()) }
+        parameters.append("preference", preference.name)
+        parameters.append("fareClass", if (firstClass) "1" else "2")
+        parameters.append("discount", if (halfFare) "HALF_FARE" else "NONE")
+    }.buildString()
+
+internal fun chf(value: Double): String {
+    val cents = (value * 100).roundToLong()
+    return "CHF ${cents / 100}.${two((cents % 100).toInt())}"
+}
 
 internal data class Service(
     val destination: String, val offset: Int, val platform: String,
@@ -65,29 +116,21 @@ internal val services = listOf(
 )
 
 internal class JourneySource(private val base: String) {
-    private val json = Json { ignoreUnknownKeys = true }
     private val client = if (base.isBlank()) null else HttpClient {
         install(HttpTimeout) { requestTimeoutMillis = 10_000 }
     }
     val demo get() = client == null
     fun close() { client?.close() }
 
-    suspend fun search(origin: String, destination: String, departure: Instant?): List<Journey> {
-        val http = client ?: return demoSearch(origin, destination, departure ?: Clock.System.now())
-        val response = http.get(base.trimEnd('/') + "/api/journeys") {
-            parameter("origin", origin)
-            parameter("destination", destination)
-            departure?.let { parameter("departure", it.toString()) }
-        }
+    suspend fun search(
+        origin: String, destination: String, departure: Instant?, preference: Preference = Preference.FASTEST,
+        firstClass: Boolean = false, halfFare: Boolean = false
+    ): JourneyResponse {
+        val http = client ?: return JourneyResponse(demoSearch(origin, destination, departure ?: Clock.System.now()))
+        val response = http.get(journeysUrl(base, origin, destination, departure, preference, firstClass, halfFare))
         if (response.status.value == 400) throw SearchInputException(Copy.BadRequest)
         check(response.status.value in 200..299)
-        return json.decodeFromString<JourneyResponse>(response.bodyAsText()).journeys.also { journeys ->
-            journeys.forEach { journey ->
-                Instant.parse(journey.departure)
-                Instant.parse(journey.arrival)
-                journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
-            }
-        }
+        return parseJourneys(response.bodyAsText())
     }
 }
 
