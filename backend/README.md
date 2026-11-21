@@ -1,40 +1,112 @@
-# Backend
+# CFF Plan B – Backend
 
-Role B owns `backend/` on `feature/backend-ktor`. Ktor provides a stateless HTTP API, obtains valid itineraries from a Swiss transport provider, maps them to app-owned data, and ranks eligible trips by earliest scheduled arrival. The MVP has no database and needs no analytics artifacts.
+Ktor backend for the CFF Plan B travel assistant. Serves `GET /health` and `GET /api/journeys` with journey search and recommendation ranking.
 
-**Current state.** This directory contains documentation. The Ktor project, HTTP routes, adapter, Dockerfile, and Railway service deployment are planned. Provider capabilities and deployed connectivity are unverified.
+## Prerequisites
 
-## Planned architecture
+- JDK 21 (Temurin recommended). Set `JAVA_HOME` if not on PATH.
+- No other system dependencies required (Gradle wrapper is bundled).
 
-| Package under `src/main/kotlin/` | Responsibility |
-| --- | --- |
-| `api` | Ktor routes, query validation, JSON DTOs, mapping to and from domain models, and HTTP error handling. |
-| `domain` | Provider-neutral search requests, journeys, legs, and provenance. |
-| `service` | `JourneySearchService` orchestration and `RecommendationService` eligibility checks and deterministic ordering. |
-| `provider` | `TransportProvider` interface, Swiss API client and mapping, and explicit demo adapter if needed. |
-| `config` | Startup configuration, Ktor plugins, logging, and dependency wiring. |
+## Quick start
 
-Wire a single injected clock for server defaults and deterministic tests. Keep request validation and public response schemas at the route boundary. Keep vendor-specific DTOs and status mapping in the provider adapter. Isolate ranking so it can run on fixtures without a server. Use Ktor JSON negotiation, centralized error handling, and CORS for the permitted browser origins.
-
-## Implementation and local checks
-
-1. Create the JVM Gradle wrapper and pin the toolchain. Add `GET /health` with a route test. Run the service locally before adding provider wiring. Coordinate the Dockerfile and Railway health check with Role D.
-2. Implement `GET /api/journeys` with the proposed contract and a fixture-backed provider for tests. Validate the candidate upstream’s terms, limits, timestamps, and actual fields before implementing its mapping. Set bounded request timeouts and map upstream failures to the contract.
-3. Test the real search end to end, including timestamp eligibility and ordering. Handle incomplete optional fields, empty results, provider cancellation signals where available, and provider failures. Retain explicit demo behavior for a rehearsed fallback.
-4. At T+11, verify multiple returned itineraries are mapped and ordered correctly. Later, expand `RecommendationService` for feature-approved preferences and deadlines and enable `RiskEstimator` only for an agreed, validated artifact.
-
-After scaffolding, install the pinned JDK and run the Gradle wrapper from `backend/`. On Windows PowerShell run `.\gradlew.bat`. The planned Gradle Application entry point and test commands are below. [Ktor server execution](https://ktor.io/docs/server-run.html), [Ktor server tests](https://ktor.io/docs/server-testing.html).
-
-```sh
-./gradlew run
-./gradlew test
+```bash
+cd backend
+export JAVA_HOME=/path/to/jdk-21   # if not already on PATH
+./gradlew --no-daemon run
 ```
 
-Configure `PORT` and `CORS_ALLOWED_ORIGINS` for local tests and deployment using the documented settings. Verify a local health request against the selected port. Use `testApplication` with a fake `TransportProvider` and fixed clock to test route responses. Run adapter mapping tests against fixtures and isolate live-provider verification in manual or dedicated integration smoke tests. Build the Docker image from the module after `Dockerfile` lands and verify its published health endpoint before deploying it to Railway. Record the actual commands in this README once verified.
+Then:
+```bash
+curl http://localhost:8080/health
+curl "http://localhost:8080/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve"
+```
 
-See [backend interfaces](INTERFACES.md), [API contract](../docs/API_CONTRACT.md), [deployment](../docs/DEPLOYMENT.md), and [testing](../docs/TESTING.md).
+## Environment variables
 
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `PORT` | No | `8080` | Listen port |
+| `CORS_ALLOWED_ORIGINS` | No | (any) | Comma-separated allowed origins, e.g. `https://app.vercel.app` |
+| `TRANSPORT_PROVIDER` | No | `mock` | `mock` or `ojp` |
+| `OJP_API_KEY` | When `ojp` | — | Bearer token for opentransportdata.swiss. Never hardcoded. |
 
-## Sponsor deliverables
+## Running tests
 
-Review the extraction and disruption interfaces with A and D. Keep model calls bounded and optional, and match verified events to itinerary legs with source and timestamp. Provide fixture-backed cancellation replay and no-feasible-alternative checks. [Challenge plan](../docs/CHALLENGES.md)
+```bash
+./gradlew --no-daemon test
+```
+
+## Building a JAR / distribution
+
+```bash
+./gradlew --no-daemon installDist
+./build/install/cff-plan-b-backend/bin/cff-plan-b-backend
+```
+
+## Docker
+
+```bash
+docker build -t cff-plan-b-backend .
+docker run -p 8080:8080 -e TRANSPORT_PROVIDER=mock cff-plan-b-backend
+```
+
+For OJP live data:
+```bash
+docker run -p 8080:8080 \
+  -e TRANSPORT_PROVIDER=ojp \
+  -e OJP_API_KEY=<your-key> \
+  -e CORS_ALLOWED_ORIGINS=https://your-frontend.vercel.app \
+  cff-plan-b-backend
+```
+
+## API Contract
+
+See [`docs/API_CONTRACT.md`](../docs/API_CONTRACT.md) for the full HTTP contract.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Returns `{"status":"ok"}`. Makes no provider calls. |
+| `/api/journeys` | GET | Journey search. Params: `origin` (required), `destination` (required), `departure` (optional RFC 3339 with offset). |
+
+### Error codes
+
+| HTTP | Code | Trigger |
+|---|---|---|
+| 400 | `INVALID_REQUEST` | Missing/invalid/duplicate/unknown parameter |
+| 500 | `INTERNAL_ERROR` | Unexpected server error |
+| 502 | `UPSTREAM_ERROR` | Provider failure |
+| 503 | `UPSTREAM_RATE_LIMITED` | Provider throttling |
+| 504 | `UPSTREAM_TIMEOUT` | Provider timeout (8s) |
+
+## Package structure
+
+```
+com.cffplanb.backend
+├── Application.kt          entry point
+├── api/
+│   ├── Dtos.kt             wire DTOs (@Serializable)
+│   └── Routes.kt           Ktor routing + validation
+├── config/
+│   ├── AppConfig.kt        env var reader
+│   └── Plugins.kt          Ktor plugin wiring
+├── domain/
+│   └── Models.kt           Journey, JourneyLeg, SearchRequest, enums
+├── provider/
+│   ├── TransportProvider.kt  interface + ProviderResult sealed class
+│   ├── MockTransportProvider.kt  deterministic mock (MOCK dataStatus)
+│   └── OjpTransportProvider.kt   OJP 2.0 adapter
+└── service/
+    ├── JourneySearchService.kt   orchestrates provider + ranking
+    └── RecommendationService.kt  pure ranking function
+```
+
+## OJP provider notes
+
+The OJP adapter posts OJP 2.0 XML to `https://api.opentransportdata.swiss/ojp2020`. It:
+- Sends a `TripRequest` with origin/destination as free-text stop names
+- Has an 8-second bounded timeout
+- Maps HTTP 429 → `UPSTREAM_RATE_LIMITED`, timeout → `UPSTREAM_TIMEOUT`, other errors → `UPSTREAM_ERROR`
+- Sets `dataStatus: LIVE_SCHEDULE` on all parsed journeys
+- Keeps all XML parsing and OJP DTOs private to the adapter
+
+The `OJP_API_KEY` is passed as a bearer token in the `Authorization` header. It is never logged, committed, or included in error responses.
