@@ -6,7 +6,7 @@ The browser depends on the Ktor HTTP API defined in [API_CONTRACT.md](../docs/AP
 
 | Interface | Frontend behavior |
 | --- | --- |
-| `API_BASE_URL` | Public API origin used by the client. Pass it to the static build as described in [deployment](../docs/DEPLOYMENT.md). |
+| API origin | Set the public `api-base-url` HTML meta tag before building Web or pass `API_BASE_URL` to the desktop process. See the [frontend README](README.md). |
 | `GET /api/journeys` | Percent-encode station names and the optional offset-aware `departure` value with a URL builder. Omitting `departure` uses the server’s current instant. |
 | Successful journey response | Read the normalized request and ordered journeys. Render scheduled departure and arrival, duration, transfers, and legs. Render platform details when available. |
 | Successful empty response | Show a no-results state and let the user revise the query. |

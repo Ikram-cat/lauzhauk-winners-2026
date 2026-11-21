@@ -2,6 +2,8 @@
 
 Follow the [root agent rules](../AGENTS.md). Role A owns `frontend/`. Coordinate API changes with the backend and integration owners before editing consumers or shared documentation.
 
+Use the [JetBrains challenge criteria](README.md#jetbrains-challenge-criteria) for frontend changes. Implement frontend behavior in Kotlin and keep the shared Compose UI, theme, localization, and Ktor behavior usable on Web/Wasm and desktop. Share AI orchestration only when a feature needs it.
+
 ## Implementation rules
 
 - Name Kotlin types and composables with `UpperCamelCase`, and functions and state properties with `lowerCamelCase`. Use feature names such as `JourneySearchScreen`, `JourneySearchState`, `JourneyCard`, and `JourneyApiClient` to make ownership visible.
