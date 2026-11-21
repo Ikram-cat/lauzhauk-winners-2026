@@ -47,6 +47,11 @@ class JourneySourceTest {
             assertEquals("7", journey.legs.single().arrivalPlatform)
             assertEquals("TRANSIT", journey.legs.single().mode)
             assertEquals(setOf("origin=Lausanne", "destination=Genève"), query.get().split('&').toSet())
+            val journey = runBlocking { source.search("Lausanne", "Genève", null, firstClass = true, halfFare = true).journeys.single() }
+            assertEquals("fixture", journey.id)
+            assertEquals("MOCK", journey.dataStatus)
+            assertEquals("4", journey.legs.single().departurePlatform)
+            assertEquals(setOf("origin=Lausanne", "destination=Genève", "preference=FASTEST", "fareClass=1", "discount=HALF_FARE"), query.get().split('&').toSet())
         } finally {
             source.close()
             server.stop(0)

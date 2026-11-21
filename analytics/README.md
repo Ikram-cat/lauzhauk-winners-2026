@@ -1,10 +1,147 @@
 # Analytics
 
-Role C owns `analytics/` on `feature/analytics`. Python supports offline data validation, exploratory statistics and, if the observations support it, predictive modeling. The browser and Ktor MVP can start independently.
+Offline pipeline that turns the SBB extern-liveticker CSVs into two artifacts for the backend. Python never runs online.
 
-**Current state.** This directory contains documentation. The historical CFF incident CSV schema, license, usable coverage, and outcome labels are unverified. No data pipeline, model, or evaluated artifact exists in this module.
+## Rebuild
 
-## Work order
+```bash
+python -m venv ~/code/venv-analytics && ~/code/venv-analytics/bin/pip install -r analytics/requirements.txt
+ln -s /path/to/Daten analytics/Daten/Daten      # analytics/Daten/ is gitignored raw data
+~/code/venv-analytics/bin/python -m analytics.build_artifacts --data analytics/Daten/Daten/extern-liveticker --out analytics/artifacts
+~/code/venv-analytics/bin/python -m pytest analytics -q
+```
+
+`--data` may also come from `$LIVETICKER_DATA`. `analytics/artifacts/` is gitignored (rebuild, don't commit).
+Code: `duration_model.py` (snapshots, train, evaluate, `predict_remaining`, `advice`), `line_hour.py` (byLineHour), `build_artifacts.py` (entry point).
+
+## Artifacts (`analytics/artifacts/`)
+
+- `incident_duration.joblib` + `incident_duration.json`: quantile models (P50, P80, log target) for "how much longer will this live incident last". JSON holds features, categories, quantiles, training window, counts, metrics. Load the joblib as `{"models","features","categories"}` and call `duration_model.predict_remaining(features, bundle)`. The shipped model is refit on all snapshots after evaluation.
+- `predictions.json`, the file the backend joins on:
+
+```json
+{"modelVersion": "...", "generatedAt": "UTC ISO", "coverage": {"from": "...", "to": "...", "scope": "..."},
+ "notes": ["..."],
+ "byLineHour": [{"key": "Bern - Thun", "hourBucket": 8, "lateProbability": 0.0-1.0,
+                 "expectedDelayMin": 67.7, "sampleSize": 1, "confidence": "low|medium|high"}]}
+```
+
+Round 2 adds (all backward compatible; `byLineHour` keeps its schema):
+
+```json
+"corridors": [{"from":"Lausanne","to":"Brig","corridor":"Lausanne - Brig","via":["..."],   // via only for >2-stop text
+   "disruptionDays":43,"windowDays":953,"disruptionProbabilityPerDay":0.0451,
+   "expectedDelayMin":178.1,"sampleSize":40,"confidence":"high","source":"line|segment"}],
+"hourBaseline": [{"hourBucket":0,"disruptionProbabilityPerHour":0.0493,"expectedDelayMin":607.8,"sampleSize":51}],  // exactly 24
+"stationAliases": {"Genf":"Genève", "...":"..."}, "joinHints": {"normalisation":"...", "...":"..."},
+"stats": {"corridorsKept":40, "...":"..."}
+```
+
+- `corridors`: one row per **undirected** endpoint pair (A-B and B-A are pooled, hours are pooled); `from`/`to` is the more frequent orientation. Parsed from "line A - B" (`source: line`, preferred) or, if absent, from "between A and B" (`source: segment`, short sub-sections, rarely joinable). `disruptionDays` = distinct local calendar days with at least one active disruption on the corridor; `disruptionProbabilityPerDay` = `disruptionDays / windowDays` (windowDays = calendar days from first to last incident, 953); `expectedDelayMin` = median disruption duration (upper bound on passenger delay); `sampleSize` = distinct incidents. Round 3: corridors with a single incident (n == 1) are dropped (`stats.corridorsDropped`; `corridorsDroppedSampleLt3` was renamed). n=2-7 are `low`. (Round 4: n == 1 is kept as `very_low`.) Texts with >2 stops also pool each adjacent 2-stop segment as `source: segment` (implemented and unit-tested; the data has no such text).
+- `hourBaseline`: **nationwide**, all parsable incidents regardless of corridor. `disruptionProbabilityPerHour(h)` = share of the window's days (953) on which at least one disruption was active *somewhere in Switzerland* during local hour h (Europe/Zurich). It is not per journey and not a lateness rate; it is a coarse time-of-day shape and an upper bound for any single journey. `sampleSize` = distinct incidents active in that hour, `expectedDelayMin` their median duration.
+- `byLineHour`: unchanged definition, but cells with sampleSize < 8 are dropped (`stats.byLineHourCellsDropped`).
+- `stationAliases` / `joinHints`: matching procedure for the backend; matching is on `fold()` (accent- and case-insensitive). Aliases such as Genf/Geneva/Zurich were **not found in the CSVs** (CSV names are already display forms such as `Genève`, `Zürich HB`, `Biel/Bienne`, `Fribourg/Freiburg`); they come from a static list for OJP/user input. Observed spelling variants (whitespace/accent) are added automatically; there were none in this build.
+
+`hourBucket` is the local Europe/Zurich hour 0-23. `confidence`: sampleSize <8 low, 8-19 medium, >=20 high.
+
+## Data and measured results (build of 2026-11-21)
+
+Coverage 2024-03-04 to 2026-10-11. 550 incidents, 5,305 versions, 520 with a known end, 3,063 snapshots.
+Chronological split (last 20% of incidents by start, cutoff 2026-04-06; train incidents must also have ended before the cutoff): 416 train / 104 test incidents.
+
+| Metric (minutes, test) | Value |
+| --- | --- |
+| MAE, model P50 | 100.6 (train 61.0) |
+| MAE, median-per-reason baseline | 128.6 |
+| Snapshots with official announcement (n=626): model / official / baseline | 98.5 / 112.7 / 127.0 |
+| Official estimate too optimistic | 69% |
+| P80 coverage (target 80%) | 66% test, 80% train |
+
+Round-2 build (same data): 507 usable incidents (ended, <24 h); 462 (91%) have a parsable corridor, 332 (65%) fall in a kept corridor.
+- `corridors`: 40 kept (>= 3 incidents), 105 dropped, **3 with sampleSize >= 20** (Lausanne - Brig 40, Genève - Lausanne 23, Palézieux - Payerne 20).
+- `hourBaseline`: sampleSize per hour 0-23 = 51 35 31 40 63 82 101 123 133 132 130 126 128 134 140 135 134 128 134 125 109 90 77 54; probability 0.05 (night) to 0.13 (daytime).
+- `byLineHour`: 15 cells kept (>= 8), 1,213 dropped (was 1,246 keys, none >= 20).
+- Parser fix: texts "on the line A - B, between ..., as well as on the line ..." now yield `A - B` (previously a garbage key).
+
+Round-3 build (same data, OJP key present):
+- `corridors`: **64 kept** (n >= 2), 78 dropped (n == 1), 3 with n >= 20, 17 with n >= 8. `hourBaseline` sampleSize 31-140 (unchanged).
+- `stats.coverageShare` = **0.757** (384 of 507 ended incidents in a kept corridor); the 90% target is **not reachable** under the "drop n == 1" rule: 45 incidents (9%) are station-only texts ("Train services at Genève station ...", no corridor) and 78 are singleton corridors. Upper bound with n >= 2 is what we have. Keeping n == 1 would add 78 (to ~91%) but those rows are one observation each.
+- Parser fix: "between X and Y will travel via Z" no longer yields a garbage stop `Y will travel via Z`.
+- `stationValidation`: top 40 stations (endpoints of the best-sampled corridors, from `build_artifacts.top_stations`) were looked up with OJP `LocationInformationRequest` (`ojp_validate.py`, best of 5 stop results by `fold()` score, matched at >= 0.8). **40/40 matched with score 1.0 and an identical name**, so no new `stationAliases` were needed (26 static aliases remain; each unverified alias such as Genf is user-input only). Each row carries the OJP `sloid` (`ch:1:sloid:1008` = Genève).
+- Offline builds: without `OJP_API_KEY` (env or `~/lauzhack-ojp.env`) or with `--no-ojp`, `stationValidation` is `[]`. The OJP free tier answers 429 under bursts, so lookups are paced and retried.
+- Still unmatchable: 45 station-only incidents (no corridor), 3 stations outside the OJP rail network were not in the top 40 (only the top 40 are checked, ~half of all corridor stations, mostly Romandie because the data is), and foreign endpoints (Delle, Annemasse, Varese) match OJP names here but journeys there may use other providers' stops.
+- Test: `test_ojp_validate_live_five_stations` runs 5 live lookups and skips without a key.
+
+Round-4 build (final, same data, OJP key present):
+- `corridors`: **142 kept** (every corridor with >= 1 ended incident): 3 high, 14 medium, 47 low, **78 very_low** (n == 1). 0 dropped. `confidence` is `very_low|low|medium|high`; the backend tells n == 1 rows apart by `confidence == "very_low"` (and `sampleSize == 1`). `source` is now `full` (whole corridor text, was `line`) or `segment` (adjacent pair of a >2-stop text, or a "between A and B" sub-section). 107 full, 35 segment. Texts with >= 3 stops emit the full A-Z (with `via`) plus each adjacent pair only, never non-adjacent pairs (unit-tested); the data contains no such text, so all 35 segment rows come from "between A and B" texts.
+- `stats.coverageShare` = **0.9112** (462 of 507 ended incidents <24 h in a kept corridor). Target 0.95 **not reachable**: the 45 unmatched incidents (8.9%) are all single-station texts ("Train services at Nyon station are interrupted", "Limited train service at Olten"): one stop, no A-B pair, and no pair may be invented. Zero are unparsable text or foreign-only pairs. `stats.incidentsUnmatched` = 45, `stats.corridorsByConfidence` has the split.
+- `unmatchedSamples`: up to 20 `{text, reason}` (first line of the incident text, distinct); this build returns 20, all reason "single station / no A-B pair".
+- `hourBaseline` sampleSize range 31-140 (unchanged); `stationValidation` 40/40 matched, 26 aliases.
+
+**Residual error, honestly.** A corridor's probability is "share of days since March 2024 with an active disruption on that A-B pair". For 78 corridors that rests on one incident, for 47 more on 2-7: such a number is mostly a fact about that one event, not a stable rate, and corridors never seen in the data have no row at all (absence is not safety). Disruption minutes are an upper bound on a passenger's delay. A UI must label `very_low` as "based on 1 past incident" and `low` as "few past incidents", never show them as a bare percentage or rank them against high-confidence corridors, and prefer wording such as "rarely disrupted / disrupted before" over a precise probability; only `medium` and `high` may be shown as a figure, still with the sample size.
+
+## Demo CLI
+
+```bash
+~/code/venv-analytics/bin/python -m analytics.predict_duration --elapsed-min 95 --announced-remaining-min 60 --hour 14 --weekday 5 [--reason-id 3|EG_008]
+# {"medianRemainingMin": 88, "pessimisticRemainingMin": 163, "advice": "consider detour", "modelVersion": "2026-11-duration-v1"}
+~/code/venv-analytics/bin/python -m analytics.predict_duration --from-snapshot-file incident.json   # keys: elapsed_min, announced_remaining_min, hour, weekday, reason_id
+```
+
+Reads `analytics/artifacts/incident_duration.joblib` only (no pipeline code, no pandas code of our own; scikit-learn pulls pandas in when unpickling). Output equals `duration_model.predict_remaining` (checked). `--reason-id` takes `3` (= `EG_003`) or `EG_003`; an id the model never saw is encoded as unknown. Omitted `--hour`/`--weekday` default to now.
+
+**Advice rule.** `consider detour` if pessimistic remaining (P80) >= `DETOUR_EXTRA_MIN` = **60 min**, else `wait`. Reasoning: a detour is worth it when the disruption plausibly outlasts what the detour costs, and we use the pessimistic quantile because the official estimate is too optimistic in 69% of test snapshots. **The 60 is not measured from the data**: the CSVs contain no alternative journeys, so the "median alternative travel time" cannot be derived offline. It is a round default, overridable with `--detour-extra-min`; replace it by the median extra travel time of the OJP alternatives (backend `/api/alternatives`) once measured. For reference, from the data: the median incident lasts 162 min (IQR 98-251, 507 ended incidents <24 h), so with 60 the rule says "wait" only when the model expects the incident to end within about an hour.
+
+## Reproducibility
+
+One command, deterministic for a fixed seed (`--seed`, default 42, used as the `random_state` of both quantile models and stored as `seed` in `incident_duration.json`):
+
+```bash
+~/code/venv-analytics/bin/python -m analytics.build_artifacts --data analytics/Daten/Daten/extern-liveticker --out analytics/artifacts --seed 42
+```
+
+`test_build_is_deterministic_for_fixed_seed` builds twice (`--no-ojp`) and asserts identical metrics, corridor table, hourBaseline and byLineHour (only `generatedAt` differs). Changing the default seed from 0 to 42 left every metric below unchanged. `incident_duration.json` carries `inputFiles` (sha256 + rows) for any build.
+
+Inputs of the current artifacts (`extern-liveticker/`, rows = pandas-parsed records excluding header):
+
+| File | Rows | sha256 |
+| --- | --- | --- |
+| `incident_202610121914.csv` | 523 | `bc7fbd0c27ee09a1ca5f0bf4112d051d6851b1f57a0d0cdcc73a3bb356f6b7c8` |
+| `incident_audit_202610121914.csv` | 4782 | `091e59b4605b47f5804d8a206f14a8b3ae32c0be996ed95dee048b6cfc5bf82a` |
+| `message_202610121835.csv` | 3234 | `e9f970ec153c236b1b7c3ebddbc2301533e56835d131d7d9fbdbdbee1d0bbaaa` |
+| `message_audit_202610121835.csv` | 4722 | `9fa4e42ece6d311e7dfbc4bbfb539e33c0d857000134207988f5e4bd31f2ae3f` |
+| `reason_202610121034.csv` | 93 | `4b8335a13c142a8be5f77df2b8def2423d26c929910c8067e8259a2505e558d3` |
+
+The model reads `incident` and `incident_audit` only; the other files are hashed for completeness. 523 + 4782 rows = 5,305 versions after dedup, 550 incidents, 520 with an end. Confirm with `sha256sum analytics/Daten/Daten/extern-liveticker/*.csv`.
+
+## What this model can and cannot claim
+
+| Metric (test = last 104 incidents, 639 snapshots) | Value |
+| --- | --- |
+| MAE of median forecast (P50) | 100.6 min (baseline median-per-reason 128.6) |
+| MAE on snapshots with an official estimate (n=626) | model 98.5 / official 112.7 / baseline 127.0 min |
+| Official estimate too optimistic | 69% of those snapshots |
+| P80 coverage (target 80%) | 66% test, 80% train |
+
+- **Can claim:** once an incident is in the liveticker, the median forecast beats the per-reason baseline by ~22% and the official estimate by ~13% in MAE on held-out recent incidents. It is still off by about 1.7 h on average: say "typically", never a precise end time.
+- **P80 is under-covered:** the pessimistic value is exceeded in ~34% of test snapshots, not 20%. Present it as "could be much longer", not as an 80% guarantee. Small sample (520 incidents), one chronological split, no confidence interval.
+- **`lateProbability` is a corridor-day frequency**, the share of days since March 2024 with an active disruption on that corridor (and hour), not the chance that a given train is late, and not a rate over all trips (the data has no undisrupted trips). Rows with `very_low`/`low` confidence rest on 1-7 incidents.
+- **Cannot claim:** whether a disruption will happen, per-train delay, platforms or fares, anything for disruptions over 24 h or never-ended ones (excluded), corridors absent from the data (absence is not safety).
+- **Provenance string for the UI** (fill counts from the artifact): `risk: SBB liveticker 2024-2026, 142 corridors, model 2026-11-duration-v1`.
+
+## Limitations
+
+- The model predicts remaining minutes of a disruption already in the liveticker. It cannot predict whether a disruption will occur, nor per-train delay, platforms or fares.
+- The P80 interval is under-covered on recent data (66% vs 80%): it is optimistic. Errors of 1-2 h are normal; the sample is small (520 incidents).
+- Disruptions over 24 h and incidents without an ENDED version are dropped.
+- **Key gap versus OJP:** the CSVs hold no OJP lineRef (`ojp:91008:E`) or train number. `key` is the corridor text from the description ("Lausanne - Brig"), parsed for ~80% of incidents (102 of 507 unparsable, excluded). The backend needs its own corridor-to-line mapping; no OJP refs are fabricated.
+- `lateProbability` is the share of days a corridor had an active disruption in that hour, not a per-train lateness rate (no non-disrupted trips in the data). `expectedDelayMin` is the median disruption duration, an upper bound on passenger delay.
+- Remaining uncertainty for the backend: only 3 corridors reach n >= 20 and 40 corridors exist, so most journeys will fall back to the nationwide `hourBaseline`. Endpoint matching is exact; a journey sharing track with a corridor but not its endpoints does not match. No multi-stop corridor text occurs in this data (`via` is implemented and unit-tested, never emitted). `windowDays` assumes the liveticker covered every day between first and last incident, which is unverified; if it had gaps the probabilities are underestimates. Disruptions over 24 h or without a known end are excluded, which biases probabilities low. Pooling both directions assumes an interruption hits both.
+- Data are public-liveticker incidents only (not intern-liveticker or Ereignismeldungen).
+
+## Original work order (kept from the scaffold)
+
+
 
 1. Start with the transport interface while awaiting data. Review the candidate provider’s documented fields and terms, sample a permitted response, record only observed field behavior, and propose sanitized fixtures covering legs, optional platforms, and empty results. Agree on fixture placement with Role B. Use the examples in the [API contract](../docs/API_CONTRACT.md) as synthetic input for consumer checks.
 2. When the CSV arrives, record source, dataset version or checksum, permitted use, and sharing constraints. Inspect encoding, delimiter, headers, row count, timestamps, coverage, duplicates, missingness, and potential personal fields locally. Determine the unit of observation, time zone, and whether non-incident services and usable labels are represented. Ask the data owner about unresolved semantics before freezing ingestion decisions.

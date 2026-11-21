@@ -293,4 +293,17 @@ class OjpProviderTest {
                     j.legs.last().destination.contains("Geneve", ignoreCase = true))
         }
     }
+
+    @Test
+    fun `location suggestions parse stops and addresses`() {
+        val xml = javaClass.getResource("/ojp_locations_fixture.xml")!!.readText()
+        val r = provider.parseLocationSuggestions(xml)
+        assertEquals(3, r.size)
+        assertEquals(LocationSuggestion("ch:1:sloid:1120", "Lausanne (Lausanne)", "stop", 6.62909, 46.51679), r[0])
+        assertEquals("address", r[1].kind)
+        assertEquals("Bahnhofstrasse 1 (Zürich)", r[1].name)
+        assertNull(r[2].x)
+        assertNull(r[2].y)
+        assertEquals(emptyList(), provider.parseLocationSuggestions("<broken"))
+    }
 }

@@ -29,6 +29,24 @@ curl "http://localhost:8080/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve
 | `CORS_ALLOWED_ORIGINS` | No | (any) | Comma-separated allowed origins, e.g. `https://app.vercel.app` |
 | `TRANSPORT_PROVIDER` | No | `mock` | `mock` or `ojp` |
 | `OJP_API_KEY` | When `ojp` | — | Bearer token for opentransportdata.swiss. Never hardcoded. |
+| `RISK_SOURCE` | No | `artifact` | `artifact` or `none` (all risk values null) |
+| `RISK_ARTIFACT_PATH` | No | bundled `risk/predictions.json` (classpath) | Filesystem override; used only if the file exists, otherwise the bundled copy. Reloaded when mtime changes. |
+
+The bundled artifact (`src/main/resources/risk/predictions.json`, aggregated statistics only) makes Docker/Render builds self-contained. Refresh it by copying the analytics output over that file and committing.
+
+### Risk field semantics
+
+`lateArrivalProbability` is a genuine probability. The artifact's corridor/baseline `expectedDelayMin` is the median *disruption duration*, not the delay a traveller experiences, so for those rows `predictedDelayMinutes` is `null` and the value is returned as `disruptionDurationMin` with `riskBasis` `corridor_duration` / `baseline_duration`. Only a row carrying `delayEstimateMin` populates `predictedDelayMinutes` (`riskBasis` `corridor_delay` / `baseline_delay`). Legacy `byLineHour` rows are treated as real delays (`line_delay`). With `arrivalDeadline`, each journey has `feasible`; `latestFeasibleDeparture` is the latest feasible departure, or `null` with `noFeasibleRoute: true` when none is feasible.
+
+### Smoke commands
+
+```bash
+./gradlew --no-daemon installDist
+TRANSPORT_PROVIDER=mock PORT=8095 ./build/install/cff-plan-b-backend/bin/cff-plan-b-backend &   # no RISK_ARTIFACT_PATH
+curl localhost:8095/health
+curl localhost:8095/api/model          # status "ok", corridorsLoaded > 0
+curl "localhost:8095/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&arrivalDeadline=2030-01-01T12:00:00Z"
+```
 
 ## Running tests
 
@@ -66,7 +84,9 @@ See [`docs/API_CONTRACT.md`](../docs/API_CONTRACT.md) for the full HTTP contract
 | Endpoint | Method | Description |
 |---|---|---|
 | `/health` | GET | Returns `{"status":"ok"}`. Makes no provider calls. |
-| `/api/journeys` | GET | Journey search. Params: `origin` (required), `destination` (required), `departure` (optional RFC 3339 with offset). |
+| `/api/journeys` | GET | Journey search. Params: `origin`, `destination` (required), `departure`, `arrivalDeadline` (optional RFC 3339 with offset). With a deadline, each journey gets `feasible` and the response a nullable `latestFeasibleDeparture`; infeasible journeys stay listed. Risk fields are filled only for an exact line+hour artifact match with non-low confidence. |
+| `/api/locations` | GET | `?query=` autocomplete (stop/address, max 10, cached). 400 on empty query. |
+| `/api/model` | GET | Risk artifact metadata: `modelVersion`, `generatedAt`, `coverage`, `source`, `keysLoaded`, `status` (`ok`/`missing`/`stale`). |
 
 ### Error codes
 

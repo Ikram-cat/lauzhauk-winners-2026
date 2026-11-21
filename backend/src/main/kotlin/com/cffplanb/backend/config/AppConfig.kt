@@ -8,7 +8,12 @@ data class AppConfig(
         ?.filter { it.isNotEmpty() }
         ?: emptyList(),
     val transportProvider: String = System.getenv("TRANSPORT_PROVIDER") ?: "mock",
-    val ojpApiKey: String? = System.getenv("OJP_API_KEY")
+    val ojpApiKey: String? = System.getenv("OJP_API_KEY"),
+    val riskSource: String = System.getenv("RISK_SOURCE") ?: "artifact",
+    val riskArtifactPath: String? = System.getenv("RISK_ARTIFACT_PATH"),
+    // Blank disables fare lookup (used by the test task to stay offline).
+    val fareBaseUrl: String = System.getenv("FARE_BASE_URL") ?: "https://transport.opendata.ch",
+    val cacheEnabled: Boolean = !System.getenv("CACHE_ENABLED").equals("false", ignoreCase = true)
 ) {
     companion object {
         fun fromEnv(): AppConfig = AppConfig()

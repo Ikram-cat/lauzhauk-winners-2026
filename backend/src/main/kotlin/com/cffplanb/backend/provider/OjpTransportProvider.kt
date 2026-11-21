@@ -19,6 +19,7 @@ import org.w3c.dom.NodeList
 import java.io.ByteArrayInputStream
 import java.time.Clock
 import java.time.Duration
+import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -28,6 +29,9 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 class OjpLocationResolutionException(message: String) : RuntimeException(message)
 class OjpAuthenticationException(message: String) : RuntimeException(message)
+class OjpRateLimitedException : RuntimeException("rate limited")
+class OjpTimeoutException : RuntimeException("timeout")
+class OjpUpstreamException(message: String) : RuntimeException(message)
 
 /**
  * OJP 2.0 transport provider.
@@ -47,6 +51,7 @@ class OjpTransportProvider(
     private val log = LoggerFactory.getLogger(OjpTransportProvider::class.java)
     private val ojpEndpoint = "https://api.opentransportdata.swiss/ojp20"
     private val timeoutMs = 8_000L
+    private val suggestTimeoutMs = 4_000L
 
     // In-memory cache: free-text name -> resolved sloid (e.g. "ch:1:sloid:1120")
     private val stopCache = ConcurrentHashMap<String, String>()
@@ -63,6 +68,10 @@ class OjpTransportProvider(
             return ProviderResult.AuthError(e.message ?: "Provider authentication failed")
         } catch (e: OjpLocationResolutionException) {
             return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve origin stop")
+        } catch (e: OjpRateLimitedException) {
+            return ProviderResult.RateLimited("OJP rate limit reached")
+        } catch (e: OjpTimeoutException) {
+            return ProviderResult.Timeout("OJP did not respond within ${timeoutMs}ms")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -76,6 +85,10 @@ class OjpTransportProvider(
             return ProviderResult.AuthError(e.message ?: "Provider authentication failed")
         } catch (e: OjpLocationResolutionException) {
             return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve destination stop")
+        } catch (e: OjpRateLimitedException) {
+            return ProviderResult.RateLimited("OJP rate limit reached")
+        } catch (e: OjpTimeoutException) {
+            return ProviderResult.Timeout("OJP did not respond within ${timeoutMs}ms")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -132,11 +145,23 @@ class OjpTransportProvider(
     internal suspend fun resolveStopId(name: String): String {
         stopCache[name]?.let { return it }
 
-        val nowUtc = OffsetDateTime.now(clock).withOffsetSameInstant(ZoneOffset.UTC)
-        val ts = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(nowUtc)
-        val requestXml = buildLocationRequest(name, ts)
+        val body = postLocationRequest(buildLocationRequest(name, nowTs()), timeoutMs)
 
-        val body = withTimeoutOrNull(timeoutMs) {
+        val sloid = parseLocationResponse(body)
+            ?: throw OjpLocationResolutionException("Could not resolve stop '$name' via OJP LocationInformationRequest")
+
+        stopCache[name] = sloid
+        log.info("Resolved stop '{}' -> '{}'", name, sloid)
+        return sloid
+    }
+
+
+    private fun nowTs(): String =
+        DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(OffsetDateTime.now(clock).withOffsetSameInstant(ZoneOffset.UTC))
+
+    /** POSTs an OJP LocationInformationRequest. Throws OjpAuthenticationException / OjpLocationResolutionException. */
+    private suspend fun postLocationRequest(requestXml: String, bound: Long): String =
+        withTimeoutOrNull(bound) {
             try {
                 val response: HttpResponse = httpClient.post(ojpEndpoint) {
                     header(HttpHeaders.Authorization, "Bearer $apiKey")
@@ -149,30 +174,77 @@ class OjpTransportProvider(
                     401, 403 -> throw OjpAuthenticationException(
                         "Transport provider authentication failed. Check OJP_API_KEY configuration."
                     )
-                    else -> throw OjpLocationResolutionException(
-                        "OJP location request failed with HTTP ${response.status.value}"
-                    )
+                    429 -> throw OjpRateLimitedException()
+                    else -> throw OjpUpstreamException("OJP location request failed with HTTP ${response.status.value}")
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: OjpAuthenticationException) {
                 throw e
-            } catch (e: OjpLocationResolutionException) {
+            } catch (e: OjpRateLimitedException) {
+                throw e
+            } catch (e: OjpUpstreamException) {
                 throw e
             } catch (e: Exception) {
-                throw OjpLocationResolutionException("OJP location call failed: ${e.javaClass.simpleName}")
+                throw OjpUpstreamException("OJP location call failed: ${e.javaClass.simpleName}")
             }
-        } ?: throw OjpLocationResolutionException("OJP location request timed out after ${timeoutMs}ms")
+        } ?: throw OjpTimeoutException()
 
-        val sloid = parseLocationResponse(body)
-            ?: throw OjpLocationResolutionException("Could not resolve stop '$name' via OJP LocationInformationRequest")
+    // ---- Autocomplete ----
+    private val suggestCache = ConcurrentHashMap<String, Pair<Instant, List<LocationSuggestion>>>()
 
-        stopCache[name] = sloid
-        log.info("Resolved stop '{}' -> '{}'", name, sloid)
-        return sloid
+    override suspend fun searchLocations(query: String): LocationsResult {
+        val key = query.trim().lowercase()
+        suggestCache[key]?.let { (at, v) -> if (Duration.between(at, Instant.now(clock)).toMinutes() < 10) return LocationsResult.Success(v) }
+        return try {
+            val xml = postLocationRequest(buildLocationRequest(query, nowTs(), limit = 10, types = listOf("stop", "address")), suggestTimeoutMs)
+            val found = parseLocationSuggestions(xml)
+            if (suggestCache.size > 500) suggestCache.clear()
+            suggestCache[key] = Instant.now(clock) to found
+            LocationsResult.Success(found)
+        } catch (e: OjpTimeoutException) {
+            LocationsResult.Timeout("Location lookup timed out")
+        } catch (e: OjpRateLimitedException) {
+            LocationsResult.RateLimited("Transport provider is rate limiting requests")
+        } catch (e: OjpAuthenticationException) {
+            LocationsResult.Failure(e.message ?: "Transport provider authentication failed")
+        } catch (e: OjpLocationResolutionException) {
+            LocationsResult.Failure("Location lookup failed")
+        } catch (e: OjpUpstreamException) {
+            LocationsResult.Failure("Location lookup failed")
+        }
     }
 
-    internal fun buildLocationRequest(name: String, ts: String): String {
+    internal fun parseLocationSuggestions(xml: String): List<LocationSuggestion> = try {
+        val doc = newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
+        val places = doc.getElementsByTagNameNS("*", "Place")
+        (0 until places.length).mapNotNull { i ->
+            val pl = places.item(i) as? Element ?: return@mapNotNull null
+            val stop = firstChildElement(pl, "StopPlace")
+            val addr = firstChildElement(pl, "Address")
+            // Place/Name is the disambiguated label; fall back to the stop's own name.
+            val name = (pl.childNodes.let { n -> (0 until n.length).map { n.item(it) }
+                .firstOrNull { it is Element && it.localName == "Name" } as? Element })
+                ?.let { textIn(it, "Text") }
+            val (id, kind, fallbackName) = when {
+                stop != null -> Triple(textContent(stop, "StopPlaceRef"), "stop", textIn(stop, "StopPlaceName"))
+                addr != null -> Triple(textContent(addr, "PublicCode"), "address", textIn(addr, "Name"))
+                else -> return@mapNotNull null
+            }
+            val geo = firstChildElement(pl, "GeoPosition")
+            val finalName = name ?: fallbackName
+            if (id == null || finalName == null) null else LocationSuggestion(
+                id, finalName, kind,
+                geo?.let { textContent(it, "Longitude")?.toDoubleOrNull() },
+                geo?.let { textContent(it, "Latitude")?.toDoubleOrNull() }
+            )
+        }.take(10)
+    } catch (e: Exception) {
+        log.error("OJP location suggestion parse error: {}", e.javaClass.simpleName)
+        emptyList()
+    }
+
+    internal fun buildLocationRequest(name: String, ts: String, limit: Int = 5, types: List<String> = listOf("stop")): String {
         val escaped = escapeXml(name)
         return """<?xml version="1.0" encoding="UTF-8"?>
 <OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
@@ -186,8 +258,8 @@ class OjpTransportProvider(
           <Name>$escaped</Name>
         </InitialInput>
         <Restrictions>
-          <Type>stop</Type>
-          <NumberOfResults>5</NumberOfResults>
+          ${types.joinToString("\n          ") { "<Type>$it</Type>" }}
+          <NumberOfResults>$limit</NumberOfResults>
         </Restrictions>
       </OJPLocationInformationRequest>
     </siri:ServiceRequest>

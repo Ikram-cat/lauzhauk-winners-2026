@@ -3,9 +3,14 @@ package com.cffplanb.backend.config
 import com.cffplanb.backend.api.ErrorDetailDto
 import com.cffplanb.backend.api.ErrorResponseDto
 import com.cffplanb.backend.api.configureRoutes
+import com.cffplanb.backend.provider.MockFareProvider
 import com.cffplanb.backend.provider.MockTransportProvider
+import com.cffplanb.backend.provider.NovaFareProvider
 import com.cffplanb.backend.provider.OjpTransportProvider
-import com.cffplanb.backend.service.JourneySearchService
+import com.cffplanb.backend.provider.ResilientProvider
+import com.cffplanb.backend.service.*
+import java.nio.file.Files
+import java.nio.file.Path
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -70,7 +75,21 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         }
     }
 
-    val searchService = JourneySearchService(provider)
+    val fareUrl = config.fareBaseUrl.trim()
+    val fares = when (fareUrl) { "" -> null; "mock" -> FareCache(MockFareProvider); else -> FareCache(NovaFareProvider(fareUrl.trimEnd('/'))) }
+    log.info("Fare lookup {}", when (fareUrl) { "" -> "disabled"; "mock" -> "enabled (MOCK demo prices)"; else -> "enabled (NOVA via transport.opendata.ch)" })
+    val searchService = JourneySearchService(ResilientProvider(provider, cacheEnabled = config.cacheEnabled), fares)
 
-    configureRoutes(searchService, clock)
+    val risk: RiskEstimator = if (config.riskSource.lowercase() == "none") NoRiskEstimator else {
+        // Explicit RISK_ARTIFACT_PATH (if it exists) wins; otherwise the bundled classpath resource, copied to a temp file.
+        val explicit = config.riskArtifactPath?.takeIf { Files.exists(Path.of(it)) }?.let { Path.of(it) }
+        val path = explicit ?: ArtifactRiskEstimator::class.java.getResourceAsStream("/risk/predictions.json")?.use {
+            Files.createTempFile("predictions", ".json").also { f -> Files.copy(it, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING); f.toFile().deleteOnExit() }
+        } ?: Path.of(config.riskArtifactPath ?: "analytics/artifacts/predictions.json")
+        ArtifactRiskEstimator(path, clock)
+    }
+
+    val ri = risk.info()
+    log.info("Risk artifact status={} corridorsLoaded={} modelVersion={}", ri.status, ri.corridorsLoaded, ri.modelVersion)
+    configureRoutes(searchService, clock, risk)
 }
