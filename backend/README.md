@@ -1,132 +1,294 @@
-# CFF Plan B – Backend
+# CFF Plan B — Backend
 
-Ktor backend for the CFF Plan B travel assistant. Serves `GET /health` and `GET /api/journeys` with journey search and recommendation ranking.
+Ktor (Kotlin/JVM) API that answers one question: **a traveller asks for a trip, and if something
+on that trip is broken, what is the single best alternative?** It returns structured data only —
+no generated sentences — so the client owns the wording.
 
-## Prerequisites
+Live sources: Swiss **Open Journey Planner (OJP 2.0)** for timetables and realtime stop events,
+**GTFS-Realtime** for network-wide cancellations and skipped stops, **NOVA** for CFF fares.
+Offline assets: a historical disruption-risk model and a measured realtime-delay model.
 
-- JDK 21 (Temurin recommended). Set `JAVA_HOME` if not on PATH.
-- No other system dependencies required (Gradle wrapper is bundled).
+---
 
 ## Quick start
 
 ```bash
+export JAVA_HOME=~/.local/jdk/jdk-21.0.13.1+2      # JDK 21 (no system javac on this machine)
+export PATH="$JAVA_HOME/bin:$PATH"
+
 cd backend
-export JAVA_HOME=/path/to/jdk-21   # if not already on PATH
-./gradlew --no-daemon run
+./gradlew test                                     # 169 tests, no network needed
+TRANSPORT_PROVIDER=mock PORT=8080 ./gradlew run     # offline demo data, no keys required
 ```
 
-Then:
-```bash
-curl http://localhost:8080/health
-curl "http://localhost:8080/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve"
-```
-
-## Environment variables
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `PORT` | No | `8080` | Listen port |
-| `CORS_ALLOWED_ORIGINS` | No | (any) | Comma-separated allowed origins, e.g. `https://app.vercel.app` |
-| `TRANSPORT_PROVIDER` | No | `mock` | `mock` or `ojp` |
-| `OJP_API_KEY` | When `ojp` | — | Bearer token for opentransportdata.swiss. Never hardcoded. |
-| `RISK_SOURCE` | No | `artifact` | `artifact` or `none` (all risk values null) |
-| `RISK_ARTIFACT_PATH` | No | bundled `risk/predictions.json` (classpath) | Filesystem override; used only if the file exists, otherwise the bundled copy. Reloaded when mtime changes. |
-
-The bundled artifact (`src/main/resources/risk/predictions.json`, aggregated statistics only) makes Docker/Render builds self-contained. Refresh it by copying the analytics output over that file and committing.
-
-### Risk field semantics
-
-`lateArrivalProbability` is a genuine probability. The artifact's corridor/baseline `expectedDelayMin` is the median *disruption duration*, not the delay a traveller experiences, so for those rows `predictedDelayMinutes` is `null` and the value is returned as `disruptionDurationMin` with `riskBasis` `corridor_duration` / `baseline_duration`. Only a row carrying `delayEstimateMin` populates `predictedDelayMinutes` (`riskBasis` `corridor_delay` / `baseline_delay`). Legacy `byLineHour` rows are treated as real delays (`line_delay`). With `arrivalDeadline`, each journey has `feasible`; `latestFeasibleDeparture` is the latest feasible departure, or `null` with `noFeasibleRoute: true` when none is feasible.
-
-### Smoke commands
+Live mode, with keys (never commit them):
 
 ```bash
-./gradlew --no-daemon installDist
-TRANSPORT_PROVIDER=mock PORT=8095 ./build/install/cff-plan-b-backend/bin/cff-plan-b-backend &   # no RISK_ARTIFACT_PATH
-curl localhost:8095/health
-curl localhost:8095/api/model          # status "ok", corridorsLoaded > 0
-curl "localhost:8095/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&arrivalDeadline=2030-01-01T12:00:00Z"
+set -a; . ~/lauzhack-ojp.env; . ~/lauzhack-gtfsrt.env; set +a
+OJP_API_KEY=$OJP_API_KEY GTFS_RT_API_KEY=$GTFS_RT_API_KEY \
+  TRANSPORT_PROVIDER=ojp PORT=8080 ./gradlew run
+curl -s "localhost:8080/api/redirect?origin=Lausanne&destination=Gen%C3%A8ve&limit=3"
 ```
 
-## Running tests
+Container:
 
 ```bash
-./gradlew --no-daemon test
+podman build -t planb-backend ./backend
+podman run --rm -p 8080:8080 -e PORT=8080 -e TRANSPORT_PROVIDER=mock planb-backend
 ```
 
-## Building a JAR / distribution
+Deploy verification (10 checks against any base URL):
 
 ```bash
-./gradlew --no-daemon installDist
-./build/install/cff-plan-b-backend/bin/cff-plan-b-backend
+./scripts/smoke.sh https://your-service.up.railway.app
 ```
 
-## Docker
+## Configuration
 
-```bash
-docker build -t cff-plan-b-backend .
-docker run -p 8080:8080 -e TRANSPORT_PROVIDER=mock cff-plan-b-backend
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PORT` | `8080` | Listen port, bound on `0.0.0.0`. |
+| `TRANSPORT_PROVIDER` | `mock` | `ojp` for live timetables, `mock` for labelled demo data. |
+| `OJP_API_KEY` | — | Bearer token for opentransportdata. Required when `TRANSPORT_PROVIDER=ojp`. |
+| `GTFS_RT_API_KEY` | — | Enables network-wide realtime. Absent → feature silently disabled. |
+| `GTFS_RT_URL` | `https://api.opentransportdata.swiss/la/gtfs-rt` | Feed URL (302 redirect is followed). |
+| `GTFS_RT_ENABLED` | on when a key exists | `false` forces the feed off. |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated exact browser origins, no trailing slash. |
+| `CACHE_ENABLED` | `true` | 60 s search cache, 10 min location cache, circuit breaker. |
+| `RISK_SOURCE` | `artifact` | `none` disables historical risk. |
+| `RISK_ARTIFACT_PATH` | bundled resource | Override path for `predictions.json`. |
+| `DELAY_ARTIFACT_PATH` | bundled resource | Override path for `realtime_delays.json`. |
+| `FARE_BASE_URL` | `https://transport.opendata.ch` | Fare provider base; blank disables fares. |
+
+## API
+
+Base URL is the service origin, **no `/api` in the base**. All endpoints are `GET`, read-only,
+UTF-8 JSON, no authentication, no cookies. Percent-encode every value, including accents and the
+`+` of an offset (`Gen%C3%A8ve`, `2026-11-21T23%3A00%3A00%2B01%3A00`).
+
+Timestamps are offset-aware instants (`Z` or `+01:00`); compare as instants, display in
+`Europe/Zurich`. Unknown or duplicate query parameters are rejected with `400`.
+
+### `GET /health`
+
+Liveness only; never touches a provider or an artifact.
+
+```json
+{ "status": "ok" }
 ```
 
-For OJP live data:
-```bash
-docker run -p 8080:8080 \
-  -e TRANSPORT_PROVIDER=ojp \
-  -e OJP_API_KEY=<your-key> \
-  -e CORS_ALLOWED_ORIGINS=https://your-frontend.vercel.app \
-  cff-plan-b-backend
+### `GET /api/locations`
+
+Stop and address autocomplete, proxied from OJP and cached 10 minutes.
+
+| Parameter | Required | Rules |
+| --- | --- | --- |
+| `query` | yes | 1–120 code points, trimmed |
+
+```json
+{ "locations": [ { "id": "ch:1:sloid:7000", "name": "Lausanne", "kind": "stop", "x": 6.63, "y": 46.52 } ] }
 ```
 
-## API Contract
+`kind` is `stop` or `address`; `x`/`y` may be null. Send the `name` back as `origin`/`destination`
+— the backend resolves text to stops itself, the `id` is display metadata.
 
-See [`docs/API_CONTRACT.md`](../docs/API_CONTRACT.md) for the full HTTP contract.
+### `GET /api/journeys`
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/health` | GET | Returns `{"status":"ok"}`. Makes no provider calls. |
-| `/api/journeys` | GET | Journey search. Params: `origin`, `destination` (required), `departure`, `arrivalDeadline` (optional RFC 3339 with offset). With a deadline, each journey gets `feasible` and the response a nullable `latestFeasibleDeparture`; infeasible journeys stay listed. Risk fields are filled only for an exact line+hour artifact match with non-low confidence. |
-| `/api/locations` | GET | `?query=` autocomplete (stop/address, max 10, cached). 400 on empty query. |
-| `/api/model` | GET | Risk artifact metadata: `modelVersion`, `generatedAt`, `coverage`, `source`, `keysLoaded`, `status` (`ok`/`missing`/`stale`). |
+The planning call.
 
-### Error codes
+| Parameter | Required | Default | Rules |
+| --- | --- | --- | --- |
+| `origin` | yes | — | trimmed, 1–120 code points, non-blank |
+| `destination` | yes | — | same as origin |
+| `departure` | no | server now | RFC 3339 with `Z` or numeric offset |
+| `arrivalDeadline` | no | null | RFC 3339; inclusive (`arrival <= deadline`) |
+| `preference` | no | `FASTEST` | `FASTEST` \| `CHEAPEST` \| `SIMPLEST` (case-insensitive) |
+| `fareClass` | no | `2` | `1` or `2` |
+| `discount` | no | `NONE` | `NONE` \| `HALF_FARE` |
+| `limit` | no | `3` | integer 1–10 |
+| `includeText` | no | `false` | `true` adds `advice`, `message`, `why`, `reasons` |
 
-| HTTP | Code | Trigger |
-|---|---|---|
-| 400 | `INVALID_REQUEST` | Missing/invalid/duplicate/unknown parameter |
-| 500 | `INTERNAL_ERROR` | Unexpected server error |
-| 502 | `UPSTREAM_ERROR` | Provider failure |
-| 503 | `UPSTREAM_RATE_LIMITED` | Provider throttling |
-| 504 | `UPSTREAM_TIMEOUT` | Provider timeout (8s) |
+```json
+{
+  "request": {
+    "origin": "Lausanne", "destination": "Genève",
+    "earliestDeparture": "2026-11-21T22:00:00Z", "arrivalDeadline": null,
+    "preference": "FASTEST"
+  },
+  "recommendations": { "fastest": { /* journey */ }, "simplest": { /* journey */ } },
+  "journeys": [
+    {
+      "id": "ID-A415CE24-59CE-41E1-88B2-18FBE9F5276C",
+      "departure": "2026-11-21T22:00:00Z", "arrival": "2026-11-21T22:53:00Z",
+      "durationMinutes": 53, "transfers": 0, "dataStatus": "LIVE_SCHEDULE",
+      "expectedArrival": "2026-11-21T22:53:00Z", "expectedDelayMin": 0,
+      "delaySource": "station", "delaySamples": 17,
+      "lateArrivalProbability": 0.0273, "riskSource": "corridor", "riskConfidence": "high",
+      "disruptionDurationMin": 196, "fareChf": 23.8, "fareStatus": "PRICED",
+      "legs": [
+        { "mode": "TRANSIT", "origin": "Lausanne", "destination": "Genève",
+          "departure": "2026-11-21T22:00:00Z", "arrival": "2026-11-21T22:53:00Z",
+          "serviceLabel": "IR90", "departurePlatform": "8", "arrivalPlatform": "2" }
+      ]
+    }
+  ],
+  "latestFeasibleDeparture": null,
+  "noFeasibleRoute": null
+}
+```
 
-## Package structure
+`recommendations.fastest` and `recommendations.simplest` are full journey objects, chosen
+independently of `preference`; either may be `null` when no route exists. `journeys` holds the top
+`limit` options in the order implied by `preference` (fastest: expected arrival; cheapest: fare,
+unpriced last; simplest: fewest changes). **The client must not re-sort.** Without `arrivalDeadline`
+the deadline fields are null/absent.
+
+### `GET /api/redirect`
+
+Same parameters and validation as `/api/journeys`, plus disruption detection. This is the product
+call: it says whether the route is broken and which single alternative to take.
+
+```json
+{
+  "request": { "…": null },
+  "situation": "NO_DISRUPTION | DISRUPTION_DETECTED | UNKNOWN",
+  "disruption": {
+    "legIndex": 1,
+    "serviceLabel": "RE33",
+    "from": "Renens VD",
+    "to": "Genève",
+    "scheduledDeparture": "2026-11-21T20:33:00Z",
+    "estimatedDeparture": "2026-11-21T20:55:00Z",
+    "delayMinutes": 22,
+    "cancelled": false,
+    "basis": "REALTIME_ESTIMATE | CANCELLED_FLAG | SUPPRESSED_STOP | MISSING_FROM_REALTIME",
+    "confidence": "high | medium | low",
+    "cause": null
+  },
+  "recommendation": { /* journey */ },
+  "alternatives": [ { /* journey */ } ],
+  "recommendations": { "fastest": { /* journey */ }, "simplest": { /* journey */ } },
+  "journeys": [ { /* journey */ } ],
+  "latestFeasibleDeparture": null,
+  "noFeasibleRoute": false,
+  "computedAt": "2026-11-21T22:05:00Z",
+  "modelVersion": "2026-11-duration-v1"
+}
+```
+
+`disruption` is `null` when the situation is `NO_DISRUPTION`. `legIndex` is a 0-based index into
+`recommendation.legs`. Detection order: a cancelled GTFS trip → `CANCELLED_FLAG`; a skipped stop →
+`SUPPRESSED_STOP`; a measured delay ≥ 3 minutes → `REALTIME_ESTIMATE`; otherwise OJP stop events as
+fallback. Delays under 3 minutes are not disruptions. If detection cannot run (timeout, provider
+error) the answer is `UNKNOWN` with normal journeys — never a fabricated "all good".
+
+Rerouting rule: a replacement is recommended only when it arrives at least 5 minutes earlier than
+the delayed original; otherwise the answer is to stay. A cancellation always reroutes.
+
+### `GET /api/alternatives`
+
+Rescue search from an intermediate stop after a traveller is stranded.
+
+| Parameter | Required | Rules |
+| --- | --- | --- |
+| `from`, `to` | yes | trimmed, 1–120 code points |
+| `notBefore` | yes | RFC 3339 with offset; no default |
+| `arrivalDeadline` | no | RFC 3339, inclusive |
+
+```json
+{
+  "request": { "from": "Genève", "to": "Lausanne", "notBefore": "2026-11-21T22:00:00Z", "arrivalDeadline": null },
+  "alternatives": [ { /* journey */ } ],
+  "latestFeasibleDeparture": null,
+  "noFeasibleRoute": false,
+  "advice": "Leave by 22:20 to arrive before 23:30; highest risk is on corridor Genève - Lausanne."
+}
+```
+
+`/api/alternatives` is the only endpoint that always returns a text field (`advice`); it does not
+accept `includeText` or `limit`.
+
+### `GET /api/model`
+
+Provenance of the artifacts actually loaded by the running instance. Static; call once.
+
+```json
+{
+  "modelVersion": "2026-11-duration-v1", "generatedAt": "2026-11-21T18:03:53Z",
+  "coverage": { "from": "…", "to": "…", "scope": "SBB extern-liveticker incidents" },
+  "source": "artifact", "status": "ok",
+  "keysLoaded": 15, "corridorsLoaded": 142, "baselineLoaded": 24, "byLineHourCells": 15,
+  "gtfsRtEnabled": true, "gtfsRtAgeSeconds": 60, "gtfsRtTripUpdates": 6862, "gtfsRtCancelled": 74,
+  "delayModelVersion": "rt-20261121-2200", "delayPortions": 24, "delayLines": 4,
+  "delayArtifactStatus": "ok"
+}
+```
+
+### Journey object
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | Opaque stable identifier. |
+| `departure`, `arrival` | offset timestamp | Scheduled endpoints. Never adjusted. |
+| `durationMinutes` | int | Scheduled elapsed minutes. |
+| `transfers` | int | Vehicle changes; walking alone adds none. |
+| `legs` | array | Ordered legs, see below. |
+| `dataStatus` | `LIVE_SCHEDULE` \| `MOCK` | `MOCK` must be labelled as demo data in any UI. |
+| `feasible` | bool \| null | Only with `arrivalDeadline`. |
+| `expectedArrival` | offset timestamp \| null | Scheduled arrival + worst measured leg delay. |
+| `expectedDelayMin` | int \| null | Applied delay in minutes; null = unknown. |
+| `delaySource` | `line` \| `station` \| `none` | Which measured table produced it. |
+| `delaySamples` | int \| null | Sample count behind the delay estimate. |
+| `lateArrivalProbability` | 0..1 \| null | Historical frequency: share of days the corridor had an active disruption. |
+| `disruptionDurationMin` | int \| null | Typical disruption length on that corridor. **Not the traveller's delay.** |
+| `predictedDelayMinutes` | int \| null | Reserved for a validated per-train delay; null today. |
+| `riskSource`, `riskBasis`, `riskConfidence`, `riskLabel` | string \| null | Provenance of the risk number (`corridor`, `baseline`; `very_low`…`high`). |
+| `fareChf` | number \| null | Price for the requested class + discount. |
+| `halfFareChf`, `firstClassFareChf`, `firstClassHalfFareChf` | number \| null | Other quote variants. |
+| `fareProduct`, `fareSource`, `fareStatus` | string \| null | `fareStatus`: `PRICED` \| `UNAVAILABLE`. Show "unavailable", never 0. |
+| `estimatedFareChf` | number \| null | Reserved; null today. |
+
+Leg object: `mode` (`TRANSIT` | `WALK`), `origin`, `destination`, `departure`, `arrival`,
+`serviceLabel`, `departurePlatform`, `arrivalPlatform` (last three nullable). Walk legs may use raw
+coordinates as origin/destination.
+
+### Errors
+
+Every failure uses one envelope:
+
+```json
+{ "error": { "code": "INVALID_REQUEST", "message": "Departure must include a UTC offset." } }
+```
+
+| HTTP | Code | Meaning |
+| --- | --- | --- |
+| 400 | `INVALID_REQUEST` | Bad parameter: missing, blank, too long, duplicate, unknown, malformed timestamp, `limit` out of range. |
+| 502 | `UPSTREAM_ERROR` | Provider or stop resolution failed. |
+| 503 | `UPSTREAM_RATE_LIMITED` | Provider throttling. |
+| 504 | `UPSTREAM_TIMEOUT` | Provider exceeded the 8 s bound. |
+
+Provider bodies and credentials never appear in responses or logs.
+
+## Layout
 
 ```
-com.cffplanb.backend
-├── Application.kt          entry point
-├── api/
-│   ├── Dtos.kt             wire DTOs (@Serializable)
-│   └── Routes.kt           Ktor routing + validation
-├── config/
-│   ├── AppConfig.kt        env var reader
-│   └── Plugins.kt          Ktor plugin wiring
-├── domain/
-│   └── Models.kt           Journey, JourneyLeg, SearchRequest, enums
-├── provider/
-│   ├── TransportProvider.kt  interface + ProviderResult sealed class
-│   ├── MockTransportProvider.kt  deterministic mock (MOCK dataStatus)
-│   └── OjpTransportProvider.kt   OJP 2.0 adapter
-└── service/
-    ├── JourneySearchService.kt   orchestrates provider + ranking
-    └── RecommendationService.kt  pure ranking function
+backend/
+  src/main/kotlin/com/cffplanb/backend/
+    api/        routes, DTOs, request validation, error mapping
+    service/    search orchestration, ranking, risk + delay models, redirect logic
+    provider/   OJP client, mock provider, NOVA fares, resilient wrapper (cache, breaker)
+    gtfs/       GTFS-Realtime fetch, protobuf decoding, trip index
+    config/     env config, plugins (JSON, CORS, logging)
+  src/main/resources/
+    risk/predictions.json       historical disruption risk (corridors, hour baseline)
+    realtime/realtime_delays.json  measured lateness (station/hour, line/hour)
 ```
 
-## OJP provider notes
+## Honesty rules baked into the code
 
-The OJP adapter posts OJP 2.0 XML to `https://api.opentransportdata.swiss/ojp2020`. It:
-- Sends a `TripRequest` with origin/destination as free-text stop names
-- Has an 8-second bounded timeout
-- Maps HTTP 429 → `UPSTREAM_RATE_LIMITED`, timeout → `UPSTREAM_TIMEOUT`, other errors → `UPSTREAM_ERROR`
-- Sets `dataStatus: LIVE_SCHEDULE` on all parsed journeys
-- Keeps all XML parsing and OJP DTOs private to the adapter
-
-The `OJP_API_KEY` is passed as a bearer token in the `Authorization` header. It is never logged, committed, or included in error responses.
+- Unmeasured means `null`, never `0`.
+- `disruptionDurationMin` is a disruption length, not a traveller delay; `predictedDelayMinutes`
+  stays null until a validated per-train estimate exists.
+- Risk probabilities are frequencies over a 953-day window, not per-train chances.
+- Demo data is always `MOCK`; live data is always `LIVE_SCHEDULE`.
+- Artifacts that are missing or unreadable degrade the response, never crash it.
