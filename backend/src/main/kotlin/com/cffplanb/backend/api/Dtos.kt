@@ -49,7 +49,8 @@ data class JourneyDto(
     val riskConfidence: String? = null,
     val riskLabel: String? = null,
     val disruptionDurationMin: Int? = null,
-    val riskBasis: String? = null
+    val riskBasis: String? = null,
+    val reasons: List<String> = emptyList()
 )
 
 @Serializable
@@ -57,7 +58,20 @@ data class JourneySearchResponseDto(
     val request: SearchRequestDto,
     val journeys: List<JourneyDto>,
     val latestFeasibleDeparture: String? = null,
-    val noFeasibleRoute: Boolean? = null
+    val noFeasibleRoute: Boolean? = null,
+    val advice: String? = null
+)
+
+@Serializable
+data class AlternativesRequestDto(val from: String, val to: String, val notBefore: String, val arrivalDeadline: String? = null)
+
+@Serializable
+data class AlternativesResponseDto(
+    val request: AlternativesRequestDto,
+    val alternatives: List<JourneyDto>,
+    val latestFeasibleDeparture: String? = null,
+    val noFeasibleRoute: Boolean,
+    val advice: String
 )
 
 @Serializable
