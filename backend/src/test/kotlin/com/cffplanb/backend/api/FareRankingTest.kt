@@ -58,7 +58,7 @@ class FareRankingTest {
     }
 
     private suspend fun ApplicationTestBuilder.get(pref: String?, extra: String = ""): Pair<HttpStatusCode, JsonObject> {
-        val r = client.get("/api/journeys?origin=A&destination=B&departure=2026-11-21T09:00:00Z" + (pref?.let { "&preference=$it" } ?: "") + extra)
+        val r = client.get("/api/journeys?origin=A&destination=B&departure=2026-11-21T09:00:00Z" + (pref?.let { "&preference=$it" } ?: "") + "&limit=10&includeText=true" + extra)
         return r.status to Json.parseToJsonElement(r.bodyAsText()).jsonObject
     }
     private fun JsonObject.ids() = this["journeys"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }
@@ -74,8 +74,10 @@ class FareRankingTest {
 
     @Test fun `recommendations are independent of preference`() = test(FareCache(FakeFares())) {
         for (p in listOf("FASTEST", "CHEAPEST", "SIMPLEST")) {
-            val rec = get(p).second["recommendations"]!!.jsonObject
+            val rec = get(p).second["recommendationIds"]!!.jsonObject
             assertEquals(listOf("j2", "j3", "j2"), listOf("fastest", "cheapest", "simplest").map { rec[it]!!.jsonPrimitive.content })
+            val full = get(p).second["recommendations"]!!.jsonObject
+            assertEquals(listOf("j2", "j2"), listOf("fastest", "simplest").map { full[it]!!.jsonObject["id"]!!.jsonPrimitive.content })
         }
     }
 
@@ -97,7 +99,7 @@ class FareRankingTest {
         val body = get("CHEAPEST").second
         assertEquals(JsonNull, body.journey("j1")["fareStatus"])
         assertEquals(listOf("j1", "j2", "j4", "j3"), body.ids()) // all null -> arrival, id
-        assertEquals("j1", body["recommendations"]!!.jsonObject["cheapest"]!!.jsonPrimitive.content)
+        assertEquals("j1", body["recommendationIds"]!!.jsonObject["cheapest"]!!.jsonPrimitive.content)
     }
 
     @Test fun `one quote per distinct od pair and cache avoids repeat calls`() {
@@ -130,7 +132,7 @@ class FareRankingTest {
             assertEquals(exp.first, body.fare("j1"), q)
             assertEquals(exp.second, body.fare("j3"), q)
             assertEquals(exp.third, body.ids(), q)
-            assertEquals(exp.third.first(), body["recommendations"]!!.jsonObject["cheapest"]!!.jsonPrimitive.content, q)
+            assertEquals(exp.third.first(), body["recommendationIds"]!!.jsonObject["cheapest"]!!.jsonPrimitive.content, q)
             assertEquals(listOf("j2", "j1", "j4", "j3"), get("FASTEST", q).second.ids(), q) // other orders ignore fares
             val j1 = body.journey("j1") // raw numbers stay as-is whatever the selection
             assertEquals(listOf(50.0, 25.0, 80.0, 40.0), listOf("estimatedFareChf", "halfFareChf", "firstClassFareChf", "firstClassHalfFareChf").map { j1[it]!!.jsonPrimitive.double }, q)

@@ -18,7 +18,7 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 
-private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount")
+private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount", "limit", "includeText")
 private val ALT_PARAMS = setOf("from", "to", "notBefore", "arrivalDeadline")
 internal val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
@@ -250,6 +250,17 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                 return@get
             }
 
+            val limit = parseLimit(rawQuery["limit"])
+            if (limit == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'limit' must be an integer from 1 to 10")))
+                return@get
+            }
+            val includeText = parseIncludeText(rawQuery["includeText"])
+            if (includeText == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'includeText' must be true or false")))
+                return@get
+            }
+
             val searchRequest = SearchRequest(
                 origin = origin,
                 destination = destination,
@@ -265,6 +276,8 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                     fun best(p: Preference) = result.journeys.minWithOrNull(RecommendationService.comparator(p, fareOf))?.id
                     val sorted = result.journeys.sortedWith(RecommendationService.comparator(preference, fareOf))
                     val (dtos, latestFeasible, advice) = rescue(sorted, deadline, risk, result.fares, price, delay)
+                    val byId = dtos.associateBy { it.id }
+                    val fastest = result.journeys.minWithOrNull(RecommendationService.comparator(Preference.FASTEST) { j -> j.arrival.toInstant().plusSeconds(60L * (delay.forJourney(j)?.minutes ?: 0)) })
                     val response = JourneySearchResponseDto(
                         request = SearchRequestDto(
                             origin = origin,
@@ -275,13 +288,14 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                             fareClass = fareClass,
                             discount = discount.name
                         ),
-                        journeys = dtos,
+                        journeys = dtos.take(limit),
                         latestFeasibleDeparture = latestFeasible,
                         noFeasibleRoute = deadline?.let { latestFeasible == null },
                         advice = advice,
-                        recommendations = RecommendationsDto(best(Preference.FASTEST), best(Preference.CHEAPEST), best(Preference.SIMPLEST))
+                        recommendations = RecommendationsDto(fastest?.let { byId[it.id] }, best(Preference.SIMPLEST)?.let { byId[it] }),
+                        recommendationIds = RecommendationIdsDto(best(Preference.FASTEST), best(Preference.CHEAPEST), best(Preference.SIMPLEST))
                     )
-                    call.respond(HttpStatusCode.OK, response)
+                    call.respond(HttpStatusCode.OK, textual(JourneySearchResponseDto.serializer(), response, includeText))
                 }
                 is SearchResult.Timeout -> {
                     call.respond(

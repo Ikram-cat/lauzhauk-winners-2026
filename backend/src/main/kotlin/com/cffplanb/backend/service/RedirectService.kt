@@ -117,7 +117,7 @@ class RedirectService(
             if (meets(waitJ) && !(gain >= 5 && !(delay <= 10 && gain <= 5))) final = listOf(waitJ) + final.filter { it.id != waitJ.id }
         }
         val rec = final.firstOrNull()
-        val alts = final.drop(1).take(3)
+        val alts = final.drop(1).take(9)
         val stay = own != null && rec != null && rec.id == orig.id
         val waitJourney = unique.firstOrNull { it.id == orig.id }
 

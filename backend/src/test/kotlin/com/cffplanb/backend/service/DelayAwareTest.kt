@@ -59,7 +59,7 @@ class DelayAwareTest {
     private val early = journey("EARLY", leg("IR 90", "Lausanne", "Genève", "15:10", "16:00")) // usually ~7 min late
     private fun later(arr: String) = journey("LATE", leg("IC 5", "Lausanne", "Genève", "15:20", arr)) // station row: on time
 
-    private fun api(js: List<Journey>, m: RealtimeDelayModel, path: String = "/api/redirect?origin=Lausanne&destination=Gen%C3%A8ve", block: (JsonObject) -> Unit) = testApplication {
+    private fun api(js: List<Journey>, m: RealtimeDelayModel, path: String = "/api/redirect?origin=Lausanne&destination=Gen%C3%A8ve&includeText=true", block: (JsonObject) -> Unit) = testApplication {
         application { install(ContentNegotiation) { json(Json { encodeDefaults = true }) }; configureRoutes(JourneySearchService(Fake(js)), clock, delay = m) }
         block(Json.parseToJsonElement(client.get(path).bodyAsText()).jsonObject)
     }

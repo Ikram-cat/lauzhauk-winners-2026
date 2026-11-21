@@ -187,7 +187,7 @@ class RedirectTest {
             install(ContentNegotiation) { json(Json { encodeDefaults = true }) }
             configureRoutes(JourneySearchService(f), clock)
         }
-        val r = client.get("/api/redirect?origin=Lausanne&destination=Gen%C3%A8ve$qs")
+        val r = client.get("/api/redirect?origin=Lausanne&destination=Gen%C3%A8ve&includeText=true$qs")
         assertEquals(HttpStatusCode.OK, r.status, r.bodyAsText())
         block(Json.parseToJsonElement(r.bodyAsText()).jsonObject)
     }

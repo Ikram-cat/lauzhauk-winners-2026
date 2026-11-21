@@ -68,7 +68,27 @@ data class JourneyDto(
 )
 
 @Serializable
-data class RecommendationsDto(val fastest: String?, val cheapest: String?, val simplest: String?)
+data class RecommendationIdsDto(val fastest: String?, val cheapest: String?, val simplest: String?)
+
+/** Two full journeys chosen regardless of the requested preference; null when there is no route. */
+@Serializable
+data class RecommendationsDto(val fastest: JourneyDto?, val simplest: JourneyDto?)
+
+internal val TEXT_KEYS = setOf("advice", "message", "why", "reasons", "recommendationIds")
+private val jsonOut = kotlinx.serialization.json.Json { encodeDefaults = true }
+
+/** Default output carries no prose; [includeText] keeps advice, message, why, reasons and the old recommendation ids. */
+internal fun kotlinx.serialization.json.JsonElement.stripText(): kotlinx.serialization.json.JsonElement = when (this) {
+    is kotlinx.serialization.json.JsonObject -> kotlinx.serialization.json.JsonObject(filterKeys { it !in TEXT_KEYS }.mapValues { it.value.stripText() })
+    is kotlinx.serialization.json.JsonArray -> kotlinx.serialization.json.JsonArray(map { it.stripText() })
+    else -> this
+}
+internal fun <T> textual(ser: kotlinx.serialization.KSerializer<T>, dto: T, includeText: Boolean): kotlinx.serialization.json.JsonObject =
+    (jsonOut.encodeToJsonElement(ser, dto).let { if (includeText) it else it.stripText() }) as kotlinx.serialization.json.JsonObject
+
+/** Query validation shared by /api/journeys and /api/redirect; null = invalid. */
+internal fun parseLimit(raw: String?): Int? = if (raw == null) 3 else raw.trim().toIntOrNull()?.takeIf { it in 1..10 }
+internal fun parseIncludeText(raw: String?): Boolean? = when (raw?.trim()?.lowercase()) { null, "false" -> false; "true" -> true; else -> null }
 
 @Serializable
 data class JourneySearchResponseDto(
@@ -77,7 +97,8 @@ data class JourneySearchResponseDto(
     val latestFeasibleDeparture: String? = null,
     val noFeasibleRoute: Boolean? = null,
     val advice: String? = null,
-    val recommendations: RecommendationsDto? = null
+    val recommendations: RecommendationsDto? = null,
+    val recommendationIds: RecommendationIdsDto? = null
 )
 
 @Serializable
@@ -147,7 +168,9 @@ data class RedirectResponseDto(
     val latestFeasibleDeparture: String? = null,
     val noFeasibleRoute: Boolean? = null,
     val advice: String? = null,
+    val journeys: List<JourneyDto> = emptyList(),
     val recommendations: RecommendationsDto? = null,
+    val recommendationIds: RecommendationIdsDto? = null,
     val computedAt: String,
     val modelVersion: String?
 )

@@ -59,7 +59,7 @@ class AlternativesTest {
         assertEquals("No feasible route: no journey arrives before 15:30.", j["advice"]!!.jsonPrimitive.content)
     }
 
-    @Test fun `journeys endpoint also carries reasons and advice`() = call("/api/journeys?origin=A&destination=B&arrivalDeadline=2026-11-21T16%3A25%3A00Z") {
+    @Test fun `journeys endpoint also carries reasons and advice`() = call("/api/journeys?includeText=true&origin=A&destination=B&arrivalDeadline=2026-11-21T16%3A25%3A00Z") {
         val j = Json.parseToJsonElement(it.bodyAsText()).o()
         val first = j["journeys"]!!.jsonArray[0].o()["reasons"]!!.jsonArray.map { r -> r.jsonPrimitive.content }
         assertTrue(first.size <= 3 && first.any { r -> r.startsWith("arrives ") && r.endsWith("before your deadline") }, first.toString())
