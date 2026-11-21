@@ -156,3 +156,34 @@ Deadline and preference requests are future contract work. `POST /api/recommenda
 ## Challenge extensions in design
 
 The [challenge plan](CHALLENGES.md) requires reviewing any extraction or disruption endpoints before implementation. Agree on image size and media types, timeout and fallback, candidate fields and unknowns, and retention behavior for screenshot extraction. For disruption recovery, agree on affected leg identifiers, source/time, unknown-match behavior, deadline impact, and explicit next-action or no-feasible-option outcomes. Existing v1 examples remain the search baseline.
+
+## Implemented additive extensions (v1-compatible)
+
+These fields and endpoints were added during implementation. All are additive: a client written against the tables above keeps working, and clients must treat every new field as optional.
+
+### Additional endpoints
+
+| Method and path | Purpose | Success |
+| --- | --- | --- |
+| `GET /api/locations?query=<text>` | Stop/address autocomplete for the search box, proxied from the provider and cached. Query 1–120 code points. | `200` with `{ "locations": [ { "id", "name", "kind", "x", "y" } ] }` |
+| `GET /api/alternatives?from=&to=&notBefore=[&arrivalDeadline=]` | Rescue search from an intermediate stop after a disruption. Same validation, ranking and journey shape as `/api/journeys`. | `200` with `{ "request", "alternatives", "latestFeasibleDeparture", "noFeasibleRoute", "advice" }` |
+| `GET /api/model` | Provenance of the risk artifact actually loaded by the running instance. No provider call. | `200` with `{ "modelVersion", "generatedAt", "coverage", "source", "keysLoaded", "status", "corridorsLoaded", "baselineLoaded", "byLineHourCells", "corridorKeysSample" }` |
+
+### Additional journey fields
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `feasible` | Boolean | Present when `arrivalDeadline` was supplied. True when scheduled arrival is at or before the deadline. |
+| `reasons` | Array of strings, at most 3 | Short explanations derived from real data only: `earliest arrival`, `fewest transfers`, `arrives N min before your deadline`, `corridor risk N.N%`. |
+| `riskSource` | `corridor` \| `baseline` \| null | Which artifact table produced the risk values. |
+| `riskBasis` | `corridor_duration` \| `baseline_duration` \| `corridor_delay` \| null | What the numbers describe. `*_duration` means the estimate is the typical length of a disruption on that corridor, not a delay a traveller will experience. |
+| `riskConfidence` | `low` \| `medium` \| `high` \| `very_low` \| null | Sample-size band of the matched artifact row. |
+| `disruptionDurationMin` | Integer or null | Typical disruption length in minutes for the matched corridor or hour baseline. Not a predicted delay. |
+
+`predictedDelayMinutes` remains the field for a validated delay estimate and stays null while the only available signal is disruption duration. It is populated only when an artifact row carries `delayEstimateMin`.
+
+### Additional response fields
+
+`latestFeasibleDeparture` (offset timestamp or null) is the latest departure among journeys that still meet `arrivalDeadline`; `noFeasibleRoute` (Boolean) is true when a deadline was supplied and nothing qualifies; `advice` is one sentence, at most 240 characters, built only from data present in the response, and states explicitly when risk is unknown.
+
+Risk data comes from an offline artifact built from public SBB liveticker incidents (2024-2026, 142 corridors, ~91% incident coverage). Coverage, model version and confidence limits are reported by `GET /api/model` and must be shown or linked wherever a modelled number is displayed.
