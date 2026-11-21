@@ -3,6 +3,7 @@ package com.cffplanb.backend.config
 import com.cffplanb.backend.api.ErrorDetailDto
 import com.cffplanb.backend.api.ErrorResponseDto
 import com.cffplanb.backend.api.configureRoutes
+import com.cffplanb.backend.provider.MockFareProvider
 import com.cffplanb.backend.provider.MockTransportProvider
 import com.cffplanb.backend.provider.NovaFareProvider
 import com.cffplanb.backend.provider.OjpTransportProvider
@@ -74,8 +75,9 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         }
     }
 
-    val fares = config.fareBaseUrl.trim().takeIf { it.isNotEmpty() }?.let { FareCache(NovaFareProvider(it.trimEnd('/'))) }
-    log.info("Fare lookup {}", if (fares != null) "enabled (NOVA via transport.opendata.ch)" else "disabled")
+    val fareUrl = config.fareBaseUrl.trim()
+    val fares = when (fareUrl) { "" -> null; "mock" -> FareCache(MockFareProvider); else -> FareCache(NovaFareProvider(fareUrl.trimEnd('/'))) }
+    log.info("Fare lookup {}", when (fareUrl) { "" -> "disabled"; "mock" -> "enabled (MOCK demo prices)"; else -> "enabled (NOVA via transport.opendata.ch)" })
     val searchService = JourneySearchService(ResilientProvider(provider, cacheEnabled = config.cacheEnabled), fares)
 
     val risk: RiskEstimator = if (config.riskSource.lowercase() == "none") NoRiskEstimator else {

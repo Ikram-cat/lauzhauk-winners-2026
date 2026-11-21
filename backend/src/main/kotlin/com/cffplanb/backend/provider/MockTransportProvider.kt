@@ -110,3 +110,9 @@ class MockTransportProvider : TransportProvider {
         return ProviderResult.Success(listOf(j1, j2, j3))
     }
 }
+
+/** Demo fares (FARE_BASE_URL=mock): four distinct numbers so class/discount toggles visibly change; fareSource MOCK. */
+object MockFareProvider : FareProvider {
+    override suspend fun quote(origin: String, destination: String, departure: OffsetDateTime) =
+        FareQuote(42.0, 21.0, 72.0, "Streckenbillett", "MOCK", 36.0)
+}

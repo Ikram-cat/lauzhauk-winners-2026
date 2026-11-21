@@ -13,7 +13,7 @@ import kotlin.test.*
 
 class FareCacheTest {
     private val dep = OffsetDateTime.parse("2026-11-22T09:00:00+01:00")
-    private val q = FareQuote(42.0, 21.0, 72.0, "Streckenbillett", "NOVA")
+    private val q = FareQuote(42.0, 21.0, 72.0, "Streckenbillett", "NOVA", 36.0)
 
     @Test fun `key is trimmed and lowercased, negative results expire after 5 min, positive after 6 h`() = runTest {
         var now = 0L; var calls = 0; var answer: FareQuote? = null

@@ -62,7 +62,7 @@ class NovaFareProvider(
         val second = r.fares["2nd"]
         val full = second?.full; val half = second?.halfFare
         if (r.currency != "CHF" || full == null || half == null) { log.warn("Fare response missing CHF 2nd-class prices"); return null }
-        return FareQuote(full, half, r.fares["1st"]?.full, r.product ?: "Streckenbillett", "NOVA")
+        return FareQuote(full, half, r.fares["1st"]?.full, r.product ?: "Streckenbillett", "NOVA", r.fares["1st"]?.halfFare)
     }
 
     companion object {
