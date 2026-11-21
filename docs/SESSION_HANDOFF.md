@@ -6,6 +6,41 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-21 · C · Multi-source incident timelines
+
+**Branch and commit**
+`prediction`, in the commit that contains this entry (after `1657b48`).
+
+**Completed and files changed**
+
+- `analytics/sbb_duration/sources.py` joins the three sources:
+  - public liveticker ↔ VIA: VIA `alea_fall_id` = public incident id;
+  - VIA ↔ internal (KULT) liveticker: same cause code and creation time within 30 min, matched one-to-one, nearest first.
+- It writes one timeline per incident present in all three sources to `analytics/output/timelines/`, labelled MOCK. Each moment carries the public announcement, the outlook from the evaluation models, the advice, the stations (UIC + sloid) and lines, the internal facts and a `notify` flag.
+- `analytics/sbb_duration/messages.py` sanitizes internal messages and extracts facts with keyword rules: replacement bus, stops, resumption forecast and resumed service.
+- `analytics/tests/test_sources.py`: synthetic checks of sanitizing, extraction, notify rules and the sloid rule.
+- `openpyxl==3.1.5` added to the requirements, to read the VIA `.xlsx`.
+- Proposed timeline format documented in `API_CONTRACT.md`. Commands added to `analytics/README.md`.
+- Correction to the previous entry: the sources contain no U+FFFD. The "lost accents" were a Windows console display artefact. The no-op replay filter was removed, and the replay selection is unchanged.
+
+**Verified facts**
+
+- Linkage: 168 VIA events, 14 of them in the public liveticker; 69 of 137 internal cases linked to VIA; 10 incidents in all three sources.
+- VIA and KULT timestamps are naive Swiss local time; VIA creation times match the public `created_at_source` exactly.
+- The sloid rule `ch:1:sloid:<UIC − 8500000>` holds for all 32,911 Swiss service points (opentransportdata.swiss `service-points-actual-date`, 2026-06-30). 224 of the 257 VIA UIC codes are in that export; the others are foreign.
+- Personal data: the `name`, `vorname` and `telefonnummer` columns are empty and are never read. No phone, e-mail, honorific or user id appears in the 882 messages. Staff-account messages are skipped.
+- `python -m pytest tests` gives 14 passed. On the primary demo incident (2195005188970, Renens VD – Morges), the timeline has 45 moments and 10 notifications:
+  - replacement bus first mentioned internally at 18:46 (14 buses), stops at Renens VD and Morges at 19:30;
+  - VIA publishes the replacement bus at 20:02;
+  - the public end announcement moves 18:30 → 20:30 → 23:59.
+
+**Limits and next actions**
+
+1. The advice can switch back and forth when the detour cost is close to the P50: four changes between 17:46 and 18:27 on the demo incident. Add a minimum interval or a margin before pushing notifications.
+2. Journey matching needs leg stop sloids: `JourneyLegDto` exposes names only, and sections give only their two ends. B decides how to expose OJP stop refs and intermediate stops.
+3. The first public `ENDED` version can come much later than the internal resumption: 00:00 against 21:04 on the demo incident. `actualEndAt` follows the public definition.
+4. A reviews the timeline format for the UI. D includes it in the contract review.
+
 ## 2026-11-21 · C · Disruption duration model, Kotlin estimator and outlook route
 
 **Branch and commit**
@@ -34,7 +69,6 @@ Add dated entries with the newest first. Include the responsible role, branch an
 
 - The data's usage rights are not reviewed. The CSVs, the model, the golden vectors and the replay JSON stay local, so deployed backends answer `UNAVAILABLE`.
 - The pessimistic estimate is not a calibrated probability: it covers 73.7% of the test period, below the 85% target. Accuracy drifts with time: recent incidents last longer.
-- Some `summary_en` values contain U+FFFD, meaning accents were lost at the source. The replay skips them; the model is unaffected because it only uses keywords.
 - Environment: JDK 21 is installed per-user under `%LOCALAPPDATA%\Programs\Temurin`, with `JAVA_HOME` set at user level, because the winget MSI needed UAC.
 
 **Next actions**

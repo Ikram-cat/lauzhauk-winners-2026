@@ -23,6 +23,7 @@ python -m sbb_duration.train                # metrics.json + duration_model.jobl
 python -m sbb_duration.export               # duration_model.v1.json + golden_vectors.json
 python -m pytest tests -p no:cacheprovider  # JSON evaluator == sklearn, advice thresholds, pessimistic >= p50
 python -m sbb_duration.replay [--detour 60] # 3 past incidents, terminal table + output/replay/replay-0N.json (MOCK)
+python -m sbb_duration.sources [--detour 60] # 3-source timelines -> output/timelines/timeline-<id>.json + index.json (MOCK)
 ```
 
 | Module | Role |
@@ -33,8 +34,10 @@ python -m sbb_duration.replay [--detour 60] # 3 past incidents, terminal table +
 | `predict.py`, `advice.py` | sklearn prediction; advice codes `TAKE_DETOUR`, `DETOUR_IF_DEADLINE`, `WAIT`, `UNKNOWN`. |
 | `artifact.py`, `export.py` | JSON artifact (trees, categories, regexes, provenance, metrics, limitations) and its dependency-free reference evaluator. |
 | `replay.py` | Version-by-version replay of three test-period incidents, chosen by rule, using the split models that never saw them. |
+| `sources.py` | Joins the public liveticker, VIA (`Daten/Daten/Ereignismeldungen/`) and the internal liveticker (`Daten/Daten/intern-liveticker/`). Builds one timeline per incident present in all three sources, with stations (UIC + sloid), lines, outlook, advice and `notify`. It downloads the opentransportdata.swiss service-points export to the ignored `analytics/data/service_points/` when missing; `--no-fetch` disables the download. |
+| `messages.py` | Sanitizes internal messages (HTML, phone numbers, e-mails, names, user ids) and extracts replacement bus, stops, resumption forecast and resumed service with keyword rules. |
 
-Current results on the test period (104 incidents, 639 snapshots after 2026-04-06): the P50 error is 97.9 min against 112.7 for the official announcement and 127.0 for the median per cause. The pessimistic estimate covers 73.7% of cases. The official announcement is too optimistic in 69% of snapshots. The API contract is in [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal).
+Current results on the test period (104 incidents, 639 snapshots after 2026-04-06): the P50 error is 97.9 min against 112.7 for the official announcement and 127.0 for the median per cause. The pessimistic estimate covers 73.7% of cases. The official announcement is too optimistic in 69% of snapshots. The API contract is in [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal). The timeline format is in [API_CONTRACT.md](../docs/API_CONTRACT.md#multi-source-incident-timeline-proposal).
 
 ## Evaluation and reproducibility
 

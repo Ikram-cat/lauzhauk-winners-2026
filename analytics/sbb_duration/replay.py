@@ -57,8 +57,7 @@ def select_incidents(test: pd.DataFrame, detour: int) -> list:
     t["official"] = t.announced_remaining.clip(lower=0)
     t["err_official"] = (t.official - t.y_remaining).abs()
     t["err_model"] = (t.p50 - t.y_remaining).abs()
-    clean = ~t.summary_en.fillna("").str.contains("�")  # skip summaries with lost accents
-    per = t[clean & t.has_announcement.eq(1)].groupby("id").agg(
+    per = t[t.has_announcement.eq(1)].groupby("id").agg(
         steps=("t", "size"), err_official=("err_official", "mean"), err_model=("err_model", "mean"),
         advice_codes=("advice", "nunique"))
     per = per[per.steps.between(MIN_STEPS, MAX_STEPS)]

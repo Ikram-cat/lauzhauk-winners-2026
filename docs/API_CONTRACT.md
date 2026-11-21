@@ -240,6 +240,86 @@ A missing model is never an error. The browser must allow `POST`, which the back
 - The backend has no verified live disruption feed. Until one exists, clients send disruption facts themselves, and demo data must be labelled.
 - Historical replays for the demo come from `python -m sbb_duration.replay`. That command writes `analytics/output/replay/replay-0N.json` locally; the files are not committed because they contain source rows. Each file has `dataStatus: "MOCK"` and `kind: "HISTORICAL_REPLAY"`. Each `steps[].outlook` object holds `status`, `remainingMinutes`, `expectedEndAt` and `advice` from the response shape above. `officialRemainingMinutes`, `actualRemainingMinutes` and the model provenance sit at step or file level.
 
+## Multi-source incident timeline (proposal)
+
+**Status: proposal.** This is a file format, not an HTTP route. `python -m sbb_duration.sources` produces it in `analytics/output/timelines/`, where the files stay local and uncommitted. The frontend can render it, and the backend can later serve it or rebuild it from live feeds. Frontend, backend and integration owners have not yet reviewed it.
+
+Each file joins one past incident across three sources:
+- **Public liveticker:** announcements and lifecycle.
+- **VIA event messages:** affected stations and lines, and when a travel recommendation and a replacement bus were first published.
+- **Internal liveticker:** operational messages, with the useful facts extracted by keyword rules.
+
+The sources are linked as follows:
+- VIA `alea_fall_id` equals the public incident id.
+- An internal case matches a VIA event when they share the same cause code and were created within 30 minutes of each other. Matching is one-to-one, nearest first.
+
+On the September 2026 exports, 69 of 137 internal cases link to VIA, and 10 incidents are present in all three sources. `index.json` lists them and names the demo incidents: primary `2195005188970` (Renens VD – Morges, 2026-09-17) and backup `2195005195846` (Zürich Stadelhofen – Stettbach, 2026-09-25).
+
+Every file is `dataStatus: "MOCK"`, `kind: "HISTORICAL_MULTI_SOURCE_TIMELINE"`, `schemaVersion: 1`. It is a replay, not live data.
+
+### File structure
+
+| Field | Meaning |
+| --- | --- |
+| `incident` | `id`, `summaryEn` (last public summary), `reasonCode`, `reasonLabel`, `startedAt`, `actualEndAt` (first public `ENDED` version), `actualDurationMinutes`. |
+| `linkage` | How the VIA and internal records were joined, the creation-time delta, and the number of internal messages used and skipped. |
+| `detourExtraMinutes` | Hypothetical detour cost used for every `advice` (default 60). |
+| `model` | Provenance of the predictions: the evaluation models, trained before 2026-04-06, never saw these incidents. |
+| `affected` | Union over the incident of `stations`, `sections` and `lines`. This is what a client checks a journey against. |
+| `notifications` | Number of moments with `notify.value = true`. |
+| `moments[]` | One entry per event from any source, in time order, up to the actual end. Each carries the state known at that instant. |
+
+Fields of each `moments[]` entry:
+
+| Field | Meaning |
+| --- | --- |
+| `at` | Instant, RFC 3339 with the Swiss offset. |
+| `trigger` | `source` (`PUBLIC_LIVETICKER`, `VIA` or `INTERNAL_LIVETICKER`) and `event` (`PUBLIC_VERSION`, `PUBLIC_ENDED`, `VIA_UPDATE` or `INTERNAL_MESSAGE`). |
+| `public` | Latest public version, or null before the first one: `lifecycle`, `summaryEn`, `durationType`, `announcedEndAt`, `versionAt`, `officialRemainingMinutes`. |
+| `outlook` | The same fields as the [disruption outlook](#disruption-outlook-proposal) response: `status`, `remainingMinutes`, `expectedEndAt` and `advice`, computed at `at`. `status: "UNAVAILABLE"` comes with a `reason`: `NO_PUBLIC_ANNOUNCEMENT_YET` or `ENDED`. |
+| `affected` | Latest VIA state: `stations`, `sections`, `lines`. Null before the first VIA record. |
+| `via` | `travelRecommendationPublishedAt` and `replacementBusPublishedAt`, the first VIA publication times, or null. |
+| `internal` | Cumulative facts from the internal liveticker: `replacementBus` (`firstAt`, `busCount` = the most buses mentioned in one message), `stops[]` (station, `firstMentionedAt`, `times[]`), `resumptionForecast` (`known`, `at`, `messageAt`), `serviceResumedAt`. |
+| `message` | Only for `INTERNAL_MESSAGE`: `senderRole` (`TRAFFIC_CONTROL` or `STATION`), sanitized `text`, and the `facts` extracted from that message alone. |
+| `actualRemainingMinutes` | Hindsight, for the demo only. Never show it as a prediction. |
+| `notify` | `value` and `reasons[]` of `{code, detail}`. |
+
+A station object has these fields:
+- `uic`: integer UIC code, as in VIA;
+- `sloid`: `ch:1:sloid:<UIC − 8500000>`, or null outside Switzerland;
+- `name` and `abbreviation`, from the service-points dataset;
+- `inServicePoints`;
+- `roles`: `DISRUPTION_POINT` for the VIA disruption location (`stoerungs_ort1/2`), `LINE_FROM` and `LINE_TO` for the ends of the affected line (`stoerungs_linie_von/bis`).
+
+A section is `{from, to}` in UIC codes. `lines` are VIA line numbers such as `IC1` or `R9`.
+
+### Notify rules
+
+`notify.value` is true when at least one of these applies:
+
+| Code | Rule |
+| --- | --- |
+| `FIRST_DETECTION` | First moment of the incident, in any source. |
+| `ADVICE_CHANGED` | `outlook.advice.code` differs from the previous known code. `UNKNOWN` is ignored. |
+| `ANNOUNCED_END_SHIFTED` | The public `announcedEndAt` moved by more than 15 minutes since the last value that triggered a notification. |
+| `REPLACEMENT_BUS_ANNOUNCED` | First moment with a replacement bus, from VIA or from an internal message. |
+
+When the detour cost is close to the P50, the advice can switch back and forth within minutes. On the primary demo incident it changes four times between 17:46 and 18:27. A client that pushes notifications should add a minimum interval or a margin.
+
+### Checking a journey against an incident
+
+A journey is affected when one of its legs boards, alights or passes through a station in `affected.stations`, or runs on a line listed in `affected.lines`.
+- **Match on `sloid`.** OJP returns `StopPointRef` / `StopPlaceRef` values such as `ch:1:sloid:7000` or, for a platform, `ch:1:sloid:7000:2:3`. Compare the first four `:`-separated parts. The backend already resolves stops to sloids for searching, but `JourneyLegDto` currently exposes names only. Matching on names is a weaker fallback.
+- **Intermediate stations.** A section gives only its two ends. A leg passing through the middle of the section matches only if the client also checks the leg's intermediate stops, which OJP can return.
+- **Accuracy of the sloid rule.** It was checked against all 32,911 Swiss service points of the opentransportdata.swiss `service-points-actual-date` export (2026-06-30): 100% match. Of the 257 UIC codes in VIA, 224 are in that export; the 33 others are foreign stations without a Swiss sloid.
+
+### Privacy and extraction limits
+
+- The internal export's `name`, `vorname` and `telefonnummer` columns are never read; they are empty in this export anyway.
+- Message text is sanitized: HTML is removed, and phone numbers, e-mail addresses, honorific + name and user ids are replaced by placeholders. A scan of the 882 messages found none of these.
+- Messages from individual staff accounts are skipped. Only `TCC` (traffic control) and `KOO Bhf` (station) messages are used.
+- The extraction uses German, French and Italian keyword rules, without a language model, and can miss or misread facts. `facts` must be shown as "according to internal operations", never as an official SBB announcement.
+
 ## Changes and future endpoints
 
 Use the same baseline JSON examples in frontend decoding, backend serialization and integration smoke checks. For additive output fields, define default behavior for clients that encounter missing or unfamiliar values. Any change to required fields, types, null semantics, ranking or supported queries needs review from frontend, backend and integration owners. Use a coordinated migration or new version for breaking changes. [Shared interfaces](../shared/INTERFACES.md) · [Development workflow](DEVELOPMENT_WORKFLOW.md)
