@@ -6,13 +6,13 @@ import pytest
 
 from sbb_duration.artifact import load_artifact, predict
 from sbb_duration.data import OUTPUT_DIR
-from sbb_duration.export import ARTIFACT_FILE, GOLDEN_FILE
+from sbb_duration.export import ARTIFACT_FILE, EVAL_ARTIFACT_FILE, GOLDEN_FILE
 from sbb_duration.features import build_features_from_input
-from sbb_duration.predict import BUNDLE_FILE, load_bundle, predict_remaining
+from sbb_duration.predict import BUNDLE_FILE, evaluation_bundle, load_bundle, predict_remaining
 
 TOLERANCE = 1e-6
 
-if not all((OUTPUT_DIR / f).exists() for f in (ARTIFACT_FILE, GOLDEN_FILE, BUNDLE_FILE)):
+if not all((OUTPUT_DIR / f).exists() for f in (ARTIFACT_FILE, EVAL_ARTIFACT_FILE, GOLDEN_FILE, BUNDLE_FILE)):
     pytest.skip("run `python -m sbb_duration.train` then `python -m sbb_duration.export` first",
                 allow_module_level=True)
 
@@ -35,3 +35,13 @@ def test_json_evaluator_matches_sklearn_on_golden_cases():
         expected = (case["expected"]["p50Minutes"], case["expected"]["pessimisticMinutes"])
         assert from_json == pytest.approx(from_sklearn, abs=TOLERANCE), case["case"]
         assert from_json == pytest.approx(expected, abs=TOLERANCE), case["case"]
+
+
+def test_evaluation_artifact_matches_the_split_models():
+    """The replay artifact (split models + their calibration) also matches sklearn."""
+    artifact = load_artifact(OUTPUT_DIR / EVAL_ARTIFACT_FILE)
+    bundle = evaluation_bundle(load_bundle(OUTPUT_DIR / BUNDLE_FILE))
+    cases = json.loads((OUTPUT_DIR / GOLDEN_FILE).read_text(encoding="utf-8"))["cases"]
+    for case in cases:
+        features = build_features_from_input(case["input"])
+        assert predict(artifact, features) == pytest.approx(predict_remaining(features, bundle), abs=TOLERANCE)

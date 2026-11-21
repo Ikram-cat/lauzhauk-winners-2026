@@ -10,8 +10,16 @@
 
 ## Outputs
 
-For the MVP, share capability notes, a fixture proposal, and a schema audit if the CSV is available. The browser and search service can run without these outputs. Keep actual CSV rows private unless permission and purpose for sharing are documented.
+All outputs are generated locally in `analytics/output/`, which is ignored by Git, from data that is not committed. The data-use review is still pending, so none of these files is tracked or packaged.
 
-For a later Kotlin integration, prefer a small, UTF-8 JSON artifact with a documented schema version, dataset provenance identifier, generation timestamp, coverage and method metadata, and a vetted payload. Use explicit units, time zone, and unknown-value semantics. Choose the payload fields only after the source audit establishes legitimate aggregates or a validated model. Agree on key normalization, version support, size limits, and null handling with Role B before publishing any artifact. A model binary would need a separate decision on Kotlin compatibility, packaging and evaluation evidence.
+| Output | Producer | Consumer | Contract |
+| --- | --- | --- | --- |
+| `duration_model.v1.json` | `python -m sbb_duration.export` | Kotlin `DurationArtifactLoader` (`DURATION_ARTIFACT_PATH`) | `schemaVersion` 1. Contents: tree ensembles for `p50` and `pessimistic` (with `calibrationOffset`), feature specs and categories, derivation rules (time zone, text-flag regexes), provenance (SHA-256 of the inputs), metrics, per-cause `explanations`, limitations. Unknown keys are ignored by Kotlin; an unsupported version leaves estimates unknown. |
+| `duration_model.v1.eval.json` | same | same, for replays of past incidents | Same schema. It holds the split models, fitted before the test cutoff, with their own calibration and explanations. |
+| `golden_vectors.json` | same | Python and Kotlin parity tests | 100 cases: raw input, features, expected outputs. Tolerance 1e-6. |
+| `metrics.json` | `python -m sbb_duration.train` | team, pitch | Chronological split, MAE against the baselines, calibration before and after, robustness without auto-closed incidents. |
+| `timelines/timeline-<id>.json`, `timelines/index.json` | `python -m sbb_duration.sources` | backend `ReplayTimelineDisruptionSource` (`DISRUPTION_TIMELINES_DIR`), frontend (proposal) | See [API contract, multi-source timeline](../docs/API_CONTRACT.md#multi-source-incident-timeline-proposal). |
+| `replay/replay-0N.json` | `python -m sbb_duration.replay` | frontend (proposal) | `steps[].outlook` subset of the outlook response, `MOCK`. |
+| `pitch_numbers.md` | `python -m sbb_duration.pitch` | pitch | Generated key figures with one-sentence definitions. |
 
-The backend may package the artifact as a read-only resource, validate it at startup, and keep it in memory behind `RiskEstimator`. An absent, unsupported or unmatched artifact leaves risk unknown and logs the reason without compromising journey search or exposing raw data. Any UI-visible historical provenance or probability requires a reviewed API contract update. See [backend interfaces](../backend/INTERFACES.md).
+The backend loads the artifact at startup, validates it, and keeps it in memory behind `DisruptionDurationEstimator`. An absent, unsupported or invalid artifact leaves estimates unknown (`status: UNAVAILABLE`) and logs the reason, without affecting journey search. See [backend interfaces](../backend/INTERFACES.md).

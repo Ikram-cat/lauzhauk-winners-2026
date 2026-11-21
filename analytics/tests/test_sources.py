@@ -56,6 +56,13 @@ def test_rate_limit_except_replacement_bus():
     assert moments[1]["notify"]["withheld"] == ["ANNOUNCED_END_SHIFTED"]
 
 
+def test_nothing_is_notified_after_the_real_end():
+    moments = [_moment(0, "TAKE_DETOUR", 70, 90, announced="2026-09-17T18:30:00+02:00"),
+               _moment(40, "TAKE_DETOUR", 70, 90, announced="2026-09-17T21:00:00+02:00")]
+    add_notifications(moments, until="2026-09-17T18:40:00+02:00")
+    assert moments[1]["notify"] == {"value": False, "reasons": [], "afterRealEnd": True}
+
+
 def test_sloid_rule_for_swiss_uic_codes():
     stations = Stations(None)
     assert stations.get(8507000)["sloid"] == "ch:1:sloid:7000"

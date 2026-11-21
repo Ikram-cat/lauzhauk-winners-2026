@@ -6,6 +6,61 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-21 · C · Explanation, calibration, journey impact, demo, pitch, final review
+
+**Branch and commits**
+`prediction`. The commits are:
+- `7187a0e`: explanation;
+- `be929b7`: calibration;
+- `8639b11`: journey impact;
+- `bb6f32b`: live mode not implemented;
+- `96f6757`: demo;
+- `ec128c9`: pitch numbers;
+- the review commit that contains this entry.
+
+All are pushed to `origin/prediction`. `Daten/`, `analytics/output/`, `analytics/data/` and `.env` are never committed.
+
+**Completed**
+
+1. **Explanation.**
+   - `analytics/sbb_duration/explain.py` computes per-cause values from the training data: past incidents, median duration, and the median of (real end − announced end). A cause with fewer than 5 incidents falls back on all causes (`scope: ALL_REASONS`).
+   - The values are in the artifact, in the `explanation` field of the outlook response (Kotlin), and in the timelines (computed on the split's training data).
+2. **Calibration.** A split-conformal offset (log1p scale) is fitted on the most recent 20% of training incidents. Test coverage of the pessimistic estimate: 73.7% → 83.1%, target 85%; P50 unchanged at 97.9 min. The offset is in the artifact (`calibrationOffset`), the Kotlin evaluator and the golden vectors.
+3. **Journey ↔ disruption.**
+   - `JourneyLegDto.originSloid` and `destinationSloid` (optional); the OJP adapter reads board, alight and intermediate stops.
+   - New `service/impact/`: `ReplayTimelineDisruptionSource`, `JourneyDisruptionMatcher`, `JourneyImpactService`, exposed as `POST /api/journeys/impact`.
+   - Renens test: at 18:30, Lausanne → Genève on an IC 1 via Morges is affected; a lake alternative gives +95 min; advice `DETOUR_IF_DEADLINE`.
+4. **Live mode: not implemented.** There is no `.env` and no API key. The reasons and the missing checks are in `analytics/README.md#live-mode-not-implemented`.
+5. **Demo.**
+   - `python analytics/scripts/run_demo.py [--offline]`.
+   - `export` also writes `duration_model.v1.eval.json` (split models) so replays are never predicted by a model that saw the incident.
+   - `docs/DEMO.md` is the run sheet: Renens screen by screen, verified curl calls, troubleshooting, Stadelhofen backup.
+6. **Pitch numbers.** `python -m sbb_duration.pitch` writes `analytics/output/pitch_numbers.md`, every figure generated, with a one-sentence definition.
+7. **Review fixes.**
+   - Nothing is notified after the real end. Renens now has 6 notifications; before, one fired at 21:05, after trains resumed at 21:04.
+   - New parity test for the evaluation artifact.
+   - `analytics/INTERFACES.md` rewritten for the real outputs; new seams listed in `backend/INTERFACES.md`; contract figure updated; ROADMAP A3 and B5.
+
+**Checks**
+- From `analytics/`: `python -m pytest tests -p no:cacheprovider` → 18 passed.
+- From `backend/`: `./gradlew --no-daemon test` (JDK 21) → 50 passed, golden vectors run (not skipped).
+- `run_demo.py --offline` starts the backend, and every curl in `docs/DEMO.md` returns its documented result.
+
+**Needs more data, another role, or a decision**
+
+| # | Item | Who |
+| --- | --- | --- |
+| 1 | Data-use review of the liveticker, VIA and internal exports. It must happen before any artifact, timeline or golden file is committed, packaged in Docker or deployed. Until then, a deployed backend answers `UNAVAILABLE` and has no disruptions. | D with the data owner |
+| 2 | Review of the three proposals in `API_CONTRACT.md` (outlook with `explanation`, multi-source timeline, journey impact) and of the additive `originSloid` / `destinationSloid` leg fields. | A, B, D |
+| 3 | UI: render outlook, explanation (values only, localised by the UI), advice codes, timeline replay and notifications. No frontend file was changed. | A |
+| 4 | OJP: verify with a key that `StopPointRef` uses stop-place sloids and whether `IncludeIntermediateStops` is needed. Without intermediate stops, a leg crossing the middle of a section is detected only by the two-station rule. | B |
+| 5 | Alternatives: the planned timetable does not know the disruption, so the same search rarely contains an unaffected journey (none with the mock). This leaves `detourExtraMinutes` null and the advice `UNKNOWN`. Decide whether replacement buses or a second search via other corridors should count as alternatives. | B, product |
+| 6 | Live mode: SIRI-SX or GTFS-RT key, then verification of cause, announced end, affected stops and identifiers (analytics README). | B, C, D |
+| 7 | Advice rule: it compares the detour's extra minutes with the remaining disruption time. It ignores the traveller's deadline and the trip time after resumption. A product decision is needed before using deadlines. | Product, A |
+| 8 | Model limits that need more data: drift (recent incidents last longer; coverage 83.1% below the 85% target); rare causes (EG_011 has 4 incidents); unmeasured recall and precision of the keyword extraction and the station gazetteer (needs labelled internal messages); retraining cadence. | C, data owner |
+| 9 | Decision log: record the JSON tree artifact evaluated in Kotlin (in line with ADR-007), the replay disruption source and the conformal calibration. Add `DURATION_ARTIFACT_PATH` and `DISRUPTION_TIMELINES_DIR` to `.env.example`, and link `docs/DEMO.md` from `DEMO_SCRIPT.md`. | D |
+| 10 | Merge: branch `prediction` (convention `feature/analytics`) needs a PR to `main` with the challenge criterion IDs (CFF1, CFF2) and this evidence. | D |
+
 ## 2026-11-21 · C · Notify hysteresis, real resumption, robustness metric
 
 **Branch and commit**

@@ -230,7 +230,7 @@ def _advice_margin(old: str, new: str, outlook: dict) -> float | None:
     return min(abs(detour - b) for b in boundaries[lo:hi])
 
 
-def add_notifications(moments: list[dict]) -> None:
+def add_notifications(moments: list[dict], until: str | None = None) -> None:
     """notify = first detection, advice change, announced end shifted > 15 min, replacement bus announced.
 
     Hysteresis: an advice change notifies only when it is seen at two successive updates, or when
@@ -238,10 +238,14 @@ def add_notifications(moments: list[dict]) -> None:
     notification per 15 min, except a replacement-bus announcement. A withheld reason is not lost:
     its baseline is unchanged, so it fires at the next allowed update if it still holds.
     The shift rule applies to the SBB announced end only; the predicted end moves at every moment.
+    Nothing is notified at or after `until` (the real end): service is back for the traveller.
     """
     confirmed, pending, announced_base, bus_seen, last_sent = None, None, None, False, None
     for i, m in enumerate(moments):
         at = pd.Timestamp(m["at"])
+        if until is not None and at >= pd.Timestamp(until):
+            m["notify"] = {"value": False, "reasons": [], "afterRealEnd": True}
+            continue
         reasons, commit = [], []
         if i == 0:
             reasons.append({"code": "FIRST_DETECTION", "detail": f"first seen in {m['trigger']['source']}"})
@@ -404,7 +408,7 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
             "actualRemainingMinutes": None if actual_end is None else
             _round(max((actual_end - at).total_seconds() / 60, 0)),
         })
-    add_notifications(moments)
+    add_notifications(moments, _iso(actual_end))
 
     last_via = v_rows.iloc[-1]
     union = {"stations": [], "sections": [], "lines": []}

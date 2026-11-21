@@ -332,7 +332,7 @@ A section is `{from, to}` in UIC codes. `lines` are VIA line numbers such as `IC
 
 **Rate limit:** at most one notification every 15 minutes, except when it includes `REPLACEMENT_BUS_ANNOUNCED`. A withheld reason keeps its baseline, so it is notified at the next allowed moment if it still holds.
 
-These rules remove the flip-flops when the detour cost is close to the P50. On the primary demo incident, the four advice changes between 17:46 and 18:27 now produce one notification: at 17:55, where the detour is 12 minutes from the P50 and the advice then holds for 35 minutes. The timeline has 8 notifications in all.
+These rules remove the flip-flops when the detour cost is close to the P50. On the primary demo incident, the four advice changes between 17:46 and 18:27 now produce one notification: at 17:55, where the detour is 12 minutes from the P50 and the advice then holds for 35 minutes. Nothing is notified at or after `incident.actualEndAt` (`notify.afterRealEnd: true`). The timeline has 6 notifications in all.
 
 ### Checking a journey against an incident
 
