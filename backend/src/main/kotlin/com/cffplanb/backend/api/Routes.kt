@@ -3,7 +3,7 @@ package com.cffplanb.backend.api
 import com.cffplanb.backend.domain.Journey
 import com.cffplanb.backend.domain.JourneyLeg
 import com.cffplanb.backend.domain.SearchRequest
-import com.cffplanb.backend.service.JourneySearchService
+import com.cffplanb.backend.service.*
 import com.cffplanb.backend.service.SearchResult
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -17,10 +17,15 @@ import java.time.format.DateTimeParseException
 private val KNOWN_PARAMS = setOf("origin", "destination", "departure")
 private val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
-fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock) {
+fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator) {
     routing {
         get("/health") {
             call.respond(HttpStatusCode.OK, HealthResponseDto("ok"))
+        }
+
+        get("/api/model") {
+            val i = risk.info()
+            call.respond(HttpStatusCode.OK, ModelInfoDto(i.modelVersion, i.generatedAt, i.coverage, "artifact", i.keysLoaded, i.status))
         }
 
         get("/api/journeys") {
@@ -149,7 +154,7 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                             arrivalDeadline = null,
                             preference = "FASTEST"
                         ),
-                        journeys = result.journeys.map { it.toDto() }
+                        journeys = result.journeys.map { it.toDto(risk.estimate(it)) }
                     )
                     call.respond(HttpStatusCode.OK, response)
                 }
@@ -188,15 +193,15 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
     }
 }
 
-private fun Journey.toDto(): JourneyDto = JourneyDto(
+private fun Journey.toDto(r: RiskEstimate?): JourneyDto = JourneyDto(
     id = id,
     departure = RFC3339_FORMATTER.format(departure),
     arrival = RFC3339_FORMATTER.format(arrival),
     durationMinutes = durationMinutes,
     transfers = transfers,
     legs = legs.map { it.toDto() },
-    predictedDelayMinutes = null,
-    lateArrivalProbability = null,
+    predictedDelayMinutes = r?.predictedDelayMinutes,
+    lateArrivalProbability = r?.lateArrivalProbability,
     estimatedFareChf = null,
     dataStatus = dataStatus.name
 )

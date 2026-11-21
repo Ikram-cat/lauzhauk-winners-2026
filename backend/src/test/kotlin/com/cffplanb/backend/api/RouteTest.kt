@@ -285,3 +285,23 @@ class RouteTest {
         assertEquals(code, json["error"]!!.jsonObject["code"]!!.jsonPrimitive.content)
     }
 }
+
+class ModelRouteTest {
+    @Test
+    fun `GET api model reports artifact status and journeys fill risk fields`() = testApplication {
+        val fixture = java.nio.file.Path.of(javaClass.getResource("/predictions_fixture.json")!!.toURI())
+        application {
+            install(ContentNegotiation) { json(Json { encodeDefaults = true }) }
+            configureRoutes(
+                JourneySearchService(com.cffplanb.backend.provider.MockTransportProvider()),
+                Clock.fixed(Instant.parse("2026-11-21T15:00:00Z"), ZoneOffset.UTC),
+                com.cffplanb.backend.service.ArtifactRiskEstimator(fixture)
+            )
+        }
+        val m = Json.parseToJsonElement(client.get("/api/model").bodyAsText()).jsonObject
+        assertEquals("artifact", m["source"]!!.jsonPrimitive.content)
+        assertEquals(3, m["keysLoaded"]!!.jsonPrimitive.int)
+        assertEquals("v0.1", m["modelVersion"]!!.jsonPrimitive.content)
+        assertEquals(HttpStatusCode.OK, client.get("/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve").status)
+    }
+}
