@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,10 +34,10 @@ internal fun JourneyChoiceCard(
     chosen: Boolean,
     toggleDetails: () -> Unit,
     chooseJourney: () -> Unit,
-    badges: List<Preference> = emptyList(),
+    recommended: Boolean = false,
     fare: Double? = null,
     fullFare: Double? = null,
-    fareAvailable: Boolean = false,
+    fareLabel: String = "",
     model: ModelInfo? = null
 ) {
     val copy = language::text
@@ -48,26 +51,36 @@ internal fun JourneyChoiceCard(
 
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
-        border = BorderStroke(1.dp, if (chosen) colors.primary else colors.outlineVariant)
+        border = BorderStroke(if (chosen) 2.dp else 1.dp, if (chosen || recommended) colors.primary else colors.outlineVariant),
+        colors = CardDefaults.outlinedCardColors(containerColor = colors.surface)
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (recommended) Surface(color = colors.primary, contentColor = colors.onPrimary, shape = MaterialTheme.shapes.small) {
+                Text(copy(Copy.Recommended), Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Text("${time(start)} → ${time(end)}", style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(time(start), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        RouteMark(colors.primary)
+                        Text(time(end), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    }
                     Text(
-                        if (startDay == endDay) "$startDay · Europe/Zurich" else "$startDay → $endDay · Europe/Zurich",
+                        if (startDay == endDay) "$startDay · Europe/Zurich" else "$startDay - $endDay · Europe/Zurich",
                         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant
                     )
                 }
-                Text("${journey.durationMinutes} min", fontWeight = FontWeight.Medium,
-                    color = if (journey.feasible == false) colors.onSurfaceVariant else colors.primary)
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = 126.dp)) {
+                    Text(fare?.let(::chf) ?: fareLabel, style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold, color = if (fare == null) colors.onSurfaceVariant else colors.primary)
+                    if (fare != null) journey.fareSource?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                    }
+                }
             }
-            Text("$transfer · ${copy(journey.provenance)}", color = colors.onSurfaceVariant)
+            Text("${journey.durationMinutes} min · $transfer · ${copy(journey.provenance)}", color = colors.onSurfaceVariant)
             if (journey.feasible == false) Text(copy(Copy.MissesDeadline), color = colors.onSurfaceVariant)
-            if (badges.isNotEmpty()) Text(badges.joinToString(" · ") { copy(it.label) }, color = colors.primary)
-            if (fareAvailable) Text(fare?.let(::chf)?.let { "$it${journey.fareSource?.let { source -> " · $source" }.orEmpty()}" }
-                ?: copy(Copy.PriceUnavailable), color = colors.onSurfaceVariant)
             if (fare != null && fullFare != null && fullFare > fare) {
                 Text("${copy(Copy.FullPrice)} · ${chf(fullFare)}", color = colors.onSurfaceVariant,
                     textDecoration = TextDecoration.LineThrough)
@@ -117,10 +130,9 @@ internal fun JourneyChoiceCard(
                 val arrival = Instant.parse(leg.arrival)
                 fun label(instant: Instant) = if (startDay == endDay) time(instant)
                     else "${time(instant)} · ${instant.toLocalDateTime(Zurich).date}"
-                fun endpoint(value: String, fallback: Copy) = if (
-                    leg.mode == "WALK" && value.split(',').let { it.size == 2 && it.all { part -> part.trim().toDoubleOrNull() != null } }
-                ) copy(fallback) else value
-                Text("${label(departure)} ${endpoint(leg.origin, Copy.WalkFromAddress)} → ${label(arrival)} ${endpoint(leg.destination, Copy.WalkToAddress)}")
+                fun endpoint(value: String, fallback: Copy) =
+                    if (leg.mode == "WALK" && isCoordinate(value)) copy(fallback) else value
+                Text("${label(departure)} ${endpoint(leg.origin, Copy.WalkFromAddress)} - ${label(arrival)} ${endpoint(leg.destination, Copy.WalkToAddress)}")
                 val details = listOfNotNull(
                     when (leg.mode) {
                         "WALK" -> copy(Copy.Walking)

@@ -2,36 +2,27 @@
 
 package planb
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
@@ -54,7 +45,7 @@ private val Dark = darkColorScheme(
 )
 
 @Composable
-internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged: (Language) -> Unit = {}) {
+internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
     var language by remember { mutableStateOf(Language.French) }
     var darkOverride by remember { mutableStateOf<Boolean?>(null) }
     val useDark = darkOverride ?: isSystemInDarkTheme()
@@ -99,20 +90,15 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
     var appliedOptions by remember { mutableStateOf(JourneyOptions()) }
     var status by remember { mutableStateOf<Copy?>(null) }
     var searchedRoute by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var loading by remember { mutableStateOf(false) }
     var journeys by remember { mutableStateOf(emptyList<Journey>()) }
     var expandedJourneyId by remember { mutableStateOf<String?>(null) }
     var chosenJourneyId by remember { mutableStateOf<String?>(null) }
-    var recommendations by remember { mutableStateOf<Recommendations?>(null) }
     var responseInfo by remember { mutableStateOf<JourneyResponse?>(null) }
     var rescueFrom by remember { mutableStateOf("") }
-    var rescueMode by remember { mutableStateOf(false) }
     var showRescue by remember { mutableStateOf(false) }
-    var preference by remember { mutableStateOf(Preference.FASTEST) }
-    var firstClass by remember { mutableStateOf(false) }
-    var halfFare by remember { mutableStateOf(false) }
+    var fareProfile by remember { mutableStateOf(FareProfile()) }
+    var showTravelcards by remember { mutableStateOf(false) }
     var request by remember { mutableStateOf<Job?>(null) }
-    var railRun by remember { mutableStateOf(0) }
     val anchor = remember { Clock.System.now() }
     val departuresPanel = remember { BringIntoViewRequester() }
     val scroll = rememberScrollState()
@@ -129,15 +115,9 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
         journeys = emptyList()
         expandedJourneyId = null
         chosenJourneyId = null
-        val mode = preference
-        val first = firstClass
-        val half = halfFare
-        rescueMode = rescue
         responseInfo = null
-        recommendations = null
         status = Copy.Searching
         searchedRoute = null
-        loading = true
         request = scope.launch {
             try {
                 if (from.isEmpty() || to.isEmpty() || from.equals(to, ignoreCase = true)) {
@@ -151,19 +131,15 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                 val options = JourneyOptions(requestedDirectOnly, deadline.takeIf { source.demo })
                 val response = if (rescue) {
                     source.alternatives(from, to, checkNotNull(start), deadline)
-                } else source.search(from, to, start, mode, first, half, deadline)
+                } else source.search(from, to, start, deadline = deadline)
                 appliedOptions = options
                 responseInfo = response
                 journeys = response.journeys
-                recommendations = response.recommendations
                 expandedJourneyId = (options.applyTo(journeys).firstOrNull() ?: journeys.firstOrNull())?.id
                 status = if (journeys.isEmpty()) {
                     if (source.demo) Copy.EmptyDemo else Copy.EmptyJourney
                 } else null
                 searchedRoute = from to to
-                if (journeys.isNotEmpty()) {
-                    railRun++
-                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (invalid: SearchInputException) {
@@ -171,7 +147,6 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
             } catch (_: Exception) {
                 status = Copy.ServiceUnavailable
             }
-            loading = false
         }
     }
 
@@ -180,14 +155,16 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 BoxWithConstraints(Modifier.fillMaxHeight().widthIn(max = 1200.dp).fillMaxWidth()) {
                     val compact = maxWidth < 700.dp
-                    var motion by remember(reduceMotion) { mutableStateOf(!reduceMotion) }
                     Column(
                         Modifier.fillMaxSize().verticalScroll(scroll)
                             .padding(horizontal = if (compact) 16.dp else 36.dp, vertical = 18.dp),
                         verticalArrangement = Arrangement.spacedBy(22.dp)
                     ) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("↗ Plan B", color = colors.primary, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                            Surface(color = colors.primary, shape = RoundedCornerShape(8.dp)) {
+                                Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) { RouteMark(colors.onPrimary) }
+                            }
+                            Text("Plan B", Modifier.padding(start = 8.dp), fontSize = 24.sp, fontWeight = FontWeight.Black)
                             Spacer(Modifier.weight(1f))
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(copy(if (source.demo) Copy.DemoMode else Copy.ApiMode), color = colors.onSurfaceVariant)
@@ -209,7 +186,6 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                         }
                         val searchPanel: @Composable () -> Unit = {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(copy(Copy.Planner), color = colors.onSurfaceVariant, fontSize = 12.sp, letterSpacing = 2.sp)
                                 Text(copy(Copy.YourJourney), fontWeight = FontWeight.Black,
                                     fontSize = if (compact) 38.sp else 56.sp, lineHeight = if (compact) 41.sp else 59.sp)
                                 Text(copy(Copy.StartsHere), color = colors.primary, fontWeight = FontWeight.Black,
@@ -223,8 +199,7 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                                                 val previous = origin
                                                 origin = destination
                                                 destination = previous
-                                                railRun++
-                                            }, modifier = Modifier.semantics { contentDescription = copy(Copy.SwapStations) }) { Text("⇄", fontSize = 22.sp) }
+                                            }, modifier = Modifier.semantics { contentDescription = copy(Copy.SwapStations) }) { RouteMark(colors.primary, swap = true) }
                                             StationField(copy(Copy.To), destination, language, source, { destination = it }, { search(false) }, Modifier.weight(1f))
                                         }
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -233,7 +208,7 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                                         }
                                         Text(copy(Copy.DateHint), color = colors.onSurfaceVariant, fontSize = 12.sp)
                                         TextButton(onClick = { showOptions = !showOptions }) {
-                                            Text(copy(Copy.TripOptions) + if (showOptions) " −" else " +")
+                                            Text(copy(Copy.TripOptions) + if (showOptions) " -" else " +")
                                         }
                                         if (showOptions) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -251,6 +226,20 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                                             }
                                             Text(copy(Copy.DeadlineHint), color = colors.onSurfaceVariant, fontSize = 12.sp)
                                         }
+                                        OutlinedButton(onClick = { showTravelcards = !showTravelcards }, modifier = Modifier.fillMaxWidth()) {
+                                            Text(copy(Copy.AddTravelcards))
+                                        }
+                                        if (showTravelcards) TravelcardsMenu(
+                                            language, fareProfile,
+                                            journeys.firstOrNull { it.id == chosenJourneyId } ?: visibleJourneys.firstOrNull(),
+                                            close = { showTravelcards = false },
+                                            apply = { fareProfile = it; showTravelcards = false }
+                                        )
+                                        if (fareProfile.travelcard != Travelcard.STANDARD || fareProfile.firstClass) {
+                                            Text(copy(fareProfile.travelcard.label) + " / " +
+                                                copy(if (fareProfile.firstClass) Copy.FirstClass else Copy.SecondClass),
+                                                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                        }
                                         Button(onClick = { search(false) }, modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp)) { Text(copy(Copy.Search)) }
                                     }
                                 }
@@ -258,10 +247,15 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                         }
                         if (compact) {
                             searchPanel()
-                            StationClock(anchor, source.demo, language)
+                            if (journeys.isEmpty()) StationClock(language)
                         } else Row(horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.weight(1.55f)) { searchPanel() }
-                            Box(Modifier.weight(1f)) { StationClock(anchor, source.demo, language) }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                StationClock(language)
+                                val overviewJourney = journeys.firstOrNull { it.id == chosenJourneyId } ?: visibleJourneys.firstOrNull()
+                                val route = searchedRoute.takeIf { overviewJourney != null }
+                                JourneyOverview(route?.first ?: origin, route?.second ?: destination, overviewJourney, language)
+                            }
                         }
                         if (!source.demo) {
                             TextButton(onClick = { showRescue = !showRescue }) { Text(copy(Copy.PlanB)) }
@@ -272,40 +266,13 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                                 Button(onClick = { search(true) }) { Text(copy(Copy.FindAlternatives)) }
                             }
                         }
-                        Track(origin, destination, railRun, motion)
                         val noMatch = journeys.isNotEmpty() && visibleJourneys.isEmpty()
                         val feedback = status?.let(copy) ?: searchedRoute?.let { (from, to) ->
                             if (noMatch) copy(Copy.NoMatchingJourneys)
-                            else "$from → $to · ${language.count(visibleJourneys.size, Copy.Journey, Copy.JourneyPlural)}"
+                            else "$from - $to · ${language.count(visibleJourneys.size, Copy.Journey, Copy.JourneyPlural)}"
                         }
                         if (feedback != null) {
                             Text(copy(Copy.Journeys), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            if (!rescueMode) {
-                                SingleChoiceSegmentedButtonRow(Modifier.semantics { contentDescription = copy(Copy.SortBy) }) {
-                                    for ((index, mode) in Preference.entries.withIndex()) SegmentedButton(
-                                        selected = preference == mode,
-                                        onClick = { if (preference != mode) { preference = mode; search(false) } },
-                                        shape = SegmentedButtonDefaults.itemShape(index, Preference.entries.size)
-                                    ) { Text(copy(mode.label)) }
-                                }
-                                if (preference == Preference.CHEAPEST) Text(copy(Copy.PriceHint), color = colors.onSurfaceVariant, fontSize = 12.sp)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    itemVerticalAlignment = Alignment.CenterVertically) {
-                                    SingleChoiceSegmentedButtonRow(Modifier.semantics { contentDescription = copy(Copy.TravelClass) }) {
-                                        for ((index, first) in listOf(false, true).withIndex()) SegmentedButton(
-                                            selected = firstClass == first,
-                                            onClick = { if (firstClass != first) { firstClass = first; search(false) } },
-                                            shape = SegmentedButtonDefaults.itemShape(index, 2)
-                                        ) { Text(copy(if (first) Copy.FirstClass else Copy.SecondClass)) }
-                                    }
-                                    Row(Modifier.toggleable(halfFare, role = Role.Switch) { halfFare = it; search(false) },
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Switch(halfFare, onCheckedChange = null)
-                                        Text(copy(Copy.HalfFare))
-                                    }
-                                }
-                            }
-                            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                             Text(feedback, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.onSurfaceVariant)
                             responseInfo?.let { info ->
                                 if (info.noFeasibleRoute == true) Text(copy(Copy.NoFeasibleRoute), fontWeight = FontWeight.Bold)
@@ -333,12 +300,13 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                                     chooseJourney = {
                                         expandedJourneyId = journey.id
                                         chosenJourneyId = journey.id
-                                        railRun++
                                     },
-                                    badges = Preference.entries.filter { recommendations?.id(it) == journey.id },
-                                    fare = if (rescueMode) null else journey.fare(firstClass, halfFare),
-                                    fullFare = if (!rescueMode && halfFare) journey.fullFare(firstClass) else null,
-                                    fareAvailable = !rescueMode && !source.demo,
+                                    recommended = !noMatch && journey.id == visibleJourneys.firstOrNull { it.feasible != false }?.id,
+                                    fare = fareProfile.price(journey),
+                                    fullFare = if (fareProfile.travelcard == Travelcard.HALF_FARE)
+                                        fareProfile.copy(travelcard = Travelcard.STANDARD).price(journey) else null,
+                                    fareLabel = if (fareProfile.travelcard.canQuote) copy(Copy.PriceUnavailable)
+                                        else copy(Copy.CoverageUnverified),
                                     model = model
                                 )
                             }
@@ -351,7 +319,6 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                             Modifier.bringIntoViewRequester(departuresPanel)
                         )
                         Text(copy(Copy.Prototype), color = colors.onSurfaceVariant, fontSize = 12.sp)
-                        TextButton(onClick = { motion = !motion }) { Text(copy(if (motion) Copy.ReduceMotion else Copy.EnableMotion)) }
                     }
                 }
             }
@@ -371,7 +338,7 @@ private fun DepartureBoard(
             if (service.delay > 0) "+${service.delay} min" else copy(Copy.OnTime))
     } else journeys.mapNotNull { journey ->
         val leg = journey.legs.firstOrNull { it.mode == "TRANSIT" } ?: return@mapNotNull null
-        listOf(time(Instant.parse(leg.departure)), "${leg.origin} → ${leg.destination}",
+        listOf(time(Instant.parse(leg.departure)), "${leg.origin} - ${leg.destination}",
             leg.departurePlatform ?: "—", copy(journey.provenance))
     }.distinct()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -397,94 +364,5 @@ private fun BoardRow(values: List<String>, header: Boolean = false) {
             value, Modifier.weight(if (index == 1) 1.45f else 1f).padding(horizontal = 4.dp),
             fontSize = 13.sp, fontWeight = if (header || index < 3) FontWeight.Bold else FontWeight.Normal
         )
-    }
-}
-
-@Composable
-private fun StationClock(anchor: Instant, demo: Boolean, language: Language) {
-    val copy = language::text
-    val colors = MaterialTheme.colorScheme
-    var now by remember { mutableStateOf(Clock.System.now()) }
-    var digital by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = Clock.System.now()
-            delay(250)
-        }
-    }
-    val local = now.toLocalDateTime(Zurich)
-    val display = "${two(local.hour)}:${two(local.minute)}:${two(local.second)}"
-    Surface(color = colors.surfaceVariant, contentColor = colors.onSurface, shape = RoundedCornerShape(16.dp)) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(copy(Copy.ZurichTime), color = colors.onSurfaceVariant, fontSize = 11.sp, letterSpacing = 1.sp)
-            TextButton(onClick = { digital = !digital }, modifier = Modifier.semantics {
-                contentDescription = copy(if (digital) Copy.AnalogClock else Copy.DigitalClock)
-            }) {
-                Box(Modifier.size(206.dp), contentAlignment = Alignment.Center) {
-                    Canvas(Modifier.fillMaxSize()) {
-                        val unit = size.width / 240f
-                        drawCircle(Color.White, size.width / 2)
-                        if (!digital) {
-                            repeat(60) { index ->
-                                val major = index % 5 == 0
-                                rotate(index * 6f) { drawLine(Ink, Offset(120 * unit, 12 * unit),
-                                    Offset(120 * unit, (if (major) 36 else 20) * unit), (if (major) 6 else 2.5f).toFloat() * unit) }
-                            }
-                            rotate((local.hour % 12 + local.minute / 60f) * 30f) {
-                                drawLine(Ink, Offset(120 * unit, 141 * unit), Offset(120 * unit, 66 * unit), 14 * unit)
-                            }
-                            rotate((local.minute + local.second / 60f) * 6f) {
-                                drawLine(Ink, Offset(120 * unit, 139 * unit), Offset(120 * unit, 35 * unit), 10 * unit)
-                            }
-                            rotate(local.second * 6f) {
-                                drawLine(Red, Offset(120 * unit, 154 * unit), Offset(120 * unit, 49 * unit), 3 * unit)
-                                drawCircle(Red, 11 * unit, Offset(120 * unit, 49 * unit))
-                            }
-                        }
-                    }
-                    if (digital) Text(display, color = Ink, fontSize = 31.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            if (demo) {
-                val departure = anchor + services.first().offset.minutes
-                val seconds = (departure - now).inWholeSeconds
-                val countdown = if (seconds > 0) "${copy(Copy.In)} ${two((seconds / 60).toInt())}:${two((seconds % 60).toInt())}"
-                    else copy(Copy.DeparturePassed)
-                Text(copy(Copy.NextDeparture), color = colors.onSurfaceVariant, fontSize = 12.sp)
-                Text("Lausanne → Genève · ${time(departure)}", fontWeight = FontWeight.Bold)
-                Text(countdown, color = colors.onSurfaceVariant, fontSize = 12.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun Track(origin: String, destination: String, run: Int, motion: Boolean) {
-    val colors = MaterialTheme.colorScheme
-    val position = remember { Animatable(.28f) }
-    LaunchedEffect(run, motion) {
-        position.snapTo(if (motion) 0f else .28f)
-        if (motion) position.animateTo(1f, tween(1250))
-    }
-    Column {
-        Canvas(Modifier.fillMaxWidth().height(29.dp)) {
-            val y = size.height - 5.dp.toPx()
-            val trainWidth = 42.dp.toPx()
-            val x = (size.width - trainWidth).coerceAtLeast(0f) * position.value
-            drawLine(colors.outlineVariant, Offset(0f, y), Offset(size.width, y), 3.dp.toPx())
-            drawLine(colors.primary, Offset(0f, y), Offset(x + trainWidth / 2, y), 3.dp.toPx())
-            drawRoundRect(colors.primary, Offset(x, y - 16.dp.toPx()), androidx.compose.ui.geometry.Size(trainWidth, 12.dp.toPx()),
-                androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
-            repeat(4) { index ->
-                drawRect(colors.onPrimary, Offset(x + (5 + index * 8).dp.toPx(), y - 13.dp.toPx()),
-                    androidx.compose.ui.geometry.Size(4.dp.toPx(), 3.dp.toPx()))
-            }
-            drawCircle(colors.primary, 4.dp.toPx(), Offset(4.dp.toPx(), y))
-            drawCircle(colors.primary, 4.dp.toPx(), Offset(size.width - 4.dp.toPx(), y))
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(origin, color = colors.onSurfaceVariant, fontSize = 12.sp)
-            Text(destination, color = colors.onSurfaceVariant, fontSize = 12.sp)
-        }
     }
 }
