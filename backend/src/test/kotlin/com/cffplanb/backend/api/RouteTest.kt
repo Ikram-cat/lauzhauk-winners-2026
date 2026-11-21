@@ -14,6 +14,7 @@ import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
+import com.cffplanb.backend.provider.LocationsResult as LR
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -303,5 +304,43 @@ class ModelRouteTest {
         assertEquals(3, m["keysLoaded"]!!.jsonPrimitive.int)
         assertEquals("v0.1", m["modelVersion"]!!.jsonPrimitive.content)
         assertEquals(HttpStatusCode.OK, client.get("/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve").status)
+    }
+}
+
+class LocationsRouteTest {
+    private fun app(p: com.cffplanb.backend.provider.TransportProvider, block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
+        application {
+            install(ContentNegotiation) { json(Json { encodeDefaults = true }) }
+            configureRoutes(JourneySearchService(p), Clock.systemUTC())
+        }
+        block()
+    }
+
+    private fun fixed(r: com.cffplanb.backend.provider.LocationsResult) = object : TransportProvider {
+        override suspend fun search(request: SearchRequest) = ProviderResult.Success(emptyList())
+        override suspend fun searchLocations(query: String) = r
+    }
+
+    @Test fun `returns locations capped at 10`() = app(fixed(com.cffplanb.backend.provider.LocationsResult.Success(
+        (1..15).map { com.cffplanb.backend.provider.LocationSuggestion("id$it", "n$it", "stop", null, null) }))) {
+        val r = client.get("/api/locations?query=n")
+        assertEquals(HttpStatusCode.OK, r.status)
+        assertEquals(10, Json.parseToJsonElement(r.bodyAsText()).jsonObject["locations"]!!.jsonArray.size)
+    }
+
+    @Test fun `mock provider filters by name`() = app(com.cffplanb.backend.provider.MockTransportProvider()) {
+        val arr = Json.parseToJsonElement(client.get("/api/locations?query=laus").bodyAsText()).jsonObject["locations"]!!.jsonArray
+        assertEquals(1, arr.size)
+        assertEquals("stop", arr[0].jsonObject["kind"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun `invalid queries are 400`() = app(com.cffplanb.backend.provider.MockTransportProvider()) {
+        for (u in listOf("/api/locations", "/api/locations?query=", "/api/locations?query=%20%20", "/api/locations?query=a&query=b", "/api/locations?query=a&x=1", "/api/locations?query=" + "a".repeat(121)))
+            assertEquals(HttpStatusCode.BadRequest, client.get(u).status, u)
+    }
+
+    @Test fun `upstream failures map to error envelope`() {
+                for ((r, st) in listOf(LR.Timeout("t") to 504, LR.RateLimited("r") to 503, LR.Failure("f") to 502))
+            app(fixed(r)) { assertEquals(st, client.get("/api/locations?query=x").status.value) }
     }
 }

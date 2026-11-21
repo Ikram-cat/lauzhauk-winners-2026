@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<OJP xmlns:siri="http://www.siri.org.uk/siri" version="2.0" xmlns="http://www.vdv.de/ojp"><OJPResponse><siri:ServiceDelivery><OJPLocationInformationDelivery>
+<PlaceResult><Place><StopPlace><StopPlaceRef>ch:1:sloid:1120</StopPlaceRef><StopPlaceName><Text xml:lang="de">Lausanne</Text></StopPlaceName></StopPlace><Name><Text xml:lang="de">Lausanne (Lausanne)</Text></Name><GeoPosition><siri:Longitude>6.62909</siri:Longitude><siri:Latitude>46.51679</siri:Latitude></GeoPosition></Place></PlaceResult>
+<PlaceResult><Place><Address><PublicCode>streetID:1:Bahnhofstrasse:1</PublicCode><Name><Text xml:lang="de">Zürich, Bahnhofstrasse 1</Text></Name></Address><Name><Text xml:lang="de">Bahnhofstrasse 1 (Zürich)</Text></Name><GeoPosition><siri:Longitude>8.5</siri:Longitude><siri:Latitude>47.3</siri:Latitude></GeoPosition></Place></PlaceResult>
+<PlaceResult><Place><StopPlace><StopPlaceRef>ch:1:sloid:9</StopPlaceRef><StopPlaceName><Text>No Geo</Text></StopPlaceName></StopPlace></Place></PlaceResult>
+</OJPLocationInformationDelivery></siri:ServiceDelivery></OJPResponse></OJP>

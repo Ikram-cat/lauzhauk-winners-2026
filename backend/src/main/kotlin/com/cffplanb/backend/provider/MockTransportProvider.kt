@@ -10,6 +10,16 @@ import java.time.temporal.ChronoUnit
 
 class MockTransportProvider : TransportProvider {
 
+    private val stops = listOf(
+        LocationSuggestion("mock:lausanne", "Lausanne", "stop", 6.62909, 46.51679),
+        LocationSuggestion("mock:geneve", "Genève", "stop", 6.14259, 46.21025),
+        LocationSuggestion("mock:bern", "Bern", "stop", 7.43911, 46.94883),
+        LocationSuggestion("mock:zurich", "Zürich HB", "stop", 8.54021, 47.37819)
+    )
+
+    override suspend fun searchLocations(query: String): LocationsResult =
+        LocationsResult.Success(stops.filter { it.name.contains(query.trim(), ignoreCase = true) })
+
     override suspend fun search(request: SearchRequest): ProviderResult {
         val base = request.earliestDeparture
 

@@ -61,3 +61,9 @@ data class ModelInfoDto(
     val keysLoaded: Int,
     val status: String
 )
+
+@Serializable
+data class LocationDto(val id: String, val name: String, val kind: String, val x: Double? = null, val y: Double? = null)
+
+@Serializable
+data class LocationsResponseDto(val locations: List<LocationDto>)

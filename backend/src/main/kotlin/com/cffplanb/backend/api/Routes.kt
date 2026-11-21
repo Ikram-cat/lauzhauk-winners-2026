@@ -3,6 +3,7 @@ package com.cffplanb.backend.api
 import com.cffplanb.backend.domain.Journey
 import com.cffplanb.backend.domain.JourneyLeg
 import com.cffplanb.backend.domain.SearchRequest
+import com.cffplanb.backend.provider.LocationsResult
 import com.cffplanb.backend.service.*
 import com.cffplanb.backend.service.SearchResult
 import io.ktor.http.*
@@ -26,6 +27,32 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
         get("/api/model") {
             val i = risk.info()
             call.respond(HttpStatusCode.OK, ModelInfoDto(i.modelVersion, i.generatedAt, i.coverage, "artifact", i.keysLoaded, i.status))
+        }
+
+        get("/api/locations") {
+            val params = call.request.queryParameters
+            val bad = params.names().firstOrNull { it != "query" }?.let { "Unknown parameter: $it" }
+                ?: if ((params.getAll("query")?.size ?: 0) > 1) "Duplicate parameter: query" else null
+            val q = params["query"]?.trim()
+            val err = bad ?: when {
+                q == null -> "Missing required parameter: query"
+                q.isEmpty() -> "Parameter 'query' must not be blank"
+                q.codePointCount(0, q.length) > 120 -> "Parameter 'query' exceeds 120 code points"
+                else -> null
+            }
+            if (err != null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", err)))
+                return@get
+            }
+            when (val r = searchService.searchLocations(q!!)) {
+                is LocationsResult.Success -> call.respond(
+                    HttpStatusCode.OK,
+                    LocationsResponseDto(r.locations.take(10).map { LocationDto(it.id, it.name, it.kind, it.x, it.y) })
+                )
+                is LocationsResult.Timeout -> call.respond(HttpStatusCode.GatewayTimeout, ErrorResponseDto(ErrorDetailDto("UPSTREAM_TIMEOUT", r.message)))
+                is LocationsResult.RateLimited -> call.respond(HttpStatusCode.ServiceUnavailable, ErrorResponseDto(ErrorDetailDto("UPSTREAM_RATE_LIMITED", r.message)))
+                is LocationsResult.Failure -> call.respond(HttpStatusCode.BadGateway, ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", r.message)))
+            }
         }
 
         get("/api/journeys") {
