@@ -1,10 +1,10 @@
 {
- "modelVersion": "rt-20261121-2155",
- "generatedAt": "2026-11-21T21:55:56Z",
+ "modelVersion": "rt-20261121-2200",
+ "generatedAt": "2026-11-21T22:00:42Z",
  "window": {
   "from": "2026-11-21T20:55:12Z",
-  "to": "2026-11-21T21:55:47Z",
-  "samples": 545
+  "to": "2026-11-21T21:59:47Z",
+  "samples": 559
  },
  "portions": [
   {
@@ -65,7 +65,7 @@
    "station": "Genève",
    "hourBucket": 22,
    "samples": 18,
-   "medianDelayMin": 0.7,
+   "medianDelayMin": 0.8,
    "p90DelayMin": 4.2,
    "shareLate": 0.17,
    "cancelled": 0
@@ -74,8 +74,8 @@
    "station": "Genève",
    "hourBucket": 23,
    "samples": 18,
-   "medianDelayMin": 0.6,
-   "p90DelayMin": 1.5,
+   "medianDelayMin": 0.7,
+   "p90DelayMin": 1.1,
    "shareLate": 0.06,
    "cancelled": 0
   },
@@ -83,7 +83,7 @@
    "station": "Lausanne",
    "hourBucket": 22,
    "samples": 27,
-   "medianDelayMin": 0.9,
+   "medianDelayMin": 1.0,
    "p90DelayMin": 2.0,
    "shareLate": 0.07,
    "cancelled": 0
@@ -91,9 +91,9 @@
   {
    "station": "Lausanne",
    "hourBucket": 23,
-   "samples": 17,
+   "samples": 20,
    "medianDelayMin": 0.3,
-   "p90DelayMin": 0.9,
+   "p90DelayMin": 1.0,
    "shareLate": 0.0,
    "cancelled": 0
   },
@@ -112,7 +112,7 @@
    "samples": 12,
    "medianDelayMin": 0.7,
    "p90DelayMin": 1.5,
-   "shareLate": 0.0,
+   "shareLate": 0.08,
    "cancelled": 0
   },
   {
@@ -139,13 +139,13 @@
    "samples": 29,
    "medianDelayMin": 1.1,
    "p90DelayMin": 3.1,
-   "shareLate": 0.28,
+   "shareLate": 0.31,
    "cancelled": 1
   },
   {
    "station": "Olten",
    "hourBucket": 23,
-   "samples": 18,
+   "samples": 19,
    "medianDelayMin": 0.5,
    "p90DelayMin": 0.8,
    "shareLate": 0.0,
@@ -163,8 +163,8 @@
   {
    "station": "Renens VD",
    "hourBucket": 23,
-   "samples": 18,
-   "medianDelayMin": 0.7,
+   "samples": 20,
+   "medianDelayMin": 0.6,
    "p90DelayMin": 1.1,
    "shareLate": 0.0,
    "cancelled": 0
@@ -184,7 +184,7 @@
    "samples": 15,
    "medianDelayMin": 0.4,
    "p90DelayMin": 1.2,
-   "shareLate": 0.0,
+   "shareLate": 0.07,
    "cancelled": 0
   },
   {
@@ -217,14 +217,51 @@
   {
    "station": "Zürich HB",
    "hourBucket": 23,
-   "samples": 14,
+   "samples": 18,
    "medianDelayMin": 0.5,
    "p90DelayMin": 2.5,
-   "shareLate": 0.14,
+   "shareLate": 0.11,
    "cancelled": 0
   }
  ],
- "lines": [],
+ "lines": [
+  {
+   "serviceLabel": "R8",
+   "station": "Renens VD",
+   "hourBucket": 22,
+   "samples": 7,
+   "medianDelayMin": 2.1,
+   "p90DelayMin": 3.3,
+   "shareLate": 0.57
+  },
+  {
+   "serviceLabel": "RL4",
+   "station": "Genève",
+   "hourBucket": 22,
+   "samples": 7,
+   "medianDelayMin": 0.7,
+   "p90DelayMin": 1.4,
+   "shareLate": 0.0
+  },
+  {
+   "serviceLabel": "RL4",
+   "station": "Genève",
+   "hourBucket": 23,
+   "samples": 7,
+   "medianDelayMin": 0.7,
+   "p90DelayMin": 0.7,
+   "shareLate": 0.0
+  },
+  {
+   "serviceLabel": "S3",
+   "station": "Zürich HB",
+   "hourBucket": 22,
+   "samples": 5,
+   "medianDelayMin": 2.0,
+   "p90DelayMin": 3.0,
+   "shareLate": 0.4
+  }
+ ],
  "cancellations": [
   {
    "station": "Olten",

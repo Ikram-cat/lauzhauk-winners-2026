@@ -10,6 +10,8 @@ import java.nio.file.Path
 import java.time.ZoneId
 
 const val MIN_DELAY_SAMPLES = 10
+/** Line rows are far sparser than station rows; the sampler emits them from 5 samples up. */
+const val MIN_LINE_SAMPLES = 10
 const val MAX_APPLIED_DELAY_MIN = 30.0
 
 /** [source]: "line" | "station" | "none". minutes/samples are null exactly when source is "none". */
@@ -65,9 +67,9 @@ class RealtimeDelayModel(private val path: Path?) {
         refresh()
         val l = loaded ?: return NONE_DELAY
         val forms = stationForms(station)
-        fun usable(r: DelayRow?) = r?.takeIf { it.samples >= MIN_DELAY_SAMPLES && it.medianDelayMin?.isNaN() == false }
+        fun usable(r: DelayRow?, min: Int = MIN_DELAY_SAMPLES) = r?.takeIf { it.samples >= min && it.medianDelayMin?.isNaN() == false }
         val lab = label(serviceLabel)
-        val line = if (lab.isEmpty()) null else forms.firstNotNullOfOrNull { usable(l.lines[Triple(lab, it, localHour)]) }
+        val line = if (lab.isEmpty()) null else forms.firstNotNullOfOrNull { usable(l.lines[Triple(lab, it, localHour)], MIN_LINE_SAMPLES) }
         val row = line ?: forms.firstNotNullOfOrNull { usable(l.stations[it to localHour]) } ?: return NONE_DELAY
         return ExpectedDelay(row.medianDelayMin!!.coerceIn(0.0, MAX_APPLIED_DELAY_MIN), row.samples, if (line != null) "line" else "station")
     }
