@@ -22,7 +22,7 @@ enum class DisruptionBasis { REALTIME_ESTIMATE, CANCELLED_FLAG, MISSING_FROM_REA
 /** [legIndex] indexes the checked journey's legs; [leg] is that leg as scheduled. */
 data class Disruption(
     val legIndex: Int, val leg: JourneyLeg, val delayMinutes: Int?, val cancelled: Boolean,
-    val basis: DisruptionBasis, val confidence: String,    val estimatedDeparture: OffsetDateTime?, val cause: String? = null, val severity: String? = null,
+    val basis: DisruptionBasis, val confidence: String, val estimatedDeparture: OffsetDateTime?, val cause: String? = null, val severity: String? = null,
     /** True when the verdict came from the GTFS-RT feed rather than OJP stop events. */
     val fromGtfs: Boolean = false,
     /** False for a cancelled train that is not part of the checked journey (the planner already dropped it) but would have served the same hop. */
