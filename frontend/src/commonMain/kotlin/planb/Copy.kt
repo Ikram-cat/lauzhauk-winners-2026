@@ -67,5 +67,9 @@ internal enum class Copy(val french: String, val english: String) {
     Cheapest("Le moins cher", "Cheapest"),
     Simplest("Le plus simple", "Simplest"),
     SortBy("Trier les itinéraires", "Sort journeys"),
-    WithHalfFare("avec demi-tarif", "with Half-Fare")
+    SecondClass("2e classe", "2nd class"),
+    FirstClass("1re classe", "1st class"),
+    TravelClass("Classe de voyage", "Travel class"),
+    HalfFare("Demi-tarif", "Half-Fare"),
+    FullPrice("Prix sans demi-tarif", "Price without Half-Fare")
 }

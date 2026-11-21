@@ -33,11 +33,11 @@ class JourneySourceTest {
         server.start()
         val source = JourneySource("http://127.0.0.1:${server.address.port}")
         try {
-            val journey = runBlocking { source.search("Lausanne", "Genève", null).journeys.single() }
+            val journey = runBlocking { source.search("Lausanne", "Genève", null, firstClass = true, halfFare = true).journeys.single() }
             assertEquals("fixture", journey.id)
             assertEquals("MOCK", journey.dataStatus)
             assertEquals("4", journey.legs.single().departurePlatform)
-            assertEquals(setOf("origin=Lausanne", "destination=Genève", "preference=FASTEST"), query.get().split('&').toSet())
+            assertEquals(setOf("origin=Lausanne", "destination=Genève", "preference=FASTEST", "fareClass=1", "discount=HALF_FARE"), query.get().split('&').toSet())
         } finally {
             source.close()
             server.stop(0)

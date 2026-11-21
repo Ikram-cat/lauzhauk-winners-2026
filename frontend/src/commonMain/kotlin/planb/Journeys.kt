@@ -50,11 +50,18 @@ internal data class Journey(
     val id: String, val departure: String, val arrival: String, val durationMinutes: Int,
     val transfers: Int, val dataStatus: String, val legs: List<Leg>,
     val estimatedFareChf: Double? = null, val halfFareChf: Double? = null, val firstClassFareChf: Double? = null,
-    val fareProduct: String? = null, val fareSource: String? = null, val fareStatus: String? = null
+    val fareProduct: String? = null, val fareSource: String? = null, val fareStatus: String? = null,
+    val fareChf: Double? = null, val firstClassHalfFareChf: Double? = null
 ) {
-    /** Known 2nd-class full fare; null means unknown and must not be rendered. */
-    val fare get() = estimatedFareChf?.takeIf { fareStatus != "UNAVAILABLE" }
-    val halfFare get() = halfFareChf?.takeIf { fare != null }
+    private val known get() = fareStatus != "UNAVAILABLE"
+    /** Undiscounted fare for the class; null means unknown and must not be rendered. */
+    fun fullFare(firstClass: Boolean) = (if (firstClass) firstClassFareChf else estimatedFareChf)?.takeIf { known }
+    /** Price the user pays: backend `fareChf`, else the contract v2 field for the selection (older backends). */
+    fun fare(firstClass: Boolean, halfFare: Boolean) = (fareChf ?: when {
+        !halfFare -> fullFare(firstClass)
+        firstClass -> firstClassHalfFareChf
+        else -> halfFareChf
+    })?.takeIf { known }
 }
 
 internal enum class Preference(val label: Copy) { FASTEST(Copy.Fastest), CHEAPEST(Copy.Cheapest), SIMPLEST(Copy.Simplest) }
@@ -81,12 +88,15 @@ internal fun parseJourneys(body: String): JourneyResponse = json.decodeFromStrin
     }
 }
 
-internal fun journeysUrl(base: String, origin: String, destination: String, departure: Instant?, preference: Preference) =
+internal fun journeysUrl(base: String, origin: String, destination: String, departure: Instant?, preference: Preference,
+                         firstClass: Boolean = false, halfFare: Boolean = false) =
     URLBuilder(base.trimEnd('/') + "/api/journeys").apply {
         parameters.append("origin", origin)
         parameters.append("destination", destination)
         departure?.let { parameters.append("departure", it.toString()) }
         parameters.append("preference", preference.name)
+        parameters.append("fareClass", if (firstClass) "1" else "2")
+        parameters.append("discount", if (halfFare) "HALF_FARE" else "NONE")
     }.buildString()
 
 internal fun chf(value: Double): String {
@@ -113,10 +123,11 @@ internal class JourneySource(private val base: String) {
     fun close() { client?.close() }
 
     suspend fun search(
-        origin: String, destination: String, departure: Instant?, preference: Preference = Preference.FASTEST
+        origin: String, destination: String, departure: Instant?, preference: Preference = Preference.FASTEST,
+        firstClass: Boolean = false, halfFare: Boolean = false
     ): JourneyResponse {
         val http = client ?: return JourneyResponse(demoSearch(origin, destination, departure ?: Clock.System.now()))
-        val response = http.get(journeysUrl(base, origin, destination, departure, preference))
+        val response = http.get(journeysUrl(base, origin, destination, departure, preference, firstClass, halfFare))
         if (response.status.value == 400) throw SearchInputException(Copy.BadRequest)
         check(response.status.value in 200..299)
         return parseJourneys(response.bodyAsText())
