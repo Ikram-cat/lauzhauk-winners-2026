@@ -75,7 +75,7 @@ class ResilientProvider(
     // Cached per (stop, window start minute) for searchTtlMs. Failures never trip the breaker: detection is best-effort and must not take /api/journeys down.
     override suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime, realtime: Boolean): StopEventsResult =
         cached(listOf("ev", realtime, stop.trim().lowercase(), from.toEpochSecond() / 60), searchTtlMs, {
-            if (isOpen()) StopEventsResult.Failure(BREAKER_MESSAGE) else delegate.stopEvents(stop, from)
+            if (isOpen()) StopEventsResult.Failure(BREAKER_MESSAGE) else delegate.stopEvents(stop, from, realtime)
         }, { it is StopEventsResult.Success })
 
     // Bad user input (unresolvable stop) is not an upstream health signal.

@@ -3,6 +3,8 @@ package com.cffplanb.backend.config
 import com.cffplanb.backend.api.ErrorDetailDto
 import com.cffplanb.backend.api.ErrorResponseDto
 import com.cffplanb.backend.api.configureRoutes
+import com.cffplanb.backend.gtfs.GtfsRealtimeSource
+import kotlinx.coroutines.launch
 import com.cffplanb.backend.provider.MockFareProvider
 import com.cffplanb.backend.provider.MockTransportProvider
 import com.cffplanb.backend.provider.NovaFareProvider
@@ -91,5 +93,11 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
 
     val ri = risk.info()
     log.info("Risk artifact status={} corridorsLoaded={} modelVersion={}", ri.status, ri.corridorsLoaded, ri.modelVersion)
-    configureRoutes(searchService, clock, risk)
+    val gtfs = if (config.gtfsRtEnabled && !config.gtfsRtApiKey.isNullOrBlank()) {
+        log.info("GTFS-RT enabled (1 fetch per 60 s)")
+        GtfsRealtimeSource(GtfsRealtimeSource.httpFetch(config.gtfsRtUrl, config.gtfsRtApiKey.trim())).also { src ->
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { src.current() } // warm up so the first search does not pay for the 4.8 MB fetch
+        }
+    } else { log.info("GTFS-RT disabled; using OJP stop events only"); null }
+    configureRoutes(searchService, clock, risk, gtfs)
 }

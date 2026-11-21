@@ -98,6 +98,13 @@ class RedirectTest {
         assertNull(cancelledEarlier(0, leg, t("15:20"), listOf(ice, other, s26), live + ice.copy(estimated = t("15:29")))) // still running
     }
 
+    @Test fun `cancelled direct train is found via the journey's final destination`() {
+        val ice = StopEvent("RE 1", null, t("15:29"), null, false, null, setOf("HERISAU"))
+        val first = leg("S1", "St. Gallen", "Wil", "15:37", "15:55")
+        assertEquals("Herisau, Wiesental", cancelledEarlier(0, first, t("15:20"), listOf(ice), listOf(ice.copy(label = "S1", scheduled = t("15:37"))), finalDestination = "Herisau, Wiesental")!!.leg.destination)
+        assertNull(cancelledEarlier(0, first, t("15:20"), listOf(ice), listOf(ice.copy(label = "S1", scheduled = t("15:37")))))
+    }
+
     @Test fun `phantom cancellation is reported but the planned journey stays recommended`() {
         val s26 = journey("S26", leg("S26", "Olten", "Zürich HB", "15:37", "16:20", "4"))
         val ice = StopEvent("ICE 71", null, t("15:29"), null, false, null, setOf("ZÜRICHHB"))

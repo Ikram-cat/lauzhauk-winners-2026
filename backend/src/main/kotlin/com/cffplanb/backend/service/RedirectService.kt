@@ -68,7 +68,7 @@ class RedirectService(
             when {
                 j.id != orig.id && usesAffected(j) -> null
                 d == null -> j
-                d.cancelled -> null
+                d.cancelled || d.basis == DisruptionBasis.SUPPRESSED_STOP -> null
                 else -> (d.delayMinutes ?: 0).let { j.copy(arrival = j.arrival.plusMinutes(it.toLong()), durationMinutes = j.durationMinutes + it) }
             }
         }.toMutableList()
@@ -125,7 +125,7 @@ class RedirectService(
                 else -> "no live delay estimate for $lab, no meaningful gain from changing"
             }
         }
-        val skips = "skips the ${if (d.cancelled) "cancelled" else "disrupted"} $lab"
+        val skips = if (d.basis == DisruptionBasis.SUPPRESSED_STOP) "skips $lab, which does not stop at ${d.leg.origin}" else "skips the ${if (d.cancelled) "cancelled" else "disrupted"} $lab"
         return when (pref) {
             Preference.FASTEST -> {
                 val early = deadline?.let { mins(rec.arrival, it) }
@@ -186,6 +186,7 @@ class RedirectService(
         val at = d.leg.departure.hm()
         return when {
             d.cancelled -> "The $at $lab is cancelled"
+            d.basis == DisruptionBasis.SUPPRESSED_STOP -> "The $at $lab does not stop at ${d.leg.origin}"
             d.delayMinutes == null -> "$lab at $at has no live delay estimate"
             else -> "$lab at $at is running ${d.delayMinutes} min late"
         }

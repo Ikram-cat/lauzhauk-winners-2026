@@ -26,7 +26,10 @@ data class StopEvent(
     val scheduled: java.time.OffsetDateTime, val estimated: java.time.OffsetDateTime?,
     val cancelled: Boolean, val platform: String?,
     /** Normalised names of the stops this trip calls at after this one (empty unless the provider supplied onward calls). */
-    val onward: Set<String> = emptySet()
+    val onward: Set<String> = emptySet(),
+    /** Stop point ref at this stop ("ch:1:sloid:1120:0:840061") and the timetabled departure at the trip's first stop; used to match GTFS-RT. */
+    val stopRef: String? = null,
+    val originDeparture: java.time.OffsetDateTime? = null
 )
 
 sealed class StopEventsResult {

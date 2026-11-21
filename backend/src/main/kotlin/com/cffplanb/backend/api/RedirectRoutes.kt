@@ -19,8 +19,8 @@ private val KNOWN = setOf("origin", "destination", "departure", "arrivalDeadline
 private val jsonOut = Json { encodeDefaults = true }
 
 /** GET /api/redirect: same inputs and validation as /api/journeys, answers "what is broken, and where should I go instead". */
-fun Route.redirectRoute(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator) {
-    val redirect = RedirectService(searchService, DisruptionDetector(searchService::stopEvents), clock)
+fun Route.redirectRoute(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator, gtfs: com.cffplanb.backend.gtfs.GtfsRealtimeSource? = null) {
+    val redirect = RedirectService(searchService, DisruptionDetector(searchService::stopEvents, gtfs = gtfs?.let { g -> { g.current() } }), clock)
 
     get("/api/redirect") {
         val q = call.request.queryParameters

@@ -220,7 +220,7 @@ class OjpTransportProvider(
         <Params>
           <NumberOfResults>40</NumberOfResults>
           <StopEventType>departure</StopEventType>
-          <IncludePreviousCalls>false</IncludePreviousCalls>
+          <IncludePreviousCalls>true</IncludePreviousCalls>
           <IncludeOnwardCalls>true</IncludeOnwardCalls>
           <UseRealtimeData>${if (realtime) "full" else "none"}</UseRealtimeData>
         </Params>
@@ -236,7 +236,7 @@ class OjpTransportProvider(
         val evs = doc.getElementsByTagNameNS("*", "StopEvent")
         return (0 until evs.length).mapNotNull { i ->
             val ev = evs.item(i) as? Element ?: return@mapNotNull null
-            val call = firstChildElement(ev, "CallAtStop") ?: return@mapNotNull null
+            val call = firstChildElement(ev, "ThisCall")?.let { firstChildElement(it, "CallAtStop") } ?: return@mapNotNull null
             val dep = firstChildElement(call, "ServiceDeparture") ?: return@mapNotNull null
             val sched = textContent(dep, "TimetabledTime")?.let { parseDateTimeOrNull(it) } ?: return@mapNotNull null
             val svc = firstChildElement(ev, "Service")
@@ -247,6 +247,10 @@ class OjpTransportProvider(
                 estimated = textContent(dep, "EstimatedTime")?.let { parseDateTimeOrNull(it) },
                 cancelled = (svc?.let { textContent(it, "Cancelled") } ?: textContent(ev, "Cancelled")).equals("true", ignoreCase = true),
                 platform = textIn(call, "PlannedQuay") ?: textIn(call, "EstimatedQuay"),
+                stopRef = textContent(call, "StopPointRef"),
+                originDeparture = firstChildElement(ev, "PreviousCall")?.let { pc ->
+                    firstChildElement(pc, "ServiceDeparture")?.let { textContent(it, "TimetabledTime") }?.let { parseDateTimeOrNull(it) }
+                } ?: sched,
                 onward = ev.getElementsByTagNameNS("*", "OnwardCall").let { oc ->
                     (0 until oc.length).mapNotNull { (oc.item(it) as? Element)?.let { e -> textIn(e, "StopPointName") } }
                         .map { n -> n.uppercase().filter { c -> c.isLetterOrDigit() } }.toSet()

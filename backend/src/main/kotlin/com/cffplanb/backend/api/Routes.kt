@@ -1,5 +1,6 @@
 package com.cffplanb.backend.api
 
+import com.cffplanb.backend.gtfs.GtfsRealtimeSource
 import com.cffplanb.backend.domain.Discount
 import com.cffplanb.backend.domain.Journey
 import com.cffplanb.backend.domain.JourneyLeg
@@ -21,9 +22,9 @@ private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalD
 private val ALT_PARAMS = setOf("from", "to", "notBefore", "arrivalDeadline")
 internal val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
-fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator) {
+fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator, gtfs: GtfsRealtimeSource? = null) {
     routing {
-        redirectRoute(searchService, clock, risk)
+        redirectRoute(searchService, clock, risk, gtfs)
         get("/health") {
             call.respond(HttpStatusCode.OK, HealthResponseDto("ok"))
         }
@@ -31,7 +32,8 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
         get("/api/model") {
             val i = risk.info()
             call.respond(HttpStatusCode.OK, ModelInfoDto(i.modelVersion, i.generatedAt, i.coverage, "artifact", i.keysLoaded, i.status,
-                i.corridorsLoaded, i.baselineLoaded, i.byLineHourCells, i.corridorSample))
+                i.corridorsLoaded, i.baselineLoaded, i.byLineHourCells, i.corridorSample,
+                gtfsRtEnabled = gtfs != null, gtfsRtAgeSeconds = gtfs?.ageSeconds(), gtfsRtTripUpdates = gtfs?.peek()?.trips?.size ?: 0, gtfsRtCancelled = gtfs?.peek()?.cancelled ?: 0))
         }
 
         get("/api/locations") {

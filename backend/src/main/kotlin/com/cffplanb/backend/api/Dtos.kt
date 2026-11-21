@@ -98,7 +98,11 @@ data class ModelInfoDto(
     val corridorsLoaded: Int = 0,
     val baselineLoaded: Int = 0,
     val byLineHourCells: Int = 0,
-    val corridorKeysSample: List<String> = emptyList()
+    val corridorKeysSample: List<String> = emptyList(),
+    val gtfsRtEnabled: Boolean = false,
+    val gtfsRtAgeSeconds: Long? = null,
+    val gtfsRtTripUpdates: Int = 0,
+    val gtfsRtCancelled: Int = 0
 )
 
 @Serializable
