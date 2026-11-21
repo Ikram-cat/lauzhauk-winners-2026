@@ -7,6 +7,7 @@ import com.cffplanb.backend.provider.MockTransportProvider
 import com.cffplanb.backend.provider.OjpTransportProvider
 import com.cffplanb.backend.service.JourneySearchService
 import com.cffplanb.backend.service.duration.DurationArtifactLoader
+import com.cffplanb.backend.service.impact.ReplayTimelineDisruptionSource
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -75,5 +76,7 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     val searchService = JourneySearchService(provider)
     val durationEstimator = DurationArtifactLoader.load(config.durationArtifactPath)
 
-    configureRoutes(searchService, clock, durationEstimator)
+    val disruptionSource = ReplayTimelineDisruptionSource.load(config.disruptionTimelinesDir)
+
+    configureRoutes(searchService, clock, durationEstimator, disruptionSource)
 }

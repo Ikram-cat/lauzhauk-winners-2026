@@ -10,7 +10,9 @@ data class AppConfig(
     val transportProvider: String = System.getenv("TRANSPORT_PROVIDER") ?: "mock",
     val ojpApiKey: String? = System.getenv("OJP_API_KEY"),
     /** Path to analytics duration_model.v1.json; unset or invalid -> duration estimates unavailable. */
-    val durationArtifactPath: String? = System.getenv("DURATION_ARTIFACT_PATH")
+    val durationArtifactPath: String? = System.getenv("DURATION_ARTIFACT_PATH"),
+    /** Directory of analytics timeline-*.json replayed as active disruptions (MOCK); unset -> none. */
+    val disruptionTimelinesDir: String? = System.getenv("DISRUPTION_TIMELINES_DIR")
 ) {
     companion object {
         fun fromEnv(): AppConfig = AppConfig()

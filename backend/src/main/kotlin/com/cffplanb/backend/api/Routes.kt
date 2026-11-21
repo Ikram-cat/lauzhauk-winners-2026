@@ -7,6 +7,9 @@ import com.cffplanb.backend.service.JourneySearchService
 import com.cffplanb.backend.service.SearchResult
 import com.cffplanb.backend.service.duration.DisruptionDurationEstimator
 import com.cffplanb.backend.service.duration.NoDurationEstimator
+import com.cffplanb.backend.service.impact.DisruptionSource
+import com.cffplanb.backend.service.impact.EmptyDisruptionSource
+import com.cffplanb.backend.service.impact.JourneyImpactService
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -22,7 +25,8 @@ private val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 fun Application.configureRoutes(
     searchService: JourneySearchService,
     clock: Clock,
-    durationEstimator: DisruptionDurationEstimator = NoDurationEstimator
+    durationEstimator: DisruptionDurationEstimator = NoDurationEstimator,
+    disruptionSource: DisruptionSource = EmptyDisruptionSource
 ) {
     routing {
         get("/health") {
@@ -30,6 +34,7 @@ fun Application.configureRoutes(
         }
 
         disruptionRoutes(durationEstimator, clock)
+        journeyImpactRoutes(JourneyImpactService(searchService, disruptionSource), durationEstimator, clock)
 
         get("/api/journeys") {
             // --- Duplicate parameter detection via raw query string ---
@@ -196,7 +201,7 @@ fun Application.configureRoutes(
     }
 }
 
-private fun Journey.toDto(): JourneyDto = JourneyDto(
+internal fun Journey.toDto(): JourneyDto = JourneyDto(
     id = id,
     departure = RFC3339_FORMATTER.format(departure),
     arrival = RFC3339_FORMATTER.format(arrival),
@@ -217,5 +222,7 @@ private fun JourneyLeg.toDto(): JourneyLegDto = JourneyLegDto(
     arrival = RFC3339_FORMATTER.format(arrival),
     serviceLabel = serviceLabel,
     departurePlatform = departurePlatform,
-    arrivalPlatform = arrivalPlatform
+    arrivalPlatform = arrivalPlatform,
+    originSloid = originSloid,
+    destinationSloid = destinationSloid
 )

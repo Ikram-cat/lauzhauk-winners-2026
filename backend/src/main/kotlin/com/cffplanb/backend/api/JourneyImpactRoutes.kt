@@ -1,0 +1,89 @@
+package com.cffplanb.backend.api
+
+import com.cffplanb.backend.domain.AdviceCode
+import com.cffplanb.backend.domain.SearchRequest
+import com.cffplanb.backend.service.SearchResult
+import com.cffplanb.backend.service.duration.DisruptionDurationEstimator
+import com.cffplanb.backend.service.impact.ImpactResult
+import com.cffplanb.backend.service.impact.JourneyImpactService
+import io.ktor.http.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import java.time.Clock
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import kotlin.coroutines.cancellation.CancellationException
+
+private val ISO = DateTimeFormatter.ISO_OFFSET_DATE_TIME
+
+/**
+ * POST /api/journeys/impact (proposal): searches the journey, finds the active disruptions that touch
+ * it, computes detourExtraMinutes from the best unaffected alternative, and returns the outlook.
+ */
+fun Route.journeyImpactRoutes(impact: JourneyImpactService, estimator: DisruptionDurationEstimator, clock: Clock) {
+    post("/api/journeys/impact") {
+        val request = try {
+            call.receive<JourneyImpactRequestDto>()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@post call.respond(HttpStatusCode.BadRequest,
+                ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Malformed or incomplete JSON body")))
+        }
+        val origin = request.origin.trim()
+        val destination = request.destination.trim()
+        if (origin.isEmpty() || destination.isEmpty() || origin.length > 120 || destination.length > 120) {
+            return@post call.respond(HttpStatusCode.BadRequest,
+                ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "origin and destination must be 1-120 characters")))
+        }
+        val (observedAt, departure) = try {
+            val observed = request.observedAt?.let { OffsetDateTime.parse(it, ISO) } ?: OffsetDateTime.now(clock)
+            observed to (request.departure?.let { OffsetDateTime.parse(it, ISO) } ?: observed)
+        } catch (e: DateTimeParseException) {
+            return@post call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST",
+                "Invalid timestamp. Must be RFC 3339 with Z or numeric UTC offset.")))
+        }
+
+        when (val result = impact.check(SearchRequest(origin, destination, departure), observedAt, request.journeyId)) {
+            is ImpactResult.SearchFailed -> {
+                val (status, code) = when (result.search) {
+                    is SearchResult.Timeout -> HttpStatusCode.GatewayTimeout to "UPSTREAM_TIMEOUT"
+                    is SearchResult.RateLimited -> HttpStatusCode.ServiceUnavailable to "UPSTREAM_RATE_LIMITED"
+                    else -> HttpStatusCode.BadGateway to "UPSTREAM_ERROR"
+                }
+                call.respond(status, ErrorResponseDto(ErrorDetailDto(code, "Journey search failed")))
+            }
+            is ImpactResult.Success -> {
+                val mock = impact.dataStatus == "MOCK" || result.planned?.dataStatus?.name == "MOCK"
+                call.respond(HttpStatusCode.OK, JourneyImpactResponseDto(
+                    dataStatus = if (mock) "MOCK" else result.planned?.dataStatus?.name ?: impact.dataStatus,
+                    observedAt = ISO.format(observedAt),
+                    journey = result.planned?.toDto(),
+                    affected = result.impacts.isNotEmpty(),
+                    impacts = result.impacts.map { i ->
+                        val d = i.match.disruption
+                        JourneyDisruptionImpactDto(
+                            incidentId = d.incidentId,
+                            summaryEn = d.summaryEn,
+                            matchedStations = i.match.stations.map { m ->
+                                MatchedStationDto(m.legIndex, m.station.uic, m.station.sloid, m.station.name,
+                                    m.station.roles, m.by)
+                            },
+                            matchedLines = i.match.lines,
+                            detourExtraMinutes = i.detourExtraMinutes,
+                            alternative = AlternativeDto(if (i.alternative != null) "FOUND" else "NONE_UNAFFECTED",
+                                i.alternative?.toDto()),
+                            outlook = d.context?.let { buildOutlook(estimator, it, observedAt, i.detourExtraMinutes) }
+                                ?: DisruptionOutlookResponseDto(
+                                    status = "UNAVAILABLE", remainingMinutes = null, expectedEndAt = null,
+                                    officialRemainingMinutes = null,
+                                    advice = AdviceDto(AdviceCode.UNKNOWN.name, i.detourExtraMinutes), provenance = null)
+                        )
+                    }
+                ))
+            }
+        }
+    }
+}

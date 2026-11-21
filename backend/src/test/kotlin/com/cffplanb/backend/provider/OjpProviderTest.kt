@@ -58,6 +58,8 @@ class OjpProviderTest {
         assertEquals("Genève", leg.destination)
         assertEquals("IC702", leg.serviceLabel)
         assertEquals("3A", leg.departurePlatform)
+        assertEquals("ch:1:sloid:7000031", leg.originSloid)
+        assertEquals("ch:1:sloid:7000008", leg.destinationSloid)
     }
 
     @Test

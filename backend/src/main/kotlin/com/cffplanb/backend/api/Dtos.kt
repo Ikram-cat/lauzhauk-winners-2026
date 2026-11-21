@@ -29,7 +29,9 @@ data class JourneyLegDto(
     val arrival: String,
     val serviceLabel: String? = null,
     val departurePlatform: String? = null,
-    val arrivalPlatform: String? = null
+    val arrivalPlatform: String? = null,
+    val originSloid: String? = null,
+    val destinationSloid: String? = null
 )
 
 @Serializable

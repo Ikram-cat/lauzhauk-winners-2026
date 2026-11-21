@@ -32,3 +32,17 @@ data class DurationExplanation(
 )
 
 enum class AdviceCode { TAKE_DETOUR, DETOUR_IF_DEADLINE, WAIT, UNKNOWN }
+
+/** A station touched by a disruption. roles: DISRUPTION_POINT, LINE_FROM, LINE_TO (VIA semantics). */
+data class AffectedStation(val uic: Int, val sloid: String?, val name: String?, val roles: List<String>)
+
+/** A disruption active at some instant, with what is needed to match journeys and predict its end. */
+data class ActiveDisruption(
+    val incidentId: String,
+    val summaryEn: String?,
+    /** Null before the first public announcement: no prediction is made then. */
+    val context: DisruptionContext?,
+    val stations: List<AffectedStation>,
+    val lines: List<String>,
+    val dataStatus: String
+)

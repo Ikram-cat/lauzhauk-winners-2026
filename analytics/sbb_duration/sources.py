@@ -377,6 +377,7 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
         public_view = None if pub is None else {
             "lifecycle": pub.lifecycle, "summaryEn": pub.summary_en, "durationType": pub.duration_type,
             "announcedEndAt": _iso(pub.duration_to), "versionAt": _iso(pub.observed),
+            "updatesSoFar": max(state["info_index"], 0),
             "officialRemainingMinutes": None if pd.isna(pub.duration_to) else
             _round(max((pub.duration_to - at).total_seconds() / 60, 0))}
         if state["ended"]:

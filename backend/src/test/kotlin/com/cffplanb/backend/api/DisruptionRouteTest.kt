@@ -44,4 +44,19 @@ class DisruptionRouteTest {
         val error = Json.parseToJsonElement(bad.bodyAsText()).jsonObject["error"]!!.jsonObject
         assertEquals("INVALID_REQUEST", error["code"]!!.jsonPrimitive.content)
     }
+
+    @Test
+    fun `journey impact without disruption feed returns the journey, unaffected`() = testApplication {
+        application { configureApp(fixedClock, AppConfig(transportProvider = "mock", durationArtifactPath = null,
+            disruptionTimelinesDir = null)) }
+        val response = client.post("/api/journeys/impact") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"origin":"Lausanne","destination":"Genève","observedAt":"2026-09-17T18:31:00+02:00"}""")
+        }
+        assertEquals(HttpStatusCode.OK, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals(false, body["affected"]!!.jsonPrimitive.boolean)
+        assertEquals("MOCK", body["dataStatus"]!!.jsonPrimitive.content)
+        assertEquals(0, body["impacts"]!!.jsonArray.size)
+    }
 }

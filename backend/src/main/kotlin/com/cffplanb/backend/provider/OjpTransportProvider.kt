@@ -365,6 +365,10 @@ class OjpTransportProvider(
                     ?: it.getElementsByTagNameNS("*", "LineRef").item(0)?.textContent?.trim()?.ifBlank { null }
             }
 
+            val intermediates = timedLeg.getElementsByTagNameNS("*", "LegIntermediate").let { nodes ->
+                (0 until nodes.length).mapNotNull { i -> (nodes.item(i) as? Element)?.let { stopPlaceSloid(it) } }
+            }
+
             val depPlatform = textIn(board, "PlannedQuay") ?: textIn(board, "EstimatedQuay")
             val arrPlatform = textIn(alight, "PlannedQuay") ?: textIn(alight, "EstimatedQuay")
 
@@ -376,7 +380,10 @@ class OjpTransportProvider(
                 arrival = arrTime,
                 serviceLabel = serviceLabel,
                 departurePlatform = depPlatform,
-                arrivalPlatform = arrPlatform
+                arrivalPlatform = arrPlatform,
+                originSloid = stopPlaceSloid(board),
+                destinationSloid = stopPlaceSloid(alight),
+                intermediateSloids = intermediates
             )
         } catch (e: Exception) {
             log.debug("Failed to parse TimedLeg: {}", e.message)
@@ -427,6 +434,10 @@ class OjpTransportProvider(
     // -------------------------------------------------------------------------
     // XML & parsing helpers
     // -------------------------------------------------------------------------
+
+    /** StopPointRef of a LegBoard/LegAlight/LegIntermediate reduced to its stop place: ch:1:sloid:7000:3:5 -> ch:1:sloid:7000. */
+    private fun stopPlaceSloid(stop: Element): String? =
+        textIn(stop, "StopPointRef")?.takeIf { it.startsWith("ch:1:sloid:") }?.split(":")?.take(4)?.joinToString(":")
 
     private fun newDocumentBuilder() =
         DocumentBuilderFactory.newInstance().also { it.isNamespaceAware = true }.newDocumentBuilder()

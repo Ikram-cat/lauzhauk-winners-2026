@@ -60,32 +60,39 @@ fun Route.disruptionRoutes(estimator: DisruptionDurationEstimator, clock: Clock)
             return@post
         }
 
-        val estimate = estimator.estimate(ctx, observedAt)
-        val official = ctx.announcedEndAt?.let { max(DurationFeatures.minutesBetween(observedAt, it), 0.0).roundToInt() }
-        val remaining = estimate?.let {
-            RemainingMinutesDto(p50 = it.p50Minutes.roundToInt(), pessimistic = ceil(it.pessimisticMinutes).toInt())
-        }
-        call.respond(
-            HttpStatusCode.OK,
-            DisruptionOutlookResponseDto(
-                status = if (estimate == null) "UNAVAILABLE" else "AVAILABLE",
-                remainingMinutes = remaining,
-                expectedEndAt = remaining?.let {
-                    ExpectedEndDto(
-                        p50 = RFC3339.format(observedAt.plusMinutes(it.p50.toLong())),
-                        pessimistic = RFC3339.format(observedAt.plusMinutes(it.pessimistic.toLong()))
-                    )
-                },
-                officialRemainingMinutes = official,
-                advice = AdviceDto(AdviceService.advise(estimate, request.detourExtraMinutes).name, request.detourExtraMinutes),
-                provenance = estimate?.let {
-                    DurationProvenanceDto("ESTIMATED", it.modelVersion, it.pessimisticQuantile, it.pessimisticCoverage)
-                },
-                explanation = estimator.explain(ctx.reasonCode)?.let {
-                    ExplanationDto(it.reasonCode, it.scope, it.similarIncidents, it.medianDurationMinutes,
-                        it.announcementsCompared, it.medianEndMinusAnnouncedMinutes)
-                }
-            )
-        )
+        call.respond(HttpStatusCode.OK, buildOutlook(estimator, ctx, observedAt, request.detourExtraMinutes))
     }
+}
+
+/** Outlook for one disruption at observedAt; shared by the outlook and journey-impact routes. */
+internal fun buildOutlook(
+    estimator: DisruptionDurationEstimator,
+    ctx: DisruptionContext,
+    observedAt: OffsetDateTime,
+    detourExtraMinutes: Int?
+): DisruptionOutlookResponseDto {
+    val estimate = estimator.estimate(ctx, observedAt)
+    val official = ctx.announcedEndAt?.let { max(DurationFeatures.minutesBetween(observedAt, it), 0.0).roundToInt() }
+    val remaining = estimate?.let {
+        RemainingMinutesDto(p50 = it.p50Minutes.roundToInt(), pessimistic = ceil(it.pessimisticMinutes).toInt())
+    }
+    return DisruptionOutlookResponseDto(
+        status = if (estimate == null) "UNAVAILABLE" else "AVAILABLE",
+        remainingMinutes = remaining,
+        expectedEndAt = remaining?.let {
+            ExpectedEndDto(
+                p50 = RFC3339.format(observedAt.plusMinutes(it.p50.toLong())),
+                pessimistic = RFC3339.format(observedAt.plusMinutes(it.pessimistic.toLong()))
+            )
+        },
+        officialRemainingMinutes = official,
+        advice = AdviceDto(AdviceService.advise(estimate, detourExtraMinutes).name, detourExtraMinutes),
+        provenance = estimate?.let {
+            DurationProvenanceDto("ESTIMATED", it.modelVersion, it.pessimisticQuantile, it.pessimisticCoverage)
+        },
+        explanation = if (estimate == null) null else estimator.explain(ctx.reasonCode)?.let {
+            ExplanationDto(it.reasonCode, it.scope, it.similarIncidents, it.medianDurationMinutes,
+                it.announcementsCompared, it.medianEndMinusAnnouncedMinutes)
+        }
+    )
 }

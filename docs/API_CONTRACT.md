@@ -60,6 +60,7 @@ Use a currently valid departure, or omit `departure`, when verifying the live pr
 | `departure`, `arrival` | Offset timestamp strings | Scheduled times at the leg endpoints. |
 | `serviceLabel` | String or null | Provider-supplied service label when available. |
 | `departurePlatform`, `arrivalPlatform` | Strings or null | Platform labels as supplied. Preserve letters and leading zeroes. |
+| `originSloid`, `destinationSloid` | Strings or null | Additive, optional. Stop-place sloid of the boarding and alighting stop (`ch:1:sloid:<n>`, platform suffix removed) when the provider supplies one. The mock provider leaves them null. Clients that do not know the fields ignore them. |
 
 Nullable fields may be omitted by a serializer. Clients interpret a missing nullable field like `null`. All other fields are required. Compare timestamps as instants and display them in `Europe/Zurich`. A leg's arrival is at or after its departure, and every leg after the first starts at or after the previous leg's arrival. The journey endpoints match the first and last leg times as instants.
 
@@ -335,8 +336,10 @@ These rules remove the flip-flops when the detour cost is close to the P50. On t
 
 ### Checking a journey against an incident
 
+The backend implements this check in `POST /api/journeys/impact` (see below).
+
 A journey is affected when one of its legs boards, alights or passes through a station in `affected.stations`, or runs on a line listed in `affected.lines`.
-- **Match on `sloid`.** OJP returns `StopPointRef` / `StopPlaceRef` values such as `ch:1:sloid:7000` or, for a platform, `ch:1:sloid:7000:2:3`. Compare the first four `:`-separated parts. The backend already resolves stops to sloids for searching, but `JourneyLegDto` currently exposes names only. Matching on names is a weaker fallback.
+- **Match on `sloid`.** OJP returns `StopPointRef` / `StopPlaceRef` values such as `ch:1:sloid:7000` or, for a platform, `ch:1:sloid:7000:2:3`. Compare the first four `:`-separated parts. `JourneyLegDto` now carries `originSloid` and `destinationSloid`, and the backend also reads the OJP intermediate stops when they are present. Matching on names is a weaker fallback, used for the mock provider.
 - **Intermediate stations.** A section gives only its two ends. A leg passing through the middle of the section matches only if the client also checks the leg's intermediate stops, which OJP can return.
 - **Accuracy of the sloid rule.** It was checked against all 32,911 Swiss service points of the opentransportdata.swiss `service-points-actual-date` export (2026-06-30): 100% match. Of the 257 UIC codes in VIA, 224 are in that export; the 33 others are foreign stations without a Swiss sloid.
 
@@ -346,6 +349,59 @@ A journey is affected when one of its legs boards, alights or passes through a s
 - Message text is sanitized: HTML is removed, and phone numbers, e-mail addresses, honorific + name and user ids are replaced by placeholders. A scan of the 882 messages found none of these.
 - Messages from individual staff accounts are skipped. Only `TCC` (traffic control) and `KOO Bhf` (station) messages are used.
 - The extraction uses German, French and Italian keyword rules, without a language model, and can miss or misread facts. `facts` must be shown as "according to internal operations", never as an official SBB announcement.
+
+## Journey impact (proposal)
+
+**Status: proposal.** `POST /api/journeys/impact` checks whether the best journey of a search is affected by an active disruption. When it is, the route computes `detourExtraMinutes` and returns the outlook, so the traveller no longer types a detour cost.
+
+Request, `Content-Type: application/json` (UTF-8):
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `origin`, `destination` | Strings, 1–120 characters | Yes | As for `/api/journeys`. |
+| `departure` | RFC 3339 timestamp | No | Earliest departure; defaults to `observedAt`. |
+| `observedAt` | RFC 3339 timestamp | No | Instant at which disruptions are looked up and predicted; defaults to the server clock. Set it to replay a past incident. |
+| `journeyId` | String | No | Check this journey of the search instead of the first-ranked one. |
+
+How the backend proceeds:
+1. It runs the usual journey search and takes the first-ranked journey, or `journeyId`.
+2. It looks up the disruptions active at `observedAt`. Today the only source is replayed timelines: `DISRUPTION_TIMELINES_DIR` points to `analytics/output/timelines/`, labelled `MOCK`. Without it, no journey is affected.
+3. A transit leg is affected when one of its stops (boarding, intermediate or alighting) is a `DISRUPTION_POINT` of the disruption, or when at least two of its stops are affected stations of any role, meaning the leg runs along the affected line. Stops match on sloid, else on accent-insensitive name.
+4. The alternative is the earliest-arriving journey of the same search that no active disruption touches. `detourExtraMinutes` = alternative arrival − planned arrival, floored at 0.
+5. The outlook is computed with that detour. If no unaffected alternative exists, `detourExtraMinutes` is null, `alternative.status` is `NONE_UNAFFECTED`, and `advice.code` is `UNKNOWN`.
+
+The planned timetable (OJP, mock) does not know the disruption, so its alternatives usually go through the same section. With the mock provider, every Lausanne → Genève journey is affected.
+
+Response `200`:
+
+```json
+{
+  "dataStatus": "MOCK",
+  "observedAt": "2026-09-17T18:31:00+02:00",
+  "journey": { "id": "ic1", "departure": "…", "arrival": "…", "legs": [ { "origin": "Lausanne", "destination": "Genève", "originSloid": "ch:1:sloid:1120", "destinationSloid": "ch:1:sloid:1008", "…": "…" } ], "…": "…" },
+  "affected": true,
+  "impacts": [
+    {
+      "incidentId": "2195005188970",
+      "summaryEn": "Interrupted service: Renens VD - Morges and Bussigny",
+      "matchedStations": [
+        { "legIndex": 0, "uic": 8501120, "sloid": "ch:1:sloid:1120", "name": "Lausanne", "roles": ["LINE_FROM"], "matchedBy": "SLOID" },
+        { "legIndex": 0, "uic": 8501037, "sloid": "ch:1:sloid:1037", "name": "Morges", "roles": ["DISRUPTION_POINT"], "matchedBy": "SLOID" }
+      ],
+      "matchedLines": ["IC1"],
+      "detourExtraMinutes": 95,
+      "alternative": { "status": "FOUND", "journey": { "id": "lake", "…": "…" } },
+      "outlook": { "status": "AVAILABLE", "remainingMinutes": { "p50": 66, "pessimistic": 296 }, "advice": { "code": "DETOUR_IF_DEADLINE", "detourExtraMinutes": 95 }, "…": "same fields as the disruption outlook response" }
+    }
+  ]
+}
+```
+
+These values come from the backend test that replays Renens at 18:30 with a fake provider: a direct IC 1 via Morges, and a lake alternative via Évian arriving 95 minutes later.
+- `dataStatus` is `MOCK` when the disruptions are replayed or the provider is the mock.
+- A search failure maps to the same `502`, `503` and `504` errors as `/api/journeys`.
+- An invalid body or timestamp returns `400 INVALID_REQUEST`.
+- The outlook uses whichever artifact the backend loaded. For historical replays, load the evaluation artifact (see [DEMO.md](DEMO.md)), which never saw the replayed incident.
 
 ## Changes and future endpoints
 

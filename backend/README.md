@@ -30,6 +30,7 @@ curl "http://localhost:8080/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve
 | `TRANSPORT_PROVIDER` | No | `mock` | `mock` or `ojp` |
 | `OJP_API_KEY` | When `ojp` | — | Bearer token for opentransportdata.swiss. Never hardcoded. |
 | `DURATION_ARTIFACT_PATH` | No | (unset) | Path to `duration_model.v1.json` produced by `analytics/` (`python -m sbb_duration.train` then `python -m sbb_duration.export`). Unset, missing, invalid or unsupported: one warning at startup and `/api/disruptions/outlook` answers `status: UNAVAILABLE`. |
+| `DISRUPTION_TIMELINES_DIR` | No | (unset) | Directory of analytics `timeline-*.json` (`python -m sbb_duration.sources`), replayed as active disruptions (`MOCK`) by `POST /api/journeys/impact`. Unset: no journey is affected. |
 
 ## Running tests
 
@@ -82,6 +83,7 @@ See [`docs/API_CONTRACT.md`](../docs/API_CONTRACT.md) for the full HTTP contract
 | `/health` | GET | Returns `{"status":"ok"}`. Makes no provider calls. |
 | `/api/journeys` | GET | Journey search. Params: `origin` (required), `destination` (required), `departure` (optional RFC 3339 with offset). |
 | `/api/disruptions/outlook` | POST | Proposal. Remaining-duration estimate (P50 and pessimistic) and `advice.code` for a disruption. See the contract. |
+| `/api/journeys/impact` | POST | Proposal. Checks the best journey against active disruptions, computes `detourExtraMinutes` from the best unaffected alternative, returns the outlook. |
 
 ### Error codes
 
@@ -117,7 +119,8 @@ com.cffplanb.backend
     ├── AdviceService.kt          wait-or-detour rule (port of analytics advice.py)
     ├── JourneySearchService.kt   orchestrates provider + ranking
     ├── RecommendationService.kt  pure ranking function
-    └── duration/                 artifact DTOs, loader, features, tree evaluator
+    ├── duration/                 artifact DTOs, loader, features, tree evaluator
+    └── impact/                   disruption source (timeline replay), journey matcher, impact service
 ```
 
 ## OJP provider notes
