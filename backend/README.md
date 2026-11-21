@@ -49,7 +49,7 @@ DURATION_ARTIFACT_PATH=../analytics/output/duration_model.v1.json ./gradlew --no
 curl -X POST http://localhost:8080/api/disruptions/outlook -H "Content-Type: application/json"   -d '{"disruption":{"reasonCode":"EG_008","durationType":"UNTIL","startedAt":"2026-11-21T07:40:00+01:00","announcedEndAt":"2026-11-21T09:00:00+01:00","updatesSoFar":2,"summaryEn":"Interruption between Lausanne and Genève"},"observedAt":"2026-11-21T08:00:00+01:00","detourExtraMinutes":35}'
 ```
 
-The artifact is not committed and the Docker image does not include it. Until the data-use review is done, a deployed backend answers `UNAVAILABLE`.
+The artifact is not committed and the Docker image does not include it. There is no live disruption feed; `DISRUPTION_TIMELINES_DIR` replays historical incidents only. See [analytics README, Live mode](../analytics/README.md#live-mode-not-implemented) for why. Until the data-use review is done, a deployed backend answers `UNAVAILABLE`.
 
 ## Building a JAR / distribution
 

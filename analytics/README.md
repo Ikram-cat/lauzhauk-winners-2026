@@ -39,6 +39,27 @@ python -m sbb_duration.sources [--detour 60] # 3-source timelines -> output/time
 
 Current results on the test period (104 incidents, 639 snapshots after 2026-04-06): the P50 error is 97.9 min against 112.7 for the official announcement and 127.0 for the median per cause. The pessimistic estimate covers 83.1% of cases after a split-conformal calibration on the most recent training incidents (73.7% before; target 85%, `metrics.evaluation.calibration`). The official announcement is too optimistic in 69% of snapshots. Robustness test (`metrics.evaluation.robustness`): 80 incidents close 0–2 min after their last announced end, which looks like an automatic close at the announced time. With them removed and the split redone, the P50 error is 103.6 min against 120.1 for the announcement (88 test incidents). The API contract is in [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal). The timeline format is in [API_CONTRACT.md](../docs/API_CONTRACT.md#multi-source-incident-timeline-proposal).
 
+## Live mode: not implemented
+
+There is no live mode, and the Renens replay remains the main demo. The reasons, checked on 2026-11-21:
+
+1. **No API key in this checkout.** The repository root has no `.env`, so no opentransportdata.swiss token is available. The SIRI-SX endpoints (`siri-sx` and `siri-sx-unplanned`, the latter refreshed every 30 s; the planned feed is limited to 48 calls a day) and the GTFS-RT Service Alerts feed require an `Authorization: Bearer` token ([SIRI-SX cookbook](https://opentransportdata.swiss/en/cookbook/event-cookbook/siri-sx/)). Without a key, no real message could be inspected, so the mapping below could not be verified.
+2. **The mapping to our features is unproven.** The model is trained on the SBB public liveticker export. A live mode would need, for each situation:
+
+   | Feature input | What the liveticker gives | What SIRI-SX / GTFS-SA would need to give (unverified) |
+   | --- | --- | --- |
+   | `reasonCode` | SBB cause code `EG_xxx` | A SIRI reason (VDV 736 `…Reason` elements) or a GTFS `cause` enum. No published mapping to `EG_xxx` exists, and an unmapped cause becomes a missing category. |
+   | `announcedEndAt`, `durationType` | `duration_to`, `duration_type` | `ValidityPeriod/EndTime` or `PublicationWindow` are validity windows, not necessarily the announced end of the disruption. GTFS-SA `active_period.end` has the same ambiguity. |
+   | `startedAt`, `updatesSoFar` | `created_at_source`, number of published versions | `CreationTime` and `Version` exist in SIRI, but the history of versions must be rebuilt by polling. |
+   | affected stations | VIA UIC codes → sloid | The cookbook marks `PtSituation/Affects` and `Consequences/Affects` as "not currently recommended" and documents only the normalised `PublishingAction` part. Stop references are therefore not reliable. |
+3. **No common identifier.** The 14 VIA incidents found in the public liveticker link through `alea_fall_id`. Nothing shows that a SIRI-SX `SituationNumber` carries the same id, so live predictions could not be checked against the training labels.
+
+To enable a live mode later:
+- add `OJP_API_KEY` (or a SIRI-SX token) to `.env`, which is ignored by Git;
+- record a day of `siri-sx-unplanned` messages for SBB;
+- verify the four rows above on incidents that also appear in the liveticker;
+- implement a `DisruptionSource` that reads SIRI-SX, next to `ReplayTimelineDisruptionSource` in `backend/.../service/impact/`, with responses labelled `LIVE`.
+
 ## Evaluation and reproducibility
 
 - For descriptive analytics, report input and retained counts, coverage periods, missingness, and denominators where known. Share filters, grouping definitions, and sample-size limitations.
