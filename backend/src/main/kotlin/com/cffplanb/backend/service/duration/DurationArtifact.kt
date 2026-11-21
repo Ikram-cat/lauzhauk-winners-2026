@@ -32,7 +32,13 @@ data class Derivation(val timeZone: String, val textFlags: Map<String, TextFlag>
 data class TextFlag(val field: String, val lowercase: Boolean, val pattern: String)
 
 @Serializable
-data class QuantileModel(val quantile: Double, val baseline: Double, val trees: List<List<TreeNode>>)
+data class QuantileModel(
+    val quantile: Double,
+    val baseline: Double,
+    val trees: List<List<TreeNode>>,
+    /** Split-conformal offset on the log1p scale (pessimistic model); 0 when absent. */
+    val calibrationOffset: Double = 0.0
+)
 
 /** A leaf has `leaf`; a split has `feature`, `missingLeft`, `left`, `right` and `threshold` or `leftCategories`. */
 @Serializable

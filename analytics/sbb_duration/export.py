@@ -90,8 +90,8 @@ def build_artifact(bundle: dict) -> dict:
             "lastIncidentStart": metrics["data"]["lastIncidentStart"],
         },
         "target": {"name": "remaining_minutes", "unit": "minutes", "modelScale": "log1p",
-                   "postprocess": "p50 = max(expm1(models.p50.baseline + sum(trees)), 0); "
-                                  "pessimistic = max(expm1(models.pessimistic.baseline + sum(trees)), p50)"},
+                   "postprocess": "raw = baseline + sum(trees) + calibrationOffset; p50 = max(expm1(raw_p50), 0); "
+                                  "pessimistic = max(expm1(raw_pessimistic), p50)"},
         "features": [
             {"name": f, "type": "categorical", "categories": categories[f], "missingCategory": MISSING_CATEGORY,
              "unknown": "treated as missing"} if f in categories else
@@ -114,14 +114,17 @@ def build_artifact(bundle: dict) -> dict:
         "metrics": metrics["evaluation"],
         "limitations": [
             "Trained on incidents whose end is known; snapshots with remaining time >= 24 h dropped.",
-            "'pessimistic' is the 0.85 quantile model, not a calibrated probability; its coverage on the "
-            "test split is metrics.test.pessimisticCoverage.",
+            "'pessimistic' is the 0.85 quantile model plus a split-conformal offset fitted on the most recent "
+            "incidents; its coverage on the test split is metrics.test.pessimisticCoverage (before calibration: "
+            "metrics.test.pessimisticCoverageUncalibrated). It is not a guaranteed probability under drift.",
             "Metrics come from split models; the exported models also saw the test period, so they have no "
             "held-out score of their own.",
             "End = first ENDED version, i.e. when SBB declares the disruption over.",
         ],
         "explanations": bundle["explanations"],
-        "models": {name: export_model(bundle["models"][name], n_categories) for name in ("p50", "pessimistic")},
+        "models": {name: {**export_model(bundle["models"][name], n_categories),
+                          "calibrationOffset": float(bundle.get("offsets", {}).get(name, 0.0))}
+                   for name in ("p50", "pessimistic")},
     }
 
 

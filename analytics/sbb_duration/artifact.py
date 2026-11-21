@@ -54,7 +54,7 @@ def predict_raw(artifact: dict, features: dict) -> tuple[float, float]:
     """Raw (log1p-scale) P50 and pessimistic estimate."""
     row = _encode(artifact, features)
     return tuple(
-        model["baseline"] + sum(_tree_value(tree, row) for tree in model["trees"])
+        model["baseline"] + sum(_tree_value(tree, row) for tree in model["trees"]) + model.get("calibrationOffset", 0.0)
         for model in (artifact["models"]["p50"], artifact["models"]["pessimistic"])
     )
 

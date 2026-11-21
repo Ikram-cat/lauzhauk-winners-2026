@@ -27,7 +27,7 @@ from .data import ANALYTICS_DIR, DATA_DIR, OUTPUT_DIR, load_reason_labels, load_
 from .explain import explain
 from .features import LOCAL_TZ, build_features
 from .messages import SENDER_ROLES, StationGazetteer, extract, sanitize
-from .predict import load_bundle, predict_raw
+from .predict import evaluation_bundle, load_bundle, predict_raw
 
 DATEN_DIR = DATA_DIR.parent  # analytics/Daten/Daten
 VIA_FILE = DATEN_DIR / "Ereignismeldungen" / "Ereignismeldungen Via.xlsx"
@@ -198,7 +198,7 @@ def _outlook(public: pd.Series, info_index: int, start, at, bundle: dict, detour
     features = build_features(observed_at=at, started_at=start, reason_id_fk=public.reason_id_fk,
                               duration_type=public.duration_type, duration_to=public.duration_to,
                               n_updates_so_far=info_index, summary_en=public.summary_en)
-    p50, pessimistic = finalize(*predict_raw([features], {**bundle, "models": bundle["evaluation_models"]})[0])
+    p50, pessimistic = finalize(*predict_raw([features], evaluation_bundle(bundle))[0])
     rounded = (_round(p50), math.ceil(pessimistic))
     return {"status": "AVAILABLE",
             "remainingMinutes": {"p50": rounded[0], "pessimistic": rounded[1]},

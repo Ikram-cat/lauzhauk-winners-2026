@@ -36,7 +36,13 @@ def to_frame(rows: list[dict], bundle: dict) -> pd.DataFrame:
 def predict_raw(rows: list[dict], bundle: dict) -> list[tuple[float, float]]:
     frame = to_frame(rows, bundle)
     raw50, raw_pess = (bundle["models"][name].predict(frame) for name in ("p50", "pessimistic"))
-    return [(float(a), float(b)) for a, b in zip(raw50, raw_pess)]
+    offset = bundle.get("offsets", {}).get("pessimistic", 0.0)  # conformal calibration, log1p scale
+    return [(float(a), float(b) + offset) for a, b in zip(raw50, raw_pess)]
+
+
+def evaluation_bundle(bundle: dict) -> dict:
+    """Same bundle with the split models, which never saw the test period, and their calibration."""
+    return {**bundle, "models": bundle["evaluation_models"], "offsets": bundle["evaluation_offsets"]}
 
 
 def predict_remaining(features: dict, bundle: dict | None = None) -> tuple[float, float]:

@@ -9,6 +9,7 @@ Writes duration_model.joblib and metrics.json to the output directory.
 """
 import argparse
 import json
+import math
 import platform
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,16 +83,40 @@ def prepare(data_dir: Path = DATA_DIR):
     return versions, snap, train, test, cutoff
 
 
+CALIBRATION_SHARE = 0.2    # most recent incidents of the fit set used for calibration
+CALIBRATION_TARGET = 0.85  # target coverage of the pessimistic estimate
+
+
+def conformal_offset(snapshots: pd.DataFrame) -> tuple[float, dict]:
+    """Split-conformal offset (log1p scale) for the pessimistic model.
+
+    Fit the pessimistic quantile model on all but the most recent CALIBRATION_SHARE of incidents,
+    score log1p(y) - prediction on those recent incidents, and take the finite-sample conformal
+    quantile at CALIBRATION_TARGET. The offset is then added to a model refitted on the full set.
+    """
+    cutoff = snapshots.groupby("id").start.first().quantile(1 - CALIBRATION_SHARE)
+    proper, recent = snapshots[snapshots.start < cutoff], snapshots[snapshots.start >= cutoff]
+    model = HistGradientBoostingRegressor(quantile=QUANTILES["pessimistic"], **HYPERPARAMETERS).fit(
+        proper[FEATURES], np.log1p(proper.y_remaining))
+    scores = np.log1p(recent.y_remaining.to_numpy()) - model.predict(recent[FEATURES])
+    level = min(1.0, math.ceil((len(scores) + 1) * CALIBRATION_TARGET) / len(scores))
+    offset = float(np.quantile(scores, level, method="higher"))
+    return offset, {"calibrationCutoff": cutoff.isoformat(), "calibrationIncidents": int(recent.id.nunique()),
+                    "calibrationSnapshots": int(len(recent)), "offsetLog1p": offset}
+
+
 def fit(snapshots: pd.DataFrame) -> dict:
     y = np.log1p(snapshots.y_remaining)  # durations are very skewed (20 min ... 20 h)
     return {name: HistGradientBoostingRegressor(quantile=q, **HYPERPARAMETERS).fit(snapshots[FEATURES], y)
             for name, q in QUANTILES.items()}
 
 
-def evaluate(models: dict, train: pd.DataFrame, test: pd.DataFrame) -> dict:
+def evaluate(models: dict, train: pd.DataFrame, test: pd.DataFrame, offset: float = 0.0) -> dict:
     y = test.y_remaining.to_numpy()
     p50 = np.maximum(np.expm1(models["p50"].predict(test[FEATURES])), 0)
-    pessimistic = np.maximum(np.expm1(models["pessimistic"].predict(test[FEATURES])), p50)
+    raw_pessimistic = models["pessimistic"].predict(test[FEATURES])
+    pessimistic = np.maximum(np.expm1(raw_pessimistic + offset), p50)
+    uncalibrated = np.maximum(np.expm1(raw_pessimistic), p50)
     has = (test.has_announcement == 1).to_numpy()
     official = test.announced_remaining.clip(lower=0).to_numpy()
     by_reason = train.groupby("reason_id_fk", observed=True).y_remaining.median()
@@ -106,6 +131,7 @@ def evaluate(models: dict, train: pd.DataFrame, test: pd.DataFrame) -> dict:
                     "modelP50": mae(p50, everything)},
         },
         "pessimisticCoverage": float(np.mean(y <= pessimistic)),
+        "pessimisticCoverageUncalibrated": float(np.mean(y <= uncalibrated)),
         "officialTooOptimisticShare": float(np.mean(official[has] < y[has])),
     }
 
@@ -126,7 +152,8 @@ def auto_closed_ids(versions: pd.DataFrame) -> set:
     return set(gap[(gap >= 0) & (gap <= AUTO_CLOSE_TOLERANCE_MIN)].index)
 
 
-def robustness(versions: pd.DataFrame, snap: pd.DataFrame, train: pd.DataFrame, test: pd.DataFrame) -> dict:
+def robustness(versions: pd.DataFrame, snap: pd.DataFrame, train: pd.DataFrame, test: pd.DataFrame,
+               evaluation_models: dict, evaluation_offset: float) -> dict:
     """Metrics without auto-closed incidents: removed then re-split (main), and removed from the test only."""
     auto = auto_closed_ids(versions)
     kept = snap[~snap.id.isin(auto)]
@@ -138,11 +165,11 @@ def robustness(versions: pd.DataFrame, snap: pd.DataFrame, train: pd.DataFrame, 
             "cutoff": r_cutoff.isoformat(),
             "train": {"incidents": int(r_train.id.nunique()), "snapshots": int(len(r_train))},
             "test": {"incidents": int(r_test.id.nunique()), "snapshots": int(len(r_test))},
-            "testMetrics": evaluate(fit(r_train), r_train, r_test),
+            "testMetrics": evaluate(fit(r_train), r_train, r_test, conformal_offset(r_train)[0]),
         },
         "sameSplitTestOnly": {
             "autoClosedInTest": len(auto & set(test.id)),
-            "testMetrics": evaluate(fit(train), train, test[~test.id.isin(auto)]),
+            "testMetrics": evaluate(evaluation_models, train, test[~test.id.isin(auto)], evaluation_offset),
         },
     }
 
@@ -155,8 +182,10 @@ def main(argv=None):
 
     versions, snap, train, test, cutoff = prepare(args.data_dir)
     evaluation_models = fit(train)  # never saw the test period; used for metrics and the replay demo
-    test_metrics = evaluate(evaluation_models, train, test)
+    evaluation_offset, evaluation_calibration = conformal_offset(train)
+    test_metrics = evaluate(evaluation_models, train, test, evaluation_offset)
     models = fit(snap)  # final models: all snapshots, train + test
+    final_offset, final_calibration = conformal_offset(snap)
     encoder = models["p50"]._preprocessor.named_transformers_["encoder"]
     categories = {c: [str(x) for x in cats] for c, cats in zip(CATEGORICAL, encoder.categories_)}
     starts = snap.groupby("id").start.first()
@@ -178,14 +207,21 @@ def main(argv=None):
                       "train": {"incidents": int(train.id.nunique()), "snapshots": int(len(train))},
                       "test": {"incidents": int(test.id.nunique()), "snapshots": int(len(test))}},
             "test": test_metrics,
-            "robustness": robustness(versions, snap, train, test),
+            "calibration": {"method": "split conformal, one-sided, log1p scale, refit then offset",
+                            "target": CALIBRATION_TARGET, **evaluation_calibration,
+                            "testCoverageBefore": test_metrics["pessimisticCoverageUncalibrated"],
+                            "testCoverageAfter": test_metrics["pessimisticCoverage"]},
+            "robustness": robustness(versions, snap, train, test, evaluation_models, evaluation_offset),
         },
         "finalModel": {"trainedOn": "all snapshots (train + test)",
-                       "incidents": int(snap.id.nunique()), "snapshots": int(len(snap))},
+                       "incidents": int(snap.id.nunique()), "snapshots": int(len(snap)),
+                       "calibration": final_calibration},
     }
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"models": models, "evaluation_models": evaluation_models, "features": FEATURES,
+    joblib.dump({"models": models, "evaluation_models": evaluation_models,
+                 "offsets": {"pessimistic": final_offset}, "evaluation_offsets": {"pessimistic": evaluation_offset},
+                 "features": FEATURES,
                  "categories": categories, "metrics": metrics,
                  "explanations": explanation_table(snap),              # training data of the exported model
                  "evaluation_explanations": explanation_table(train)},  # training data of the split models

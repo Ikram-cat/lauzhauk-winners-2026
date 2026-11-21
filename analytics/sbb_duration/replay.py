@@ -21,7 +21,7 @@ from .advice import advice
 from .artifact import finalize
 from .data import DATA_DIR, OUTPUT_DIR, load_reason_labels
 from .features import LOCAL_TZ
-from .predict import load_bundle, predict_raw
+from .predict import evaluation_bundle, load_bundle, predict_raw
 from .train import prepare
 
 DEFAULT_DETOUR_MIN = 60
@@ -42,7 +42,7 @@ def _iso(ts) -> str | None:
 
 def _predict(rows: pd.DataFrame, bundle: dict) -> pd.DataFrame:
     """P50 and pessimistic minutes from the evaluation (split) models."""
-    split_bundle = {**bundle, "models": bundle["evaluation_models"]}
+    split_bundle = evaluation_bundle(bundle)
     features = rows[bundle["features"]].astype(object).where(rows[bundle["features"]].notna(), None)
     raws = predict_raw([{k: (str(v) if k in bundle["categories"] else v) for k, v in r.items()}
                         for r in features.to_dict("records")], split_bundle)

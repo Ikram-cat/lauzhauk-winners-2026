@@ -190,34 +190,43 @@ The frontend handles network or CORS failures as request failures even when ther
 | --- | --- | --- |
 | `status` | `AVAILABLE` or `UNAVAILABLE` | `UNAVAILABLE` when the backend has no model loaded: `DURATION_ARTIFACT_PATH` unset, file missing, invalid, or of an unsupported version. |
 | `remainingMinutes.p50` | Integer or null | Median remaining duration, rounded to the nearest minute. |
-| `remainingMinutes.pessimistic` | Integer or null | Pessimistic remaining duration (0.85 quantile model), rounded up. It is **not** a calibrated probability: on the test period it covered 73.7% of cases. It is always ≥ `p50`. |
+| `remainingMinutes.pessimistic` | Integer or null | Pessimistic remaining duration, rounded up: the 0.85 quantile model plus a split-conformal offset fitted on the most recent training incidents. On the test period it covers 83.1% of cases (73.7% before calibration). It is not a guaranteed probability, since durations drift over time. It is always ≥ `p50`. |
 | `expectedEndAt.p50`, `expectedEndAt.pessimistic` | RFC 3339 timestamp or null | `observedAt` plus the rounded minutes, using the offset of `observedAt`. |
 | `officialRemainingMinutes` | Integer or null | Minutes from `observedAt` to `announcedEndAt`, floored at 0. Null without an announcement. Provided even when `status` is `UNAVAILABLE`. |
 | `advice.code` | `TAKE_DETOUR`, `DETOUR_IF_DEADLINE`, `WAIT` or `UNKNOWN` | `TAKE_DETOUR` if detour < p50; `DETOUR_IF_DEADLINE` if detour < pessimistic; otherwise `WAIT`. `UNKNOWN` without a model or without `detourExtraMinutes`. Thresholds use unrounded minutes. The UI localizes the code. |
 | `advice.detourExtraMinutes` | Integer or null | Echo of the request field. |
-| `provenance` | Object or null | `kind` (`ESTIMATED`), `modelVersion`, `pessimisticQuantile`, and `pessimisticCoverage` (measured on the test split). Null when `UNAVAILABLE`. |
+| `provenance` | Object or null | `kind` (`ESTIMATED`), `modelVersion`, `pessimisticQuantile`, and `pessimisticCoverage` (measured on the test split, after calibration). Null when `UNAVAILABLE`. |
 | `explanation` | Object or null | Values for the cause, computed on the model's training data only, for the UI to format in each language. `reasonCode`; `scope`: `REASON`, or `ALL_REASONS` when the cause has fewer than 5 past incidents or is unknown; `similarIncidents`; `medianDurationMinutes`, the median total duration; `announcementsCompared`; `medianEndMinusAnnouncedMinutes`, the median of actual end minus announced end over every announcement (positive means later than announced); `source`: `TRAINING_DATA`. Null when `UNAVAILABLE`. |
 
 ```json
 {
   "status": "AVAILABLE",
-  "remainingMinutes": { "p50": 228, "pessimistic": 507 },
-  "expectedEndAt": { "p50": "2026-11-21T11:48:00+01:00", "pessimistic": "2026-11-21T16:27:00+01:00" },
+  "remainingMinutes": {
+    "p50": 228,
+    "pessimistic": 640
+  },
+  "expectedEndAt": {
+    "p50": "2026-11-21T11:48:00+01:00",
+    "pessimistic": "2026-11-21T18:40:00+01:00"
+  },
   "officialRemainingMinutes": 60,
-  "advice": { "code": "TAKE_DETOUR", "detourExtraMinutes": 35 },
+  "advice": {
+    "code": "TAKE_DETOUR",
+    "detourExtraMinutes": 35
+  },
   "provenance": {
     "kind": "ESTIMATED",
     "modelVersion": "duration-v1",
     "pessimisticQuantile": 0.85,
-    "pessimisticCoverage": 0.7370892018779343
+    "pessimisticCoverage": 0.8309859154929577
   },
   "explanation": {
-    "reasonCode": "EG_047",
+    "reasonCode": "EG_008",
     "scope": "REASON",
-    "similarIncidents": 75,
-    "medianDurationMinutes": 174,
-    "announcementsCompared": 500,
-    "medianEndMinusAnnouncedMinutes": 12,
+    "similarIncidents": 52,
+    "medianDurationMinutes": 328,
+    "announcementsCompared": 331,
+    "medianEndMinusAnnouncedMinutes": 46,
     "source": "TRAINING_DATA"
   }
 }

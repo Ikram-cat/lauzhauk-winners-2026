@@ -22,7 +22,7 @@ object NoDurationEstimator : DisruptionDurationEstimator {
 
 /**
  * Evaluates the exported gradient-boosted trees, mirroring analytics/sbb_duration/artifact.py:
- * raw = baseline + sum of reached leaves (log1p scale), then
+ * raw = baseline + sum of reached leaves + calibrationOffset (log1p scale), then
  * p50 = max(expm1(raw50), 0) and pessimistic = max(expm1(rawPessimistic), p50).
  */
 class TreeEnsembleDurationEstimator(private val artifact: DurationArtifact) : DisruptionDurationEstimator {
@@ -84,7 +84,7 @@ class TreeEnsembleDurationEstimator(private val artifact: DurationArtifact) : Di
     }
 
     private fun score(model: QuantileModel, row: DoubleArray): Double =
-        model.baseline + model.trees.sumOf { leafValue(it, row) }
+        model.baseline + model.trees.sumOf { leafValue(it, row) } + model.calibrationOffset
 
     private fun leafValue(nodes: List<TreeNode>, row: DoubleArray): Double {
         var node = nodes[0]
