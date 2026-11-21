@@ -21,4 +21,14 @@ data class DurationEstimate(
     val pessimisticCoverage: Double?
 )
 
+/** Historical facts for the cause, from the training data. scope = REASON or ALL_REASONS (rare/unknown cause). */
+data class DurationExplanation(
+    val reasonCode: String?,
+    val scope: String,
+    val similarIncidents: Int,
+    val medianDurationMinutes: Int,
+    val announcementsCompared: Int,
+    val medianEndMinusAnnouncedMinutes: Int?
+)
+
 enum class AdviceCode { TAKE_DETOUR, DETOUR_IF_DEADLINE, WAIT, UNKNOWN }

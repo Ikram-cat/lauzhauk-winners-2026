@@ -196,6 +196,7 @@ The frontend handles network or CORS failures as request failures even when ther
 | `advice.code` | `TAKE_DETOUR`, `DETOUR_IF_DEADLINE`, `WAIT` or `UNKNOWN` | `TAKE_DETOUR` if detour < p50; `DETOUR_IF_DEADLINE` if detour < pessimistic; otherwise `WAIT`. `UNKNOWN` without a model or without `detourExtraMinutes`. Thresholds use unrounded minutes. The UI localizes the code. |
 | `advice.detourExtraMinutes` | Integer or null | Echo of the request field. |
 | `provenance` | Object or null | `kind` (`ESTIMATED`), `modelVersion`, `pessimisticQuantile`, and `pessimisticCoverage` (measured on the test split). Null when `UNAVAILABLE`. |
+| `explanation` | Object or null | Values for the cause, computed on the model's training data only, for the UI to format in each language. `reasonCode`; `scope`: `REASON`, or `ALL_REASONS` when the cause has fewer than 5 past incidents or is unknown; `similarIncidents`; `medianDurationMinutes`, the median total duration; `announcementsCompared`; `medianEndMinusAnnouncedMinutes`, the median of actual end minus announced end over every announcement (positive means later than announced); `source`: `TRAINING_DATA`. Null when `UNAVAILABLE`. |
 
 ```json
 {
@@ -209,6 +210,15 @@ The frontend handles network or CORS failures as request failures even when ther
     "modelVersion": "duration-v1",
     "pessimisticQuantile": 0.85,
     "pessimisticCoverage": 0.7370892018779343
+  },
+  "explanation": {
+    "reasonCode": "EG_047",
+    "scope": "REASON",
+    "similarIncidents": 75,
+    "medianDurationMinutes": 174,
+    "announcementsCompared": 500,
+    "medianEndMinusAnnouncedMinutes": 12,
+    "source": "TRAINING_DATA"
   }
 }
 ```
@@ -220,7 +230,8 @@ The frontend handles network or CORS failures as request failures even when ther
   "expectedEndAt": null,
   "officialRemainingMinutes": 60,
   "advice": { "code": "UNKNOWN", "detourExtraMinutes": 35 },
-  "provenance": null
+  "provenance": null,
+  "explanation": null
 }
 ```
 
@@ -266,6 +277,7 @@ Every file is `dataStatus: "MOCK"`, `kind: "HISTORICAL_MULTI_SOURCE_TIMELINE"`, 
 | `incident.actualResumptionAt` | Real resumption reported by the internal liveticker (for example "Premiers trains …", "concept d'exploitation terminé") when it precedes `publicEndAt`. Otherwise null. Partial reopenings (one track, trains "with measures") and proposals do not count. |
 | `incident.actualEndAt`, `actualEndSource`, `actualDurationMinutes` | Real end: `actualResumptionAt` when set (`INTERNAL_RESUMPTION`), else `publicEndAt` (`PUBLIC_END`). Show it as the "real resumption" when the source is internal. |
 | `comparison` | Mean absolute error, against `actualEndAt`, of the SBB announcement and of the model P50, over the moments where both exist. |
+| `explanation` | Same object as in the outlook response. It is computed on the training split of the evaluation models, so it never includes the replayed incident. |
 | `linkage` | How the VIA and internal records were joined, the creation-time delta, and the number of internal messages used and skipped. |
 | `detourExtraMinutes` | Hypothetical detour cost used for every `advice` (default 60). |
 | `model` | Provenance of the predictions: the evaluation models, trained before 2026-04-06, never saw these incidents. |

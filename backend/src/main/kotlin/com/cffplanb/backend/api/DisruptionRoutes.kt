@@ -80,6 +80,10 @@ fun Route.disruptionRoutes(estimator: DisruptionDurationEstimator, clock: Clock)
                 advice = AdviceDto(AdviceService.advise(estimate, request.detourExtraMinutes).name, request.detourExtraMinutes),
                 provenance = estimate?.let {
                     DurationProvenanceDto("ESTIMATED", it.modelVersion, it.pessimisticQuantile, it.pessimisticCoverage)
+                },
+                explanation = estimator.explain(ctx.reasonCode)?.let {
+                    ExplanationDto(it.reasonCode, it.scope, it.similarIncidents, it.medianDurationMinutes,
+                        it.announcementsCompared, it.medianEndMinusAnnouncedMinutes)
                 }
             )
         )

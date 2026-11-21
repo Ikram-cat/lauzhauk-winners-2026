@@ -32,6 +32,7 @@ class DisruptionRouteTest {
         assertEquals("UNAVAILABLE", body["status"]!!.jsonPrimitive.content)
         assertEquals(JsonNull, body["remainingMinutes"])
         assertEquals(JsonNull, body["provenance"])
+        assertEquals(JsonNull, body["explanation"])
         assertEquals(60, body["officialRemainingMinutes"]!!.jsonPrimitive.int)
         assertEquals("UNKNOWN", body["advice"]!!.jsonObject["code"]!!.jsonPrimitive.content)
 

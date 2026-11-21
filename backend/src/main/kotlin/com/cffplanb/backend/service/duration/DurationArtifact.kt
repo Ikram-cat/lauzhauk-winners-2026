@@ -13,7 +13,8 @@ data class DurationArtifact(
     val features: List<FeatureSpec>,
     val derivation: Derivation,
     val models: Map<String, QuantileModel>,
-    val metrics: ArtifactMetrics? = null
+    val metrics: ArtifactMetrics? = null,
+    val explanations: ExplanationTable? = null
 )
 
 @Serializable
@@ -43,6 +44,18 @@ data class TreeNode(
     val missingLeft: Boolean = false,
     val left: Int = -1,
     val right: Int = -1
+)
+
+/** Per-cause facts from the training data; see analytics/sbb_duration/explain.py. */
+@Serializable
+data class ExplanationTable(val minIncidents: Int, val all: ExplanationRow, val byReason: Map<String, ExplanationRow>)
+
+@Serializable
+data class ExplanationRow(
+    val similarIncidents: Int,
+    val medianDurationMinutes: Int,
+    val announcementsCompared: Int,
+    val medianEndMinusAnnouncedMinutes: Int? = null
 )
 
 @Serializable

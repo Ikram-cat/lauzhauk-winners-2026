@@ -37,11 +37,23 @@ data class DurationProvenanceDto(
 )
 
 @Serializable
+data class ExplanationDto(
+    val reasonCode: String?,
+    val scope: String,
+    val similarIncidents: Int,
+    val medianDurationMinutes: Int,
+    val announcementsCompared: Int,
+    val medianEndMinusAnnouncedMinutes: Int?,
+    val source: String = "TRAINING_DATA"
+)
+
+@Serializable
 data class DisruptionOutlookResponseDto(
     val status: String,
     val remainingMinutes: RemainingMinutesDto?,
     val expectedEndAt: ExpectedEndDto?,
     val officialRemainingMinutes: Int?,
     val advice: AdviceDto,
-    val provenance: DurationProvenanceDto?
+    val provenance: DurationProvenanceDto?,
+    val explanation: ExplanationDto? = null
 )

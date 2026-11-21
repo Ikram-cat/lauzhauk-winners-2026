@@ -24,6 +24,7 @@ import pandas as pd
 from .advice import Advice, advice
 from .artifact import finalize
 from .data import ANALYTICS_DIR, DATA_DIR, OUTPUT_DIR, load_reason_labels, load_versions
+from .explain import explain
 from .features import LOCAL_TZ, build_features
 from .messages import SENDER_ROLES, StationGazetteer, extract, sanitize
 from .predict import load_bundle, predict_raw
@@ -438,6 +439,7 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
             "actualDurationMinutes": None if actual_end is None else _round((actual_end - start).total_seconds() / 60),
         },
         "comparison": _comparison(moments),
+        "explanation": explain(bundle["evaluation_explanations"], reason),
         "linkage": {
             "via": {"rule": "alea_fall_id == public incident id", "events": int(len(v_rows))},
             "internal": {"rule": "same cause code and creation time within 30 min (one-to-one, nearest)",

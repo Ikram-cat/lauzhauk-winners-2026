@@ -120,6 +120,7 @@ def build_artifact(bundle: dict) -> dict:
             "held-out score of their own.",
             "End = first ENDED version, i.e. when SBB declares the disruption over.",
         ],
+        "explanations": bundle["explanations"],
         "models": {name: export_model(bundle["models"][name], n_categories) for name in ("p50", "pessimistic")},
     }
 

@@ -2,6 +2,7 @@ package com.cffplanb.backend.service.duration
 
 import com.cffplanb.backend.domain.DisruptionContext
 import com.cffplanb.backend.domain.DurationEstimate
+import com.cffplanb.backend.domain.DurationExplanation
 import java.time.OffsetDateTime
 import kotlin.math.expm1
 import kotlin.math.max
@@ -9,6 +10,9 @@ import kotlin.math.max
 /** Remaining-duration estimate for a disruption, or null when no model is available. */
 interface DisruptionDurationEstimator {
     fun estimate(ctx: DisruptionContext, observedAt: OffsetDateTime): DurationEstimate?
+
+    /** Historical facts for the cause, or null when no model is loaded. */
+    fun explain(reasonCode: String?): DurationExplanation? = null
 }
 
 /** Used when the artifact is absent or unsupported: estimates stay unknown. */
@@ -57,6 +61,14 @@ class TreeEnsembleDurationEstimator(private val artifact: DurationArtifact) : Di
             pessimisticQuantile = pessimisticModel.quantile,
             pessimisticCoverage = artifact.metrics?.test?.pessimisticCoverage
         )
+    }
+
+    override fun explain(reasonCode: String?): DurationExplanation? {
+        val table = artifact.explanations ?: return null
+        val row = reasonCode?.let { table.byReason[it] }?.takeIf { it.similarIncidents >= table.minIncidents }
+        val (scope, used) = if (row != null) "REASON" to row else "ALL_REASONS" to table.all
+        return DurationExplanation(reasonCode, scope, used.similarIncidents, used.medianDurationMinutes,
+            used.announcementsCompared, used.medianEndMinusAnnouncedMinutes)
     }
 
     /** Model row in artifact feature order. Categories become codes; unknown or missing -> NaN. */

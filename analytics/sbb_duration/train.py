@@ -20,6 +20,7 @@ import sklearn
 from sklearn.ensemble import HistGradientBoostingRegressor
 
 from .data import DATA_DIR, OUTPUT_DIR, file_checksums, load_versions
+from .explain import explanation_table
 from .features import CATEGORICAL, FEATURES, build_features
 from .predict import BUNDLE_FILE
 
@@ -185,7 +186,9 @@ def main(argv=None):
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump({"models": models, "evaluation_models": evaluation_models, "features": FEATURES,
-                 "categories": categories, "metrics": metrics},
+                 "categories": categories, "metrics": metrics,
+                 "explanations": explanation_table(snap),              # training data of the exported model
+                 "evaluation_explanations": explanation_table(train)},  # training data of the split models
                 args.output_dir / BUNDLE_FILE)
     (args.output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print(json.dumps(metrics["evaluation"], indent=2))
