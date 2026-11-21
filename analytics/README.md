@@ -25,6 +25,7 @@ python -m pytest tests -p no:cacheprovider  # JSON evaluator == sklearn, advice 
 python -m sbb_duration.replay [--detour 60] # 3 past incidents, terminal table + output/replay/replay-0N.json (MOCK)
 python -m sbb_duration.sources [--detour 60] # 3-source timelines -> output/timelines/timeline-<id>.json + index.json (MOCK)
 python scripts/run_demo.py [--offline]       # builds missing outputs, then starts the backend with the model (docs/DEMO.md)
+python -m sbb_duration.pitch                  # output/pitch_numbers.md: key figures with one-sentence definitions
 ```
 
 | Module | Role |
