@@ -105,13 +105,31 @@ class GtfsTest {
         assertEquals(DisruptionBasis.SUPPRESSED_STOP, h.disruption.basis); assertFalse(h.disruption.cancelled); assertEquals("high", h.disruption.confidence)
     }
 
-    @Test fun `c - boarding-stop delay of at least 60 s floors to minutes with a timetable-plus-delay estimate`() {
+    @Test fun `c - boarding-stop delay of at least 3 min floors to minutes with a timetable-plus-delay estimate`() {
         val l = leg("RE33", "Montreux", "21:20", "22:10")
         val h = classifyLegGtfs(0, l, ev("RE33", "21:20", "ojp:91033:C", "20:35", "ch:1:sloid:1200:0:9"), snap()) as LegCheck.Hit
         assertEquals(4, h.disruption.delayMinutes); assertEquals(DisruptionBasis.REALTIME_ESTIMATE, h.disruption.basis)
         assertEquals(l.departure.plusSeconds(294), h.disruption.estimatedDeparture)
-        // 54 s at Lausanne is below one minute: GTFS says the train is fine
+        // 54 s at Lausanne is below the threshold: GTFS says the train is fine
         assertSame(LegCheck.Clear, classifyLegGtfs(0, l, ev("RE33", "21:20", "ojp:91033:C", "20:35", "ch:1:sloid:1120:0:840061"), snap()))
+    }
+
+    @Test fun `delays under 3 minutes are not a disruption`() {
+        fun trip(delay: Int) = GtfsTrip(".x", "91-33-C-j26-1", "20261121", "21:35:00", false, false, listOf(GtfsStopUpdate("ch:1:sloid:1200:1:1", delay, false)))
+        val l = leg("RE33", "Montreux", "21:20", "22:10"); val p = ev("RE33", "21:20", "ojp:91033:C", "20:35", "ch:1:sloid:1200:0:9")
+        for (d in listOf(60, 119, 179)) assertSame(LegCheck.Clear, classifyLegGtfs(0, l, p, GtfsSnapshot(0, listOf(trip(d)), 1, 0, 0, 0)))
+        assertEquals(3, ((classifyLegGtfs(0, l, p, GtfsSnapshot(0, listOf(trip(180)), 1, 0, 0, 0))) as LegCheck.Hit).disruption.delayMinutes)
+    }
+
+    @Test fun `cancelled trips are matched from route and start time alone, they have no stop updates`() {
+        val s = snap()
+        assertTrue(s.byTripId[".ojp-91-7-J.1.TA.641.j26"]!!.stops.isEmpty())          // as in the raw feed
+        // the planned event knows nothing about stops (no stopRef) and the leg is at a stop GTFS never mentions
+        val e = StopEvent("IR7", "ojp:91007:J", t("20:40"), null, false, null, emptySet(), null, t("20:26"))
+        val h = classifyLegGtfs(0, leg("IR7", "Anywhere", "20:40", "21:30"), e, s) as LegCheck.Hit
+        assertTrue(h.disruption.cancelled); assertEquals(DisruptionBasis.CANCELLED_FLAG, h.disruption.basis)
+        // wrong start date: no match
+        assertNull(classifyLegGtfs(0, leg("IR7", "Anywhere", "20:40", "21:30"), e.copy(originDeparture = t("20:26").minusDays(1)), s))
     }
 
     @Test fun `d - no confident GTFS match gives null so OJP takes over`() {

@@ -35,6 +35,9 @@ sealed class LegCheck {
 /** [worst] is the single most severe disruption; [count] how many legs are disrupted; [unknown] if any leg could not be verified. */
 data class JourneyCheck(val worst: Disruption?, val count: Int, val unknown: Boolean)
 
+/** Smaller delays are not a disruption: nothing is reported and the normal recommendation stands. */
+const val MIN_DELAY_MINUTES = 3
+
 private fun norm(s: String?) = s?.uppercase()?.filter { it.isLetterOrDigit() }.orEmpty()
 
 /** The timetable-board departure that is this leg (same line label, closest scheduled time within 5 min). */
@@ -46,7 +49,7 @@ fun plannedFor(leg: JourneyLeg, plan: List<StopEvent>): StopEvent? {
 
 /**
  * Pure, primary path: GTFS-RT verdict for [leg] given its timetable-board departure [planned], or null when no confident GTFS match exists.
- * Order: trip CANCELED, boarding stop SKIPPED, boarding-stop delay >= 60 s, otherwise Clear.
+ * Order: trip CANCELED (matched by route + start time only: cancelled trips carry no stop_time_updates), boarding stop SKIPPED, boarding-stop delay >= 3 min, otherwise Clear.
  */
 fun classifyLegGtfs(legIndex: Int, leg: JourneyLeg, planned: StopEvent, snap: GtfsSnapshot): LegCheck? {
     val trip = GtfsMatch.find(snap, planned.lineRef, planned.originDeparture?.toInstant()) ?: return null
@@ -55,7 +58,7 @@ fun classifyLegGtfs(legIndex: Int, leg: JourneyLeg, planned: StopEvent, snap: Gt
     val stu = trip.stops.firstOrNull { GtfsMatch.sameStop(it.stopId, planned.stopRef) } ?: return null
     if (stu.skipped) return hit(null, false, DisruptionBasis.SUPPRESSED_STOP)
     val d = stu.delaySeconds ?: return null
-    return if (d >= 60) hit(d / 60, false, DisruptionBasis.REALTIME_ESTIMATE, leg.departure.plusSeconds(d.toLong())) else LegCheck.Clear
+    return if (d / 60 >= MIN_DELAY_MINUTES) hit(d / 60, false, DisruptionBasis.REALTIME_ESTIMATE, leg.departure.plusSeconds(d.toLong())) else LegCheck.Clear
 }
 
 /**
@@ -72,9 +75,9 @@ fun classifyLeg(legIndex: Int, leg: JourneyLeg, plan: List<StopEvent>, live: Lis
     val counterpart = live.filter { sameLine(it, planned.label, planned.lineRef) && gap(it.scheduled, planned.scheduled) <= 2 }.minByOrNull { gap(it.scheduled, planned.scheduled) }
         ?: return hit(null, true, DisruptionBasis.CANCELLED_FLAG, "high")
     if (counterpart.cancelled) return hit(null, true, DisruptionBasis.CANCELLED_FLAG, "high")
-    val est = counterpart.estimated ?: return hit(null, false, DisruptionBasis.MISSING_ESTIMATE, "medium")
+    val est = counterpart.estimated ?: return LegCheck.Unknown // no estimate is no evidence of a problem, and not proof of health either
     val delay = Duration.between(counterpart.scheduled, est).toMinutes().toInt()
-    return if (delay >= 1) hit(delay, false, DisruptionBasis.REALTIME_ESTIMATE, "high", est) else LegCheck.Clear
+    return if (delay >= MIN_DELAY_MINUTES) hit(delay, false, DisruptionBasis.REALTIME_ESTIMATE, "high", est) else LegCheck.Clear
 }
 
 /**

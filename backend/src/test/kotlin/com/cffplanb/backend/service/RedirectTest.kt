@@ -57,7 +57,7 @@ class RedirectTest {
 
     @Test fun `classification on fixture`() {
         val plan = plan(*fixtureEvents.toTypedArray())
-        assertEquals(DisruptionBasis.MISSING_ESTIMATE, (classifyLeg(0, leg("IC1", "Lausanne", "Genève", "15:10", "16:00"), plan, fixtureEvents) as LegCheck.Hit).disruption.basis)
+        assertSame(LegCheck.Unknown, classifyLeg(0, leg("IC1", "Lausanne", "Genève", "15:10", "16:00"), plan, fixtureEvents)) // on-time event without estimate
         val delayed = classifyLeg(0, leg("RE 33", "Lausanne", "Genève", "15:12", "16:00"), plan, fixtureEvents) as LegCheck.Hit
         assertEquals(22, delayed.disruption.delayMinutes); assertEquals(DisruptionBasis.REALTIME_ESTIMATE, delayed.disruption.basis)
         val cancelled = classifyLeg(2, leg("IC 5", "Lausanne", "Genève", "15:20", "16:10"), plan, fixtureEvents) as LegCheck.Hit
@@ -76,9 +76,17 @@ class RedirectTest {
         assertSame(LegCheck.Clear, classifyLeg(0, leg("ICE71", "Olten", "Zürich HB", "15:29", "16:00"), p, listOf(ev("ICE 71", "15:30", "15:30"))))
     }
 
-    @Test fun `live trip without an estimate is MISSING_ESTIMATE with unknown delay`() {
-        val h = classifyLeg(0, leg("IC 8", "A", "B", "15:40", "16:30"), plan(ev("IC 8", "15:40")), listOf(ev("IC 8", "15:40"))) as LegCheck.Hit
-        assertEquals(DisruptionBasis.MISSING_ESTIMATE, h.disruption.basis); assertEquals("medium", h.disruption.confidence); assertNull(h.disruption.delayMinutes); assertFalse(h.disruption.cancelled)
+    @Test fun `OJP delays under 3 minutes are clear, 3 minutes is a disruption, no estimate is unknown`() {
+        val l = leg("IC 8", "A", "B", "15:40", "16:30"); val p = plan(ev("IC 8", "15:40"))
+        assertSame(LegCheck.Clear, classifyLeg(0, l, p, listOf(ev("IC 8", "15:40", "15:42"))))
+        assertEquals(3, (classifyLeg(0, l, p, listOf(ev("IC 8", "15:40", "15:43"))) as LegCheck.Hit).disruption.delayMinutes)
+        assertSame(LegCheck.Unknown, classifyLeg(0, l, p, listOf(ev("IC 8", "15:40"))))
+    }
+
+    @Test fun `a 1 minute delay is NO_DISRUPTION with the normal recommendation and no delay in the message`() = api(late(1), "") { j ->
+        assertEquals("NO_DISRUPTION", j.str("situation")); assertEquals(JsonNull, j["disruption"])
+        assertEquals("RE", j.obj("recommendation").str("id")); assertEquals("fastest", j.obj("recommendation").str("why"))
+        assertFalse(Regex("late|delay|min late", RegexOption.IGNORE_CASE).containsMatchIn(j.str("message")), j.str("message"))
     }
 
     @Test fun `leg not on the timetable board or an empty live board is Unknown`() {
