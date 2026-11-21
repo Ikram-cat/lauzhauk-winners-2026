@@ -1,6 +1,6 @@
 {
  "modelVersion": "2026-11-duration-v1",
- "generatedAt": "2026-11-21T18:03:53Z",
+ "generatedAt": "2026-11-21T18:28:47Z",
  "coverage": {
   "from": "2024-03-03T23:03:42.379000+00:00",
   "to": "2026-10-11T02:57:52.344000+00:00",
@@ -11,7 +11,7 @@
   "lateProbability = share of days in the coverage window on which the corridor had an active unplanned disruption during that local (Europe/Zurich) hour. It is NOT a per-train lateness rate (no non-disrupted trips in the data).",
   "expectedDelayMin = median total duration (minutes) of the disruptions active in that bucket; an upper bound on passenger delay, not a measured delay.",
   "sampleSize = distinct incidents in the bucket; confidence: <8 low, 8-19 medium, >=20 high.",
-  "corridors: pooled over hours and both directions (A-B + B-A); see stats, joinHints, hourBaseline (nationwide, 24 rows) and stationAliases. Corridors with <3 incidents are dropped; byLineHour cells with <8 incidents are dropped.",
+  "corridors: pooled over hours and both directions (A-B + B-A); see stats, joinHints, hourBaseline (nationwide, 24 rows) and stationAliases. Corridors with a single incident are kept with confidence 'very_low'; byLineHour cells with <8 incidents are dropped.",
   "102 of 507 incidents had no parsable line corridor and are excluded."
  ],
  "byLineHour": [
@@ -147,7 +147,7 @@
    "expectedDelayMin": 178.1,
    "sampleSize": 40,
    "confidence": "high",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Genève",
@@ -159,7 +159,7 @@
    "expectedDelayMin": 195.7,
    "sampleSize": 23,
    "confidence": "high",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Palézieux",
@@ -171,7 +171,7 @@
    "expectedDelayMin": 121.2,
    "sampleSize": 20,
    "confidence": "high",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Lausanne",
@@ -183,7 +183,7 @@
    "expectedDelayMin": 231.3,
    "sampleSize": 18,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Yverdon-les-Bains",
@@ -195,7 +195,7 @@
    "expectedDelayMin": 107.0,
    "sampleSize": 18,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Yverdon-les-Bains",
@@ -207,7 +207,7 @@
    "expectedDelayMin": 87.1,
    "sampleSize": 17,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Biel/Bienne",
@@ -219,7 +219,7 @@
    "expectedDelayMin": 176.6,
    "sampleSize": 15,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Lausanne",
@@ -231,7 +231,7 @@
    "expectedDelayMin": 198.8,
    "sampleSize": 10,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Payerne",
@@ -243,7 +243,7 @@
    "expectedDelayMin": 267.2,
    "sampleSize": 10,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Payerne",
@@ -255,7 +255,7 @@
    "expectedDelayMin": 163.8,
    "sampleSize": 10,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Sonceboz-Sombeval",
@@ -267,7 +267,7 @@
    "expectedDelayMin": 132.5,
    "sampleSize": 9,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "St-Maurice",
@@ -279,7 +279,7 @@
    "expectedDelayMin": 250.2,
    "sampleSize": 9,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Biel/Bienne",
@@ -291,7 +291,7 @@
    "expectedDelayMin": 131.9,
    "sampleSize": 8,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Delémont",
@@ -303,7 +303,7 @@
    "expectedDelayMin": 182.3,
    "sampleSize": 8,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Genève",
@@ -315,7 +315,7 @@
    "expectedDelayMin": 120.8,
    "sampleSize": 8,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Neuchâtel",
@@ -327,7 +327,7 @@
    "expectedDelayMin": 119.0,
    "sampleSize": 8,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Neuchâtel",
@@ -339,7 +339,7 @@
    "expectedDelayMin": 157.7,
    "sampleSize": 8,
    "confidence": "medium",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Murten/Morat",
@@ -351,7 +351,19 @@
    "expectedDelayMin": 95.9,
    "sampleSize": 7,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
+  },
+  {
+   "from": "Bern",
+   "to": "Thun",
+   "corridor": "Bern - Thun",
+   "disruptionDays": 6,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0063,
+   "expectedDelayMin": 206.4,
+   "sampleSize": 6,
+   "confidence": "low",
+   "source": "full"
   },
   {
    "from": "Biel/Bienne",
@@ -363,7 +375,7 @@
    "expectedDelayMin": 194.2,
    "sampleSize": 6,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Payerne",
@@ -375,7 +387,7 @@
    "expectedDelayMin": 76.5,
    "sampleSize": 6,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Yverdon-les-Bains",
@@ -387,7 +399,7 @@
    "expectedDelayMin": 176.9,
    "sampleSize": 6,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Genève",
@@ -399,7 +411,7 @@
    "expectedDelayMin": 90.0,
    "sampleSize": 5,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Neuchâtel",
@@ -411,7 +423,7 @@
    "expectedDelayMin": 173.4,
    "sampleSize": 5,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Basel SBB",
@@ -423,7 +435,7 @@
    "expectedDelayMin": 125.3,
    "sampleSize": 4,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Bern",
@@ -435,19 +447,7 @@
    "expectedDelayMin": 319.4,
    "sampleSize": 4,
    "confidence": "low",
-   "source": "line"
-  },
-  {
-   "from": "Bern",
-   "to": "Thun",
-   "corridor": "Bern - Thun",
-   "disruptionDays": 4,
-   "windowDays": 953,
-   "disruptionProbabilityPerDay": 0.0042,
-   "expectedDelayMin": 225.2,
-   "sampleSize": 4,
-   "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Effretikon",
@@ -459,7 +459,7 @@
    "expectedDelayMin": 375.9,
    "sampleSize": 4,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "La Chaux-de-Fonds",
@@ -471,7 +471,7 @@
    "expectedDelayMin": 239.8,
    "sampleSize": 4,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Le Day",
@@ -483,7 +483,19 @@
    "expectedDelayMin": 374.5,
    "sampleSize": 4,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
+  },
+  {
+   "from": "Olten",
+   "to": "Zürich HB",
+   "corridor": "Olten - Zürich HB",
+   "disruptionDays": 4,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0042,
+   "expectedDelayMin": 148.4,
+   "sampleSize": 4,
+   "confidence": "low",
+   "source": "full"
   },
   {
    "from": "Winterthur",
@@ -495,7 +507,7 @@
    "expectedDelayMin": 102.9,
    "sampleSize": 4,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Bellegarde-sur-Valserine",
@@ -507,7 +519,7 @@
    "expectedDelayMin": 483.8,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Brig",
@@ -519,7 +531,7 @@
    "expectedDelayMin": 214.4,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Chiasso",
@@ -531,19 +543,7 @@
    "expectedDelayMin": 77.4,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
-  },
-  {
-   "from": "Olten",
-   "to": "Zürich HB",
-   "corridor": "Olten - Zürich HB",
-   "disruptionDays": 3,
-   "windowDays": 953,
-   "disruptionProbabilityPerDay": 0.0031,
-   "expectedDelayMin": 122.4,
-   "sampleSize": 3,
-   "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Solothurn",
@@ -555,7 +555,7 @@
    "expectedDelayMin": 550.4,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "St-Maurice",
@@ -567,7 +567,7 @@
    "expectedDelayMin": 203.7,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Vallorbe",
@@ -579,7 +579,7 @@
    "expectedDelayMin": 314.6,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Vevey",
@@ -591,7 +591,7 @@
    "expectedDelayMin": 317.9,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
   },
   {
    "from": "Zürich HB",
@@ -603,7 +603,19 @@
    "expectedDelayMin": 226.4,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
+  },
+  {
+   "from": "Zürich HB",
+   "to": "Brugg AG",
+   "corridor": "Zürich HB - Brugg AG",
+   "disruptionDays": 3,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0031,
+   "expectedDelayMin": 147.5,
+   "sampleSize": 3,
+   "confidence": "low",
+   "source": "full"
   },
   {
    "from": "Zürich HB",
@@ -615,7 +627,1219 @@
    "expectedDelayMin": 150.6,
    "sampleSize": 3,
    "confidence": "low",
-   "source": "line"
+   "source": "full"
+  },
+  {
+   "from": "Aarau",
+   "to": "Brugg AG",
+   "corridor": "Aarau - Brugg AG",
+   "disruptionDays": 3,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0031,
+   "expectedDelayMin": 478.2,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Buchs SG",
+   "to": "Sargans",
+   "corridor": "Buchs SG - Sargans",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 147.1,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Cadenazzo",
+   "to": "Locarno",
+   "corridor": "Cadenazzo - Locarno",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 405.4,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "segment"
+  },
+  {
+   "from": "Delémont",
+   "to": "Basel SBB",
+   "corridor": "Delémont - Basel SBB",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 259.7,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Delémont",
+   "to": "Porrentruy",
+   "corridor": "Delémont - Porrentruy",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 172.1,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Effretikon",
+   "to": "Wetzikon ZH",
+   "corridor": "Effretikon - Wetzikon ZH",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 129.9,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Genève-Aéroport",
+   "to": "Lausanne",
+   "corridor": "Genève-Aéroport - Lausanne",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 140.3,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Kreuzlingen",
+   "to": "Weinfelden",
+   "corridor": "Kreuzlingen - Weinfelden",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 90.2,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Lausanne",
+   "to": "Kerzers",
+   "corridor": "Lausanne - Kerzers",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 168.9,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Le Brassus",
+   "to": "Vallorbe",
+   "corridor": "Le Brassus - Vallorbe",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 285.2,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Lugano",
+   "to": "Bellinzona",
+   "corridor": "Lugano - Bellinzona",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 359.6,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Luzern",
+   "to": "Olten",
+   "corridor": "Luzern - Olten",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 206.1,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Olten",
+   "to": "Bern",
+   "corridor": "Olten - Bern",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 114.6,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "segment"
+  },
+  {
+   "from": "Olten",
+   "to": "Solothurn",
+   "corridor": "Olten - Solothurn",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 250.4,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Payerne",
+   "to": "Lausanne",
+   "corridor": "Payerne - Lausanne",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 105.8,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Winterthur",
+   "to": "Romanshorn",
+   "corridor": "Winterthur - Romanshorn",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 128.9,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Ziegelbrücke",
+   "to": "Sargans",
+   "corridor": "Ziegelbrücke - Sargans",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 120.7,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Zofingen",
+   "to": "Lenzburg",
+   "corridor": "Zofingen - Lenzburg",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 162.9,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich HB",
+   "to": "Chur",
+   "corridor": "Zürich HB - Chur",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 185.0,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich HB",
+   "to": "Meilen",
+   "corridor": "Zürich HB - Meilen",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 128.5,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich HB",
+   "to": "Thalwil",
+   "corridor": "Zürich HB - Thalwil",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 92.9,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich HB",
+   "to": "Winterthur",
+   "corridor": "Zürich HB - Winterthur",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 124.5,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich Hardbrücke",
+   "to": "Zürich Oerlikon",
+   "corridor": "Zürich Hardbrücke - Zürich Oerlikon",
+   "disruptionDays": 3,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0031,
+   "expectedDelayMin": 472.3,
+   "sampleSize": 2,
+   "confidence": "low",
+   "source": "segment"
+  },
+  {
+   "from": "Altdorf UR",
+   "to": "Bellinzona",
+   "corridor": "Altdorf UR - Bellinzona",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 117.3,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Annemasse",
+   "to": "Evian-les-Bains",
+   "corridor": "Annemasse - Evian-les-Bains",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 162.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Avenches, gare",
+   "to": "Payerne",
+   "corridor": "Avenches, gare - Payerne",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 73.1,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Basel SBB",
+   "to": "Zürich HB",
+   "corridor": "Basel SBB - Zürich HB",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 187.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Bern",
+   "to": "Neuchâtel",
+   "corridor": "Bern - Neuchâtel",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 847.0,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Bern Wankdorf",
+   "to": "Zollikofen",
+   "corridor": "Bern Wankdorf - Zollikofen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 254.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Biel/Bienne",
+   "to": "Basel SBB",
+   "corridor": "Biel/Bienne - Basel SBB",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 123.2,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Biel/Bienne",
+   "to": "Belfort",
+   "corridor": "Biel/Bienne - Belfort",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 130.6,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Buchs SG",
+   "to": "Rorschach",
+   "corridor": "Buchs SG - Rorschach",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 170.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Bussigny",
+   "to": "Yverdon-les-Bains",
+   "corridor": "Bussigny - Yverdon-les-Bains",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 102.5,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Busto Arsizio",
+   "to": "Malpensa Aeroporto T2",
+   "corridor": "Busto Arsizio - Malpensa Aeroporto T2",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 229.2,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Bülach",
+   "to": "Schaffhausen",
+   "corridor": "Bülach - Schaffhausen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 255.3,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Chiasso",
+   "to": "Como Camerlata",
+   "corridor": "Chiasso - Como Camerlata",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 293.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Delémont",
+   "to": "Belfort",
+   "corridor": "Delémont - Belfort",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 552.6,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Dübendorf",
+   "to": "Rapperswil SG",
+   "corridor": "Dübendorf - Rapperswil SG",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 208.2,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Dübendorf",
+   "to": "Wetzikon ZH",
+   "corridor": "Dübendorf - Wetzikon ZH",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 37.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Effretikon",
+   "to": "Zürich Oerlikon",
+   "corridor": "Effretikon - Zürich Oerlikon",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 118.3,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Etoy",
+   "to": "Allaman",
+   "corridor": "Etoy - Allaman",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 183.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Genève",
+   "to": "Genève-Aéroport please use the buses",
+   "corridor": "Genève - Genève-Aéroport please use the buses",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 129.0,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Genève",
+   "to": "La Plaine",
+   "corridor": "Genève - La Plaine",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 162.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Genève-Aéroport",
+   "to": "Genève please use the buses",
+   "corridor": "Genève-Aéroport - Genève please use the buses",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 67.6,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Genève-Aéroport, Genève",
+   "to": "Basel SBB",
+   "corridor": "Genève-Aéroport, Genève - Basel SBB",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 216.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Genève-Aéroport, Genève, Lausanne",
+   "to": "Basel SBB",
+   "corridor": "Genève-Aéroport, Genève, Lausanne - Basel SBB",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 221.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Genève-Aéroport, Genève, Lausanne",
+   "to": "Bern",
+   "corridor": "Genève-Aéroport, Genève, Lausanne - Bern",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 72.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Giubiasco",
+   "to": "Lugano",
+   "corridor": "Giubiasco - Lugano",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 230.5,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Gossau SG",
+   "to": "St. Gallen",
+   "corridor": "Gossau SG - St. Gallen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 170.0,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Kreuzlingen",
+   "to": "Konstanz",
+   "corridor": "Kreuzlingen - Konstanz",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 503.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Langnau i.E.",
+   "to": "Wolhusen",
+   "corridor": "Langnau i.E. - Wolhusen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 92.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Lausanne",
+   "to": "Bern",
+   "corridor": "Lausanne - Bern",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 240.5,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Lausanne",
+   "to": "Biel/Bienne",
+   "corridor": "Lausanne - Biel/Bienne",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 172.9,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Lausanne",
+   "to": "Martigny",
+   "corridor": "Lausanne - Martigny",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 81.1,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Lausanne",
+   "to": "Paris Gare de Lyon",
+   "corridor": "Lausanne - Paris Gare de Lyon",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 283.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Lausanne",
+   "to": "St-Maurice",
+   "corridor": "Lausanne - St-Maurice",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 225.3,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Luzern",
+   "to": "Basel SBB",
+   "corridor": "Luzern - Basel SBB",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 237.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Luzern",
+   "to": "Zug",
+   "corridor": "Luzern - Zug",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 169.2,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Mendrisio",
+   "to": "Balerna",
+   "corridor": "Mendrisio - Balerna",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 219.3,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Mendrisio",
+   "to": "Malpensa Aeroporto T2",
+   "corridor": "Mendrisio - Malpensa Aeroporto T2",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 334.9,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Mendrisio",
+   "to": "Varese",
+   "corridor": "Mendrisio - Varese",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 489.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Moutier",
+   "to": "Biel/Bienne",
+   "corridor": "Moutier - Biel/Bienne",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 274.2,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Murten/Morat",
+   "to": "Sugiez",
+   "corridor": "Murten/Morat - Sugiez",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 123.6,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Neuchâtel",
+   "to": "Pontarlier",
+   "corridor": "Neuchâtel - Pontarlier",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 179.2,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Neuchâtel",
+   "to": "Travers",
+   "corridor": "Neuchâtel - Travers",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 828.5,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Olten",
+   "to": "Aarau",
+   "corridor": "Olten - Aarau",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 182.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Olten",
+   "to": "Aarburg-Oftringen",
+   "corridor": "Olten - Aarburg-Oftringen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 129.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Olten",
+   "to": "Biel/Bienne",
+   "corridor": "Olten - Biel/Bienne",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 169.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Palézieux",
+   "to": "Kerzers",
+   "corridor": "Palézieux - Kerzers",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 97.0,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Pfäffikon SZ",
+   "to": "Ziegelbrücke",
+   "corridor": "Pfäffikon SZ - Ziegelbrücke",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 229.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Rupperswil",
+   "to": "Aarau",
+   "corridor": "Rupperswil - Aarau",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 126.6,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Schmitten FR",
+   "to": "Thun",
+   "corridor": "Schmitten FR - Thun",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 91.9,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Solothurn",
+   "to": "Oberdorf SO",
+   "corridor": "Solothurn - Oberdorf SO",
+   "disruptionDays": 2,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.0021,
+   "expectedDelayMin": 381.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Spiez",
+   "to": "Brig",
+   "corridor": "Spiez - Brig",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 181.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Spiez",
+   "to": "Interlaken Ost",
+   "corridor": "Spiez - Interlaken Ost",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 334.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Spiez",
+   "to": "Visp",
+   "corridor": "Spiez - Visp",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 69.1,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "St-Maurice",
+   "to": "Villeneuve VD",
+   "corridor": "St-Maurice - Villeneuve VD",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 205.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "St. Gallen",
+   "to": "St. Margrethen SG",
+   "corridor": "St. Gallen - St. Margrethen SG",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 201.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "St. Margrethen SG",
+   "to": "Buchs SG",
+   "corridor": "St. Margrethen SG - Buchs SG",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 64.0,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "St. Margrethen SG",
+   "to": "Lindau-Reutin",
+   "corridor": "St. Margrethen SG - Lindau-Reutin",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 45.3,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "St. Margrethen SG",
+   "to": "Lustenau",
+   "corridor": "St. Margrethen SG - Lustenau",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 302.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Stein am Rhein",
+   "to": "Kreuzlingen",
+   "corridor": "Stein am Rhein - Kreuzlingen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 78.6,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Stettbach",
+   "to": "Effretikon",
+   "corridor": "Stettbach - Effretikon",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 168.6,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Stettbach",
+   "to": "Wetzikon ZH",
+   "corridor": "Stettbach - Wetzikon ZH",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 151.1,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Thalwil",
+   "to": "Pfäffikon SZ",
+   "corridor": "Thalwil - Pfäffikon SZ",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 227.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Thalwil",
+   "to": "Zug",
+   "corridor": "Thalwil - Zug",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 227.0,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Uster",
+   "to": "Wetzikon ZH",
+   "corridor": "Uster - Wetzikon ZH",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 161.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Vevey",
+   "to": "Palézieux",
+   "corridor": "Vevey - Palézieux",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 663.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Weinfelden",
+   "to": "Romanshorn",
+   "corridor": "Weinfelden - Romanshorn",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 118.9,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Winterthur",
+   "to": "Hettlingen",
+   "corridor": "Winterthur - Hettlingen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 74.9,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Winterthur",
+   "to": "Wil SG",
+   "corridor": "Winterthur - Wil SG",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 68.0,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Wädenswil",
+   "to": "Pfäffikon SZ",
+   "corridor": "Wädenswil - Pfäffikon SZ",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 580.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Zürich Altstetten",
+   "to": "Zug",
+   "corridor": "Zürich Altstetten - Zug",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 139.6,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich Flughafen",
+   "to": "Bassersdorf",
+   "corridor": "Zürich Flughafen - Bassersdorf",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 342.2,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Zürich HB",
+   "to": "Pfäffikon SZ",
+   "corridor": "Zürich HB - Pfäffikon SZ",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 169.5,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich HB",
+   "to": "Rapperswil SG",
+   "corridor": "Zürich HB - Rapperswil SG",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 130.1,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich HB",
+   "to": "Schaffhausen",
+   "corridor": "Zürich HB - Schaffhausen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 169.4,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Zürich Oerlikon",
+   "to": "Glattbrugg please use the trams",
+   "corridor": "Zürich Oerlikon - Glattbrugg please use the trams",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 114.0,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Zürich Oerlikon",
+   "to": "Wettingen",
+   "corridor": "Zürich Oerlikon - Wettingen",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 157.9,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
+  },
+  {
+   "from": "Zürich Stadelhofen",
+   "to": "Stettbach",
+   "corridor": "Zürich Stadelhofen - Stettbach",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 283.8,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "segment"
+  },
+  {
+   "from": "Zürich Stadelhofen",
+   "to": "Uster",
+   "corridor": "Zürich Stadelhofen - Uster",
+   "disruptionDays": 1,
+   "windowDays": 953,
+   "disruptionProbabilityPerDay": 0.001,
+   "expectedDelayMin": 97.7,
+   "sampleSize": 1,
+   "confidence": "very_low",
+   "source": "full"
   }
  ],
  "hourBaseline": [
@@ -792,6 +2016,370 @@
   "Zürich": "Zürich HB",
   "Zürich Hauptbahnhof": "Zürich HB"
  },
+ "stationValidation": [
+  {
+   "csvName": "Lausanne",
+   "ojpName": "Lausanne",
+   "sloid": "ch:1:sloid:1120",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Brig",
+   "ojpName": "Brig",
+   "sloid": "ch:1:sloid:1609",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Genève",
+   "ojpName": "Genève",
+   "sloid": "ch:1:sloid:1008",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Palézieux",
+   "ojpName": "Palézieux",
+   "sloid": "ch:1:sloid:4014",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Payerne",
+   "ojpName": "Payerne",
+   "sloid": "ch:1:sloid:4134",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Fribourg/Freiburg",
+   "ojpName": "Fribourg/Freiburg",
+   "sloid": "ch:1:sloid:4100",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Yverdon-les-Bains",
+   "ojpName": "Yverdon-les-Bains",
+   "sloid": "ch:1:sloid:4200",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Biel/Bienne",
+   "ojpName": "Biel/Bienne",
+   "sloid": "ch:1:sloid:4300",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "La Chaux-de-Fonds",
+   "ojpName": "La Chaux-de-Fonds",
+   "sloid": "ch:1:sloid:4314",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Murten/Morat",
+   "ojpName": "Murten/Morat",
+   "sloid": "ch:1:sloid:4128",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Sonceboz-Sombeval",
+   "ojpName": "Sonceboz-Sombeval",
+   "sloid": "ch:1:sloid:4304",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Moutier",
+   "ojpName": "Moutier",
+   "sloid": "ch:1:sloid:105",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "St-Maurice",
+   "ojpName": "St-Maurice",
+   "sloid": "ch:1:sloid:1403",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "St-Gingolph (Suisse)",
+   "ojpName": "St-Gingolph (Suisse)",
+   "sloid": "ch:1:sloid:1428",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Delémont",
+   "ojpName": "Delémont",
+   "sloid": "ch:1:sloid:109",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Delle",
+   "ojpName": "Delle",
+   "sloid": "8718444",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Annemasse",
+   "ojpName": "Annemasse",
+   "sloid": "8774549",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Neuchâtel",
+   "ojpName": "Neuchâtel",
+   "sloid": "ch:1:sloid:4221",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Buttes",
+   "ojpName": "Buttes",
+   "sloid": "ch:1:sloid:4288",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Kerzers",
+   "ojpName": "Kerzers",
+   "sloid": "ch:1:sloid:4400",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Bern",
+   "ojpName": "Bern",
+   "sloid": "ch:1:sloid:7000",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Thun",
+   "ojpName": "Thun",
+   "sloid": "ch:1:sloid:7100",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Coppet",
+   "ojpName": "Coppet",
+   "sloid": "ch:1:sloid:1023",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Basel SBB",
+   "ojpName": "Basel SBB",
+   "sloid": "ch:1:sloid:10",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Olten",
+   "ojpName": "Olten",
+   "sloid": "ch:1:sloid:218",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Effretikon",
+   "ojpName": "Effretikon",
+   "sloid": "ch:1:sloid:3305",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Winterthur",
+   "ojpName": "Winterthur",
+   "sloid": "ch:1:sloid:6000",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Le Locle",
+   "ojpName": "Le Locle",
+   "sloid": "ch:1:sloid:4316",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Le Day",
+   "ojpName": "Le Day",
+   "sloid": "ch:1:sloid:1104",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Le Brassus",
+   "ojpName": "Le Brassus",
+   "sloid": "ch:1:sloid:1159",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Zürich HB",
+   "ojpName": "Zürich HB",
+   "sloid": "ch:1:sloid:3000",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "St. Gallen",
+   "ojpName": "St. Gallen",
+   "sloid": "ch:1:sloid:6302",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Bellegarde-sur-Valserine",
+   "ojpName": "Bellegarde-sur-Valserine",
+   "sloid": "8774500",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Domodossola (I)",
+   "ojpName": "Domodossola (I)",
+   "sloid": "8301003",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Chiasso",
+   "ojpName": "Chiasso",
+   "sloid": "ch:1:sloid:5307",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Milano Centrale",
+   "ojpName": "Milano Centrale",
+   "sloid": "8301700",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Solothurn",
+   "ojpName": "Solothurn",
+   "sloid": "ch:1:sloid:207",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Vallorbe",
+   "ojpName": "Vallorbe",
+   "sloid": "ch:1:sloid:1103",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Vevey",
+   "ojpName": "Vevey",
+   "sloid": "ch:1:sloid:1200",
+   "matched": true,
+   "score": 1.0
+  },
+  {
+   "csvName": "Puidoux",
+   "ojpName": "Puidoux",
+   "sloid": "ch:1:sloid:4012",
+   "matched": true,
+   "score": 1.0
+  }
+ ],
+ "unmatchedSamples": [
+  {
+   "text": "Limited train service at Othmarsingen.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Zürich Stadelhofen station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Limited train service at Montreux.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Limited train service at Bex.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Nyon station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Limited train service at Biel/Bienne.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Martigny station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Limited train service at Sissach.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Gland station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Limited train service at Wangen an der Aare.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Limited train service at Emmenbrücke.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Chêne-Bourg station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Boncourt station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Genève station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Roche VD station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Limited train service at Zürich Altstetten.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Konstanz station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Bretonnières station are interrupted.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Limited train service at Au ZH.",
+   "reason": "single station / no A-B pair"
+  },
+  {
+   "text": "Train services at Baden station are interrupted.",
+   "reason": "single station / no A-B pair"
+  }
+ ],
  "joinHints": {
   "normalisation": "fold(x): Unicode NFKD, drop combining marks, replace 'ß' with 'ss', casefold, replace every run of non [a-z0-9] with one space, trim. Apply to journey leg station names AND to stationAliases keys/values and corridor from/to/via. Two names are the same station iff fold() is equal after alias resolution.",
   "aliases": "Resolve a name by looking up fold(name) in fold(stationAliases key); the value is the display name. Then compare fold(display). Aliases like Genf/Geneva/Zurich/Basel were NOT observed in the CSVs (CSV names are already display forms); they are provided for OJP/user input only.",
@@ -804,11 +2392,21 @@
  "stats": {
   "incidents": 507,
   "incidentsWithCorridor": 462,
-  "incidentsInKeptCorridors": 332,
-  "shareInKeptCorridors": 0.6548,
-  "corridorsKept": 40,
+  "incidentsInKeptCorridors": 462,
+  "shareInKeptCorridors": 0.9112,
+  "coverageShare": 0.9112,
+  "corridorsKept": 142,
   "corridorsKeptSampleGe20": 3,
-  "corridorsDroppedSampleLt3": 105,
+  "corridorsDropped": 0,
+  "corridorsByConfidence": {
+   "high": 3,
+   "medium": 14,
+   "low": 47,
+   "very_low": 78
+  },
+  "incidentsUnmatched": 45,
+  "stationsValidated": 40,
+  "stationsUnmatched": 0,
   "byLineHourCellsKept": 15,
   "byLineHourCellsDropped": 1213,
   "byLineHourMinSampleSize": 8,
