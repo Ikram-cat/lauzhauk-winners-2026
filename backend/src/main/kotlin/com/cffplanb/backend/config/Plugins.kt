@@ -75,8 +75,12 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     val searchService = JourneySearchService(provider)
 
     val risk: RiskEstimator = if (config.riskSource.lowercase() == "none") NoRiskEstimator else {
-        val candidates = listOfNotNull(config.riskArtifactPath, "/app/risk/predictions.json", "analytics/artifacts/predictions.json", "../analytics/artifacts/predictions.json")
-        ArtifactRiskEstimator(Path.of(candidates.firstOrNull { Files.exists(Path.of(it)) } ?: candidates.first()), clock)
+        // Explicit RISK_ARTIFACT_PATH (if it exists) wins; otherwise the bundled classpath resource, copied to a temp file.
+        val explicit = config.riskArtifactPath?.takeIf { Files.exists(Path.of(it)) }?.let { Path.of(it) }
+        val path = explicit ?: ArtifactRiskEstimator::class.java.getResourceAsStream("/risk/predictions.json")?.use {
+            Files.createTempFile("predictions", ".json").also { f -> Files.copy(it, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING); f.toFile().deleteOnExit() }
+        } ?: Path.of(config.riskArtifactPath ?: "analytics/artifacts/predictions.json")
+        ArtifactRiskEstimator(path, clock)
     }
 
     configureRoutes(searchService, clock, risk)

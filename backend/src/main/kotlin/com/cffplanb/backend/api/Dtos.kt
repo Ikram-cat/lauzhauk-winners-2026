@@ -47,14 +47,17 @@ data class JourneyDto(
     val dataStatus: String,
     val riskSource: String? = null,
     val riskConfidence: String? = null,
-    val riskLabel: String? = null
+    val riskLabel: String? = null,
+    val disruptionDurationMin: Int? = null,
+    val riskBasis: String? = null
 )
 
 @Serializable
 data class JourneySearchResponseDto(
     val request: SearchRequestDto,
     val journeys: List<JourneyDto>,
-    val latestFeasibleDeparture: String? = null
+    val latestFeasibleDeparture: String? = null,
+    val noFeasibleRoute: Boolean? = null
 )
 
 @Serializable

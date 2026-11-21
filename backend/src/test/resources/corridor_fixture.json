@@ -4,7 +4,8 @@
   "corridors": [
     {"from": "Lausanne", "to": "Genève", "corridor": "Lausanne - Genève", "disruptionProbabilityPerDay": 0.05, "expectedDelayMin": 30, "sampleSize": 25, "confidence": "high"},
     {"from": "Bern", "to": "Zürich HB", "corridor": "Bern - Zürich HB", "disruptionProbabilityPerDay": 0.2, "expectedDelayMin": 45, "sampleSize": 10, "confidence": "medium"},
-    {"from": "Lausanne", "to": "Brig", "via": ["Montreux", "Sion"], "corridor": "Lausanne - Brig", "disruptionProbabilityPerDay": 0.1, "expectedDelayMin": 60, "sampleSize": 3, "confidence": "low"}
+    {"from": "Lausanne", "to": "Brig", "via": ["Montreux", "Sion"], "corridor": "Lausanne - Brig", "disruptionProbabilityPerDay": 0.1, "expectedDelayMin": 60, "sampleSize": 3, "confidence": "low"},
+    {"from": "Aarau", "to": "Olten", "corridor": "Aarau - Olten", "disruptionProbabilityPerDay": 0.3, "expectedDelayMin": 90, "delayEstimateMin": 7.4, "sampleSize": 30, "confidence": "high"}
   ],
   "hourBaseline": [{"hourBucket": 17, "disruptionProbabilityPerHour": 0.02, "expectedDelayMin": 20, "sampleSize": 50}],
   "byLineHour": []

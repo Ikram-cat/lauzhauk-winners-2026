@@ -30,7 +30,23 @@ curl "http://localhost:8080/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve
 | `TRANSPORT_PROVIDER` | No | `mock` | `mock` or `ojp` |
 | `OJP_API_KEY` | When `ojp` | — | Bearer token for opentransportdata.swiss. Never hardcoded. |
 | `RISK_SOURCE` | No | `artifact` | `artifact` or `none` (all risk values null) |
-| `RISK_ARTIFACT_PATH` | No | `/app/risk/predictions.json` | Falls back to `analytics/artifacts/predictions.json`. Reloaded when mtime changes. |
+| `RISK_ARTIFACT_PATH` | No | bundled `risk/predictions.json` (classpath) | Filesystem override; used only if the file exists, otherwise the bundled copy. Reloaded when mtime changes. |
+
+The bundled artifact (`src/main/resources/risk/predictions.json`, aggregated statistics only) makes Docker/Render builds self-contained. Refresh it by copying the analytics output over that file and committing.
+
+### Risk field semantics
+
+`lateArrivalProbability` is a genuine probability. The artifact's corridor/baseline `expectedDelayMin` is the median *disruption duration*, not the delay a traveller experiences, so for those rows `predictedDelayMinutes` is `null` and the value is returned as `disruptionDurationMin` with `riskBasis` `corridor_duration` / `baseline_duration`. Only a row carrying `delayEstimateMin` populates `predictedDelayMinutes` (`riskBasis` `corridor_delay` / `baseline_delay`). Legacy `byLineHour` rows are treated as real delays (`line_delay`). With `arrivalDeadline`, each journey has `feasible`; `latestFeasibleDeparture` is the latest feasible departure, or `null` with `noFeasibleRoute: true` when none is feasible.
+
+### Smoke commands
+
+```bash
+./gradlew --no-daemon installDist
+TRANSPORT_PROVIDER=mock PORT=8095 ./build/install/cff-plan-b-backend/bin/cff-plan-b-backend &   # no RISK_ARTIFACT_PATH
+curl localhost:8095/health
+curl localhost:8095/api/model          # status "ok", corridorsLoaded > 0
+curl "localhost:8095/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&arrivalDeadline=2030-01-01T12:00:00Z"
+```
 
 ## Running tests
 
