@@ -1,6 +1,10 @@
 # Plan B frontend
 
-The Swiss Station journey planner uses Kotlin Multiplatform and Compose for Web/Wasm and desktop JVM. The shared UI, clock, date conversion, search state, demo data and Ktor client live in `src/commonMain`. Desktop and browser entry points provide platform configuration.
+The Swiss Station journey planner uses Kotlin Multiplatform and Compose for Web/Wasm, Android, iOS and desktop JVM. The shared UI, clock, date conversion, search state, demo data and Ktor client live in `src/commonMain`. Each platform supplies its public backend origin.
+
+- [Web build and hosting](WEB_DEPLOYMENT.md) covers the static Web/Wasm bundle and CORS configuration.
+- [Android app](androidApp/README.md) covers the APK build, emulator and API configuration.
+- [iOS app](iosApp/README.md) covers the Xcode host, simulator and signing requirements.
 
 ## JetBrains challenge criteria
 
@@ -31,11 +35,12 @@ Use **EN** or **FR** in the header to change language. Use **Mode sombre / Dark 
 
 ## Data and settings
 
-- The station fields suggest known stops as you type. The local catalog also matches station-address aliases such as Place de la Gare and Place de Cornavin. Choose a suggestion with the mouse or arrow keys and Enter. Free-text stop names still go to Ktor. General street-address geocoding requires a separate location service.
+- In API mode, the station fields debounce `GET /api/locations?query=…` and suggest stops and addresses. Select a display name or enter free text. Demo mode uses the local station catalog.
 - Each result shows its scheduled departure, arrival and date in Zurich time. Expand the details for individual legs, then choose the departure you intend to take. Selecting a journey opens the Smart Waiting Time preview when a transit leg is available.
 - With no API origin, the app uses labeled local demo data for trips between Lausanne and Geneva, Bern or Zurich HB. In API mode, the departure board derives the first transit departure from each displayed itinerary and preserves the journey's provenance. It represents the current search and has no station-wide feed.
 - Start the [Ktor backend](../backend/README.md) for API mode. Set `API_BASE_URL=http://127.0.0.1:8080` for the desktop process, or set that public origin in the Web entry document's `api-base-url` meta tag before building. Add the Web origin to Ktor's CORS allowlist. The frontend checks `GET /health` and uses the [v1 search contract](../docs/API_CONTRACT.md). The server defaults to mock data. OJP credentials belong only on the server.
-- The **Journey options** panel filters returned itineraries by direct service and an inclusive arrival deadline. The filters stay in shared Kotlin and preserve Ktor's ranking. If no result matches, the earliest returned option appears separately with an option to revise the search.
+- **Journey options** sends the optional inclusive arrival deadline to Ktor and retains direct-only as a local filter. Search also sends ranking preference, travel class, and Half-Fare. It preserves provider ordering and shows recommendation badges and fare availability.
+- **Find a Plan B** starts a new alternatives search from the entered station and current time. Results show the latest feasible departure in Zurich time when available. Historical risk is shown as a share of days with a disruption, together with model provenance. The backend has no live disruption or Smart Waiting feed.
 - Expanded journeys show transit or walking segments and supplied departure and arrival platforms. The app localizes provider timeout, rate-limit, and other error states without substituting demo results. Live disruptions, station departures, fares, and AI extraction depend on future backend support.
 - Date and time are interpreted in Zurich. Leave both blank for immediate departure. Times skipped or repeated during a daylight-saving transition are rejected explicitly.
 - The clock toggles between analog and digital. The route train and progress rail respect the in-app motion control. The Web version initializes that control from the system preference.

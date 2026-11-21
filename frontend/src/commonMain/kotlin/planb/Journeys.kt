@@ -52,7 +52,11 @@ internal data class Journey(
     val transfers: Int, val dataStatus: String, val legs: List<Leg>,
     val estimatedFareChf: Double? = null, val halfFareChf: Double? = null, val firstClassFareChf: Double? = null,
     val fareProduct: String? = null, val fareSource: String? = null, val fareStatus: String? = null,
-    val fareChf: Double? = null, val firstClassHalfFareChf: Double? = null
+    val fareChf: Double? = null, val firstClassHalfFareChf: Double? = null,
+    val feasible: Boolean? = null, val lateArrivalProbability: Double? = null,
+    val riskSource: String? = null, val riskConfidence: String? = null,
+    val riskLabel: String? = null, val riskBasis: String? = null,
+    val disruptionDurationMin: Int? = null, val reasons: List<String> = emptyList()
 ) {
     private val known get() = fareStatus != "UNAVAILABLE"
     /** Undiscounted fare for the class; null means unknown and must not be rendered. */
@@ -77,24 +81,46 @@ internal data class Recommendations(val fastest: String? = null, val cheapest: S
 }
 
 @Serializable
-internal data class JourneyResponse(val journeys: List<Journey>, val recommendations: Recommendations? = null)
+internal data class JourneyResponse(
+    val journeys: List<Journey>, val recommendations: Recommendations? = null,
+    val latestFeasibleDeparture: String? = null, val noFeasibleRoute: Boolean? = null, val advice: String? = null
+)
+
+@Serializable
+internal data class Location(val id: String, val name: String, val kind: String)
+
+@Serializable
+private data class LocationsResponse(val locations: List<Location>)
+
+@Serializable
+internal data class ModelInfo(val modelVersion: String? = null, val generatedAt: String? = null, val status: String)
+
+@Serializable
+private data class AlternativesResponse(
+    val alternatives: List<Journey>, val latestFeasibleDeparture: String? = null,
+    val noFeasibleRoute: Boolean, val advice: String? = null
+)
 
 private val json = Json { ignoreUnknownKeys = true }
 
-internal fun parseJourneys(body: String): JourneyResponse = json.decodeFromString<JourneyResponse>(body).also { response ->
+internal fun parseJourneys(body: String): JourneyResponse = validateJourneys(json.decodeFromString<JourneyResponse>(body))
+
+private fun validateJourneys(response: JourneyResponse): JourneyResponse = response.also {
     response.journeys.forEach { journey ->
         Instant.parse(journey.departure)
         Instant.parse(journey.arrival)
         journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
     }
+    response.latestFeasibleDeparture?.let(Instant::parse)
 }
 
 internal fun journeysUrl(base: String, origin: String, destination: String, departure: Instant?, preference: Preference,
-                         firstClass: Boolean = false, halfFare: Boolean = false) =
+                         firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null) =
     URLBuilder(base.trimEnd('/') + "/api/journeys").apply {
         parameters.append("origin", origin)
         parameters.append("destination", destination)
         departure?.let { parameters.append("departure", it.toString()) }
+        deadline?.let { parameters.append("arrivalDeadline", it.toString()) }
         parameters.append("preference", preference.name)
         parameters.append("fareClass", if (firstClass) "1" else "2")
         parameters.append("discount", if (halfFare) "HALF_FARE" else "NONE")
@@ -146,15 +172,61 @@ internal class JourneySource(private val base: String) {
     val demo get() = client == null
     fun close() { client?.close() }
 
+    suspend fun health(): Boolean =
+        client?.get(base.trimEnd('/') + "/health")?.let { response ->
+            response.status.value == 200 && json.decodeFromString<HealthResponse>(response.bodyAsText()).status == "ok"
+        } ?: false
+
+    suspend fun locations(query: String): List<Location> =
+        json.decodeFromString<LocationsResponse>(request("/api/locations", "query" to query, retry = false)).locations
+
+    suspend fun model(): ModelInfo = json.decodeFromString(request("/api/model", retry = false))
+
+    suspend fun alternatives(from: String, to: String, notBefore: Instant, deadline: Instant?): JourneyResponse {
+        val response = json.decodeFromString<AlternativesResponse>(request(
+            "/api/alternatives", "from" to from, "to" to to,
+            "notBefore" to notBefore.toString(), "arrivalDeadline" to deadline?.toString()
+        ))
+        return validateJourneys(JourneyResponse(response.alternatives, latestFeasibleDeparture = response.latestFeasibleDeparture,
+            noFeasibleRoute = response.noFeasibleRoute, advice = response.advice))
+    }
+
     suspend fun search(
         origin: String, destination: String, departure: Instant?, preference: Preference = Preference.FASTEST,
-        firstClass: Boolean = false, halfFare: Boolean = false
+        firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null
     ): JourneyResponse {
-        val http = client ?: return JourneyResponse(demoSearch(origin, destination, departure ?: Clock.System.now()))
-        val response = http.get(journeysUrl(base, origin, destination, departure, preference, firstClass, halfFare))
-        if (response.status.value == 400) throw SearchInputException(Copy.BadRequest)
-        check(response.status.value in 200..299)
-        return parseJourneys(response.bodyAsText())
+        if (demo) return JourneyResponse(demoSearch(origin, destination, departure ?: Clock.System.now()))
+        return parseJourneys(fetch(journeysUrl(base, origin, destination, departure, preference, firstClass, halfFare, deadline), true))
+    }
+
+    private suspend fun request(path: String, vararg params: Pair<String, String?>, retry: Boolean = true): String =
+        fetch(URLBuilder(base.trimEnd('/') + path).apply {
+            for ((key, value) in params) if (value != null) parameters.append(key, value)
+        }.buildString(), retry)
+
+    private suspend fun fetch(url: String, retry: Boolean): String {
+        val http = checkNotNull(client)
+        var attempt = 0
+        while (true) {
+            val response = http.get(url)
+            val status = response.status.value
+            val body = response.bodyAsText()
+            if (status in 200..299) return body
+            val code = runCatching { json.decodeFromString<ErrorResponse>(body).error.code }.getOrNull()
+            val rateLimited = code == "UPSTREAM_RATE_LIMITED"
+            val timeout = status == 504 || code == "UPSTREAM_TIMEOUT"
+            if (retry && attempt < (if (rateLimited) 2 else 1) && (rateLimited || timeout || status == 502)) {
+                attempt++
+                delay(if (rateLimited) 2_000 else 250)
+                continue
+            }
+            throw SearchInputException(when {
+                status == 400 -> Copy.BadRequest
+                rateLimited -> Copy.ProviderBusy
+                timeout -> Copy.ProviderTimeout
+                else -> Copy.ServiceUnavailable
+            })
+        }
     }
 }
 

@@ -12,3 +12,5 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "planb"
+
+if (providers.gradleProperty("enableAndroid").orNull == "true") include(":androidApp")
