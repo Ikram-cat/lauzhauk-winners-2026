@@ -80,6 +80,55 @@ Round-4 build (final, same data, OJP key present):
 
 **Residual error, honestly.** A corridor's probability is "share of days since March 2024 with an active disruption on that A-B pair". For 78 corridors that rests on one incident, for 47 more on 2-7: such a number is mostly a fact about that one event, not a stable rate, and corridors never seen in the data have no row at all (absence is not safety). Disruption minutes are an upper bound on a passenger's delay. A UI must label `very_low` as "based on 1 past incident" and `low` as "few past incidents", never show them as a bare percentage or rank them against high-confidence corridors, and prefer wording such as "rarely disrupted / disrupted before" over a precise probability; only `medium` and `high` may be shown as a figure, still with the sample size.
 
+## Demo CLI
+
+```bash
+~/code/venv-analytics/bin/python -m analytics.predict_duration --elapsed-min 95 --announced-remaining-min 60 --hour 14 --weekday 5 [--reason-id 3|EG_008]
+# {"medianRemainingMin": 88, "pessimisticRemainingMin": 163, "advice": "consider detour", "modelVersion": "2026-11-duration-v1"}
+~/code/venv-analytics/bin/python -m analytics.predict_duration --from-snapshot-file incident.json   # keys: elapsed_min, announced_remaining_min, hour, weekday, reason_id
+```
+
+Reads `analytics/artifacts/incident_duration.joblib` only (no pipeline code, no pandas code of our own; scikit-learn pulls pandas in when unpickling). Output equals `duration_model.predict_remaining` (checked). `--reason-id` takes `3` (= `EG_003`) or `EG_003`; an id the model never saw is encoded as unknown. Omitted `--hour`/`--weekday` default to now.
+
+**Advice rule.** `consider detour` if pessimistic remaining (P80) >= `DETOUR_EXTRA_MIN` = **60 min**, else `wait`. Reasoning: a detour is worth it when the disruption plausibly outlasts what the detour costs, and we use the pessimistic quantile because the official estimate is too optimistic in 69% of test snapshots. **The 60 is not measured from the data**: the CSVs contain no alternative journeys, so the "median alternative travel time" cannot be derived offline. It is a round default, overridable with `--detour-extra-min`; replace it by the median extra travel time of the OJP alternatives (backend `/api/alternatives`) once measured. For reference, from the data: the median incident lasts 162 min (IQR 98-251, 507 ended incidents <24 h), so with 60 the rule says "wait" only when the model expects the incident to end within about an hour.
+
+## Reproducibility
+
+One command, deterministic for a fixed seed (`--seed`, default 42, used as the `random_state` of both quantile models and stored as `seed` in `incident_duration.json`):
+
+```bash
+~/code/venv-analytics/bin/python -m analytics.build_artifacts --data analytics/Daten/Daten/extern-liveticker --out analytics/artifacts --seed 42
+```
+
+`test_build_is_deterministic_for_fixed_seed` builds twice (`--no-ojp`) and asserts identical metrics, corridor table, hourBaseline and byLineHour (only `generatedAt` differs). Changing the default seed from 0 to 42 left every metric below unchanged. `incident_duration.json` carries `inputFiles` (sha256 + rows) for any build.
+
+Inputs of the current artifacts (`extern-liveticker/`, rows = pandas-parsed records excluding header):
+
+| File | Rows | sha256 |
+| --- | --- | --- |
+| `incident_202610121914.csv` | 523 | `bc7fbd0c27ee09a1ca5f0bf4112d051d6851b1f57a0d0cdcc73a3bb356f6b7c8` |
+| `incident_audit_202610121914.csv` | 4782 | `091e59b4605b47f5804d8a206f14a8b3ae32c0be996ed95dee048b6cfc5bf82a` |
+| `message_202610121835.csv` | 3234 | `e9f970ec153c236b1b7c3ebddbc2301533e56835d131d7d9fbdbdbee1d0bbaaa` |
+| `message_audit_202610121835.csv` | 4722 | `9fa4e42ece6d311e7dfbc4bbfb539e33c0d857000134207988f5e4bd31f2ae3f` |
+| `reason_202610121034.csv` | 93 | `4b8335a13c142a8be5f77df2b8def2423d26c929910c8067e8259a2505e558d3` |
+
+The model reads `incident` and `incident_audit` only; the other files are hashed for completeness. 523 + 4782 rows = 5,305 versions after dedup, 550 incidents, 520 with an end. Confirm with `sha256sum analytics/Daten/Daten/extern-liveticker/*.csv`.
+
+## What this model can and cannot claim
+
+| Metric (test = last 104 incidents, 639 snapshots) | Value |
+| --- | --- |
+| MAE of median forecast (P50) | 100.6 min (baseline median-per-reason 128.6) |
+| MAE on snapshots with an official estimate (n=626) | model 98.5 / official 112.7 / baseline 127.0 min |
+| Official estimate too optimistic | 69% of those snapshots |
+| P80 coverage (target 80%) | 66% test, 80% train |
+
+- **Can claim:** once an incident is in the liveticker, the median forecast beats the per-reason baseline by ~22% and the official estimate by ~13% in MAE on held-out recent incidents. It is still off by about 1.7 h on average: say "typically", never a precise end time.
+- **P80 is under-covered:** the pessimistic value is exceeded in ~34% of test snapshots, not 20%. Present it as "could be much longer", not as an 80% guarantee. Small sample (520 incidents), one chronological split, no confidence interval.
+- **`lateProbability` is a corridor-day frequency**, the share of days since March 2024 with an active disruption on that corridor (and hour), not the chance that a given train is late, and not a rate over all trips (the data has no undisrupted trips). Rows with `very_low`/`low` confidence rest on 1-7 incidents.
+- **Cannot claim:** whether a disruption will happen, per-train delay, platforms or fares, anything for disruptions over 24 h or never-ended ones (excluded), corridors absent from the data (absence is not safety).
+- **Provenance string for the UI** (fill counts from the artifact): `risk: SBB liveticker 2024-2026, 142 corridors, model 2026-11-duration-v1`.
+
 ## Limitations
 
 - The model predicts remaining minutes of a disruption already in the liveticker. It cannot predict whether a disruption will occur, nor per-train delay, platforms or fares.

@@ -195,3 +195,39 @@ def test_ojp_validate_live_five_stations():
     key = o.load_key()
     got = {n: o.validate(n, key) for n in ["Genève", "Zürich HB", "Biel/Bienne", "Lausanne", "Bern"]}
     assert all(v["matched"] and v["sloid"].startswith("ch:1:sloid:") for v in got.values()), got
+
+
+DATA = "analytics/Daten/Daten/extern-liveticker"
+
+
+def test_build_is_deterministic_for_fixed_seed(tmp_path):
+    import os
+    import pytest
+    from analytics import build_artifacts as ba
+    if not os.path.isdir(DATA):
+        pytest.skip("raw data not present")
+    outs = []
+    for i in (1, 2):
+        ba.main(["--data", DATA, "--out", str(tmp_path / str(i)), "--seed", "42", "--no-ojp"])
+        j = json.loads((tmp_path / str(i) / "incident_duration.json").read_text())
+        p = json.loads((tmp_path / str(i) / "predictions.json").read_text())
+        outs.append((j["metrics"], j["seed"], j["inputFiles"], p["corridors"], p["hourBaseline"], p["byLineHour"]))
+    assert outs[0] == outs[1]
+
+
+def test_predict_duration_cli_and_advice(tmp_path, capsys):
+    import os
+    import pytest
+    from analytics import predict_duration as pdur
+    art = "analytics/artifacts"
+    if not os.path.exists(f"{art}/incident_duration.joblib"):
+        pytest.skip("artifacts not built")
+    out = pdur.main(["--elapsed-min", "95", "--announced-remaining-min", "60", "--hour", "14", "--weekday", "5"])
+    assert json.loads(capsys.readouterr().out) == out
+    assert out["pessimisticRemainingMin"] >= out["medianRemainingMin"] > 0
+    assert out["advice"] == ("consider detour" if out["pessimisticRemainingMin"] >= pdur.DETOUR_EXTRA_MIN else "wait")
+    snap = tmp_path / "s.json"
+    snap.write_text(json.dumps({"elapsed_min": 95, "announced_remaining_min": 60, "hour": 14, "weekday": 5}))
+    assert pdur.main(["--from-snapshot-file", str(snap)]) == out
+    assert pdur.main(["--elapsed-min", "95", "--announced-remaining-min", "60", "--hour", "14", "--weekday", "5",
+                      "--detour-extra-min", "100000"])["advice"] == "wait"
