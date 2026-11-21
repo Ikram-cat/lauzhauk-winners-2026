@@ -102,11 +102,11 @@ def categories_of(snap: pd.DataFrame) -> dict:
     return {c: sorted(snap[c].fillna("NA").astype(str).unique()) for c in CAT}
 
 
-def train_models(train: pd.DataFrame, categories: dict) -> dict:
+def train_models(train: pd.DataFrame, categories: dict, seed: int = 0) -> dict:
     X, y = _prep(train, categories), np.log1p(train.y_remaining)  # skewed target
     return {q: HistGradientBoostingRegressor(
         loss="quantile", quantile=q, max_iter=300, learning_rate=0.05, max_depth=4,
-        min_samples_leaf=20, categorical_features="from_dtype", random_state=0).fit(X, y)
+        min_samples_leaf=20, categorical_features="from_dtype", random_state=seed).fit(X, y)
         for q in QUANTILES}
 
 

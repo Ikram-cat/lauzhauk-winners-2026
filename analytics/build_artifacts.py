@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from pathlib import Path
 from collections import Counter
 
 import joblib
+import pandas as pd
 
 from . import duration_model as dm
 from . import corridors as cor
@@ -21,6 +23,12 @@ from .line_hour import by_line_hour, incidents_table
 
 DEFAULT_DATA = "analytics/Daten/Daten/extern-liveticker"
 VERSION = "2026-11-duration-v1"
+
+
+def input_files(data_dir) -> list[dict]:
+    """sha256 and pandas-parsed row count (quoted newlines make a line count wrong) of every input CSV."""
+    return [{"file": f.name, "sha256": hashlib.sha256(f.read_bytes()).hexdigest(),
+             "rows": len(pd.read_csv(f, dtype=str))} for f in sorted(Path(data_dir).glob("*.csv"))]
 
 
 def top_stations(crows, n=40) -> list[str]:
@@ -95,6 +103,7 @@ def main(argv=None) -> dict:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", default=os.environ.get("LIVETICKER_DATA", DEFAULT_DATA))
     ap.add_argument("--out", default="analytics/artifacts")
+    ap.add_argument("--seed", type=int, default=42, help="model random_state (default 42)")
     ap.add_argument("--no-ojp", action="store_true", help="skip OJP station validation (offline)")
     a = ap.parse_args(argv)
     out = Path(a.out)
@@ -108,19 +117,20 @@ def main(argv=None) -> dict:
 
     train, test, cutoff = dm.chrono_split(snap)
     cats = dm.categories_of(snap)
-    metrics = dm.evaluate(dm.train_models(train, cats), cats, train, test)
+    metrics = dm.evaluate(dm.train_models(train, cats, a.seed), cats, train, test)
     metrics.update(cutoff=cutoff.isoformat(), n_train_incidents=int(train.id.nunique()),
                    n_test_incidents=int(test.id.nunique()), n_train_snapshots=len(train),
                    n_test_snapshots=len(test))
     print(json.dumps(metrics, indent=2))
 
     # final model: refit on all data after evaluating on the chronological split
-    models = dm.train_models(snap, cats)
+    models = dm.train_models(snap, cats, a.seed)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     joblib.dump({"models": models, "features": dm.CAT + dm.NUM, "categories": cats},
                 out / "incident_duration.joblib")
     (out / "incident_duration.json").write_text(json.dumps({
-        "modelVersion": VERSION, "generatedAt": now, "features": dm.CAT + dm.NUM,
+        "modelVersion": VERSION, "generatedAt": now, "seed": a.seed,
+        "inputFiles": input_files(a.data), "features": dm.CAT + dm.NUM,
         "categories": cats, "quantiles": list(dm.QUANTILES), "target": "minutes remaining until ENDED",
         "trainingWindow": {"from": snap.start.min().isoformat(), "to": snap.end.max().isoformat()},
         "n_incidents": int(raw.id.nunique()), "n_versions": len(raw), "n_samples": len(snap),
