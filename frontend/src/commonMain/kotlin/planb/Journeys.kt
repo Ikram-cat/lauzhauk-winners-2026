@@ -56,7 +56,8 @@ internal data class Journey(
     val feasible: Boolean? = null, val lateArrivalProbability: Double? = null,
     val riskSource: String? = null, val riskConfidence: String? = null,
     val riskLabel: String? = null, val riskBasis: String? = null,
-    val disruptionDurationMin: Int? = null, val reasons: List<String> = emptyList()
+    val disruptionDurationMin: Int? = null, val reasons: List<String> = emptyList(),
+    val why: String? = null
 ) {
     private val known get() = fareStatus != "UNAVAILABLE"
     /** Undiscounted fare for the class; null means unknown and must not be rendered. */
@@ -67,6 +68,40 @@ internal data class Journey(
         firstClass -> firstClassHalfFareChf
         else -> halfFareChf
     })?.takeIf { known }
+}
+
+@Serializable
+internal data class Disruption(
+    val legIndex: Int? = null,
+    val serviceLabel: String? = null,
+    val from: String? = null,
+    val to: String? = null,
+    val scheduledDeparture: String? = null,
+    val estimatedDeparture: String? = null,
+    val delayMinutes: Int? = null,
+    val cancelled: Boolean? = null,
+    val basis: String? = null,
+    val confidence: String? = null,
+    val cause: String? = null
+)
+
+@Serializable
+internal data class RedirectResponse(
+    val situation: String = "NO_DISRUPTION",
+    val disruption: Disruption? = null,
+    val recommendation: Journey? = null,
+    val alternatives: List<Journey> = emptyList(),
+    val journeys: List<Journey> = emptyList(),
+    val message: String? = null,
+    val computedAt: String? = null,
+    val modelVersion: String? = null,
+    val latestFeasibleDeparture: String? = null,
+    val noFeasibleRoute: Boolean? = null,
+    val advice: String? = null,
+    val recommendations: Recommendations? = null
+) {
+    val displayJourneys: List<Journey>
+        get() = if (journeys.isNotEmpty()) journeys else listOfNotNull(recommendation) + alternatives
 }
 
 internal enum class Preference { FASTEST, CHEAPEST, SIMPLEST }
@@ -93,7 +128,11 @@ internal data class Location(val id: String, val name: String, val kind: String)
 private data class LocationsResponse(val locations: List<Location>)
 
 @Serializable
-internal data class ModelInfo(val modelVersion: String? = null, val generatedAt: String? = null, val status: String)
+internal data class ModelInfo(
+    val modelVersion: String? = null, val generatedAt: String? = null, val status: String,
+    val gtfsRtEnabled: Boolean = false, val gtfsRtAgeSeconds: Long? = null,
+    val gtfsRtTripUpdates: Int = 0, val gtfsRtCancelled: Int = 0
+)
 
 @Serializable
 private data class AlternativesResponse(
@@ -104,6 +143,27 @@ private data class AlternativesResponse(
 private val json = Json { ignoreUnknownKeys = true }
 
 internal fun parseJourneys(body: String): JourneyResponse = validateJourneys(json.decodeFromString<JourneyResponse>(body))
+
+internal fun parseRedirect(body: String): RedirectResponse = validateRedirect(json.decodeFromString<RedirectResponse>(body))
+
+private fun validateRedirect(response: RedirectResponse): RedirectResponse = response.also { res ->
+    res.recommendation?.let { journey ->
+        Instant.parse(journey.departure)
+        Instant.parse(journey.arrival)
+        journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
+    }
+    res.alternatives.forEach { journey ->
+        Instant.parse(journey.departure)
+        Instant.parse(journey.arrival)
+        journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
+    }
+    res.journeys.forEach { journey ->
+        Instant.parse(journey.departure)
+        Instant.parse(journey.arrival)
+        journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
+    }
+    res.latestFeasibleDeparture?.let(Instant::parse)
+}
 
 private fun validateJourneys(response: JourneyResponse): JourneyResponse = response.also {
     response.journeys.forEach { journey ->
@@ -117,6 +177,18 @@ private fun validateJourneys(response: JourneyResponse): JourneyResponse = respo
 internal fun journeysUrl(base: String, origin: String, destination: String, departure: Instant?, preference: Preference,
                          firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null) =
     URLBuilder(base.trimEnd('/') + "/api/journeys").apply {
+        parameters.append("origin", origin)
+        parameters.append("destination", destination)
+        departure?.let { parameters.append("departure", it.toString()) }
+        deadline?.let { parameters.append("arrivalDeadline", it.toString()) }
+        parameters.append("preference", preference.name)
+        parameters.append("fareClass", if (firstClass) "1" else "2")
+        parameters.append("discount", if (halfFare) "HALF_FARE" else "NONE")
+    }.buildString()
+
+internal fun redirectUrl(base: String, origin: String, destination: String, departure: Instant?, preference: Preference,
+                         firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null) =
+    URLBuilder(base.trimEnd('/') + "/api/redirect").apply {
         parameters.append("origin", origin)
         parameters.append("destination", destination)
         departure?.let { parameters.append("departure", it.toString()) }
@@ -162,7 +234,17 @@ internal data class Service(
 internal val services = listOf(
     Service("Genève", 8, "3", 39, "IR 90"),
     Service("Bern", 17, "7", 68, "IC 1", 5),
-    Service("Zürich HB", 31, "1", 132, "IC 5")
+    Service("Zürich HB", 31, "1", 132, "IC 5"),
+    Service("Fribourg", 12, "5", 25, "IR 15"),
+    Service("Biel/Bienne", 20, "4", 75, "IR 15"),
+    Service("Neuchâtel", 14, "4", 65, "IR 15"),
+    Service("Lugano", 6, "2", 160, "IC 5"),
+    Service("Basel SBB", 25, "6", 100, "IC 1"),
+    Service("Luzern", 9, "4", 95, "IR 15"),
+    Service("Sion", 5, "2", 55, "IR 90"),
+    Service("Montreux", 3, "1", 20, "IR 90"),
+    Service("Yverdon-les-Bains", 10, "3", 25, "IR 15"),
+    Service("Nyon", 4, "2", 15, "IR 90")
 )
 
 internal class JourneySource(private val base: String) {
@@ -194,17 +276,34 @@ internal class JourneySource(private val base: String) {
     suspend fun search(
         origin: String, destination: String, departure: Instant?, preference: Preference = Preference.FASTEST,
         firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null
-    ): JourneyResponse {
-        if (demo) return JourneyResponse(demoSearch(origin, destination, departure ?: Clock.System.now()))
-        return parseJourneys(fetch(journeysUrl(base, origin, destination, departure, preference, firstClass, halfFare, deadline), true))
+    ): RedirectResponse {
+        if (demo) return demoRedirect(origin, destination, departure ?: Clock.System.now(), preference)
+        val redirectUri = redirectUrl(base, origin, destination, departure, preference, firstClass, halfFare, deadline)
+        val body = fetch(redirectUri, retry = true, allow404 = true)
+        if (body != null) {
+            return parseRedirect(body)
+        }
+        val legacyUrl = journeysUrl(base, origin, destination, departure, preference, firstClass, halfFare, deadline)
+        val legacyBody = fetch(legacyUrl, retry = true) ?: throw SearchInputException(Copy.ServiceUnavailable)
+        val legacyResponse = parseJourneys(legacyBody)
+        val all = legacyResponse.journeys
+        return RedirectResponse(
+            situation = "UNKNOWN",
+            recommendation = all.firstOrNull(),
+            alternatives = all.drop(1).take(3),
+            journeys = all,
+            latestFeasibleDeparture = legacyResponse.latestFeasibleDeparture,
+            noFeasibleRoute = legacyResponse.noFeasibleRoute,
+            advice = legacyResponse.advice
+        )
     }
 
     private suspend fun request(path: String, vararg params: Pair<String, String?>, retry: Boolean = true): String =
         fetch(URLBuilder(base.trimEnd('/') + path).apply {
             for ((key, value) in params) if (value != null) parameters.append(key, value)
-        }.buildString(), retry)
+        }.buildString(), retry) ?: throw SearchInputException(Copy.ServiceUnavailable)
 
-    private suspend fun fetch(url: String, retry: Boolean): String {
+    private suspend fun fetch(url: String, retry: Boolean, allow404: Boolean = false): String? {
         val http = checkNotNull(client)
         var attempt = 0
         while (true) {
@@ -212,6 +311,7 @@ internal class JourneySource(private val base: String) {
             val status = response.status.value
             val body = response.bodyAsText()
             if (status in 200..299) return body
+            if (allow404 && status == 404) return null
             val code = runCatching { json.decodeFromString<ErrorResponse>(body).error.code }.getOrNull()
             val rateLimited = code == "UPSTREAM_RATE_LIMITED"
             val timeout = status == 504 || code == "UPSTREAM_TIMEOUT"
@@ -228,6 +328,50 @@ internal class JourneySource(private val base: String) {
             })
         }
     }
+}
+
+private suspend fun demoRedirect(
+    origin: String, destination: String, start: Instant, preference: Preference = Preference.FASTEST
+): RedirectResponse {
+    val demoJourneys = demoSearch(origin, destination, start)
+    if (demoJourneys.isEmpty()) {
+        return RedirectResponse(
+            situation = "NO_DISRUPTION",
+            recommendation = null,
+            alternatives = emptyList(),
+            journeys = emptyList()
+        )
+    }
+    fun key(value: String) = value.lowercase().replace("è", "e").replace("ü", "u")
+    val fromLausanne = key(origin) == "lausanne"
+    val other = if (fromLausanne) destination else origin
+    val service = services.firstOrNull { key(it.destination) == key(other) }
+    val situation = "DISRUPTION_DETECTED"
+    val disruption = Disruption(
+        serviceLabel = service?.label ?: "RE 33",
+        from = origin,
+        to = destination,
+        scheduledDeparture = start.toString(),
+        delayMinutes = if ((service?.delay ?: 0) > 0) service?.delay else 22,
+        cancelled = false,
+        confidence = "high",
+        cause = "Panne de signalisation sur le tronçon Renens - Morges"
+    )
+    val why = when (preference) {
+        Preference.SIMPLEST -> "Itinéraire le plus simple sans correspondance"
+        else -> "Itinéraire le plus rapide malgré la perturbation (+22 min)"
+    }
+    val rec = demoJourneys.first().copy(why = why)
+    val alts = demoJourneys.drop(1).take(3)
+    val msg = "Attention : perturbation détectée. Vous trouverez ci-dessous les meilleures alternatives pour votre trajet."
+    return RedirectResponse(
+        situation = situation,
+        disruption = disruption,
+        recommendation = rec,
+        alternatives = alts,
+        journeys = demoJourneys,
+        message = msg
+    )
 }
 
 private suspend fun demoSearch(origin: String, destination: String, start: Instant): List<Journey> {

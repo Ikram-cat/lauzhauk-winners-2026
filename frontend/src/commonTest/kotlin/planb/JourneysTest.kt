@@ -40,4 +40,55 @@ class JourneysTest {
         assertEquals(listOf("at-deadline"), JourneyOptions(true, deadline).applyTo(results).map { it.id })
         assertEquals(emptyList(), JourneyOptions(arriveBy = Instant.parse("2026-11-21T13:00:00Z")).applyTo(results))
     }
+
+    @Test
+    fun decodesRedirectResponseWithDisruptionAndWhy() {
+        val jsonString = """
+            {
+              "situation": "DISRUPTION_DETECTED",
+              "disruption": {
+                "serviceLabel": "IC 1",
+                "from": "Lausanne",
+                "to": "Bern",
+                "delayMinutes": 15,
+                "cancelled": false,
+                "confidence": "low",
+                "cause": "Panne de materiel"
+              },
+              "recommendation": {
+                "id": "j-rec",
+                "departure": "2026-11-21T14:15:00Z",
+                "arrival": "2026-11-21T15:20:00Z",
+                "durationMinutes": 65,
+                "transfers": 1,
+                "dataStatus": "MOCK",
+                "legs": [],
+                "why": "Arrives before deadline"
+              },
+              "alternatives": [
+                {
+                  "id": "j-alt-1",
+                  "departure": "2026-11-21T14:30:00Z",
+                  "arrival": "2026-11-21T15:45:00Z",
+                  "durationMinutes": 75,
+                  "transfers": 0,
+                  "dataStatus": "MOCK",
+                  "legs": []
+                }
+              ],
+              "message": "RE33 is delayed. We redirected you to IC 1."
+            }
+        """.trimIndent()
+        val parsed = parseRedirect(jsonString)
+        assertEquals("DISRUPTION_DETECTED", parsed.situation)
+        assertEquals("IC 1", parsed.disruption?.serviceLabel)
+        assertEquals(15, parsed.disruption?.delayMinutes)
+        assertEquals(false, parsed.disruption?.cancelled)
+        assertEquals("low", parsed.disruption?.confidence)
+        assertEquals("j-rec", parsed.recommendation?.id)
+        assertEquals("Arrives before deadline", parsed.recommendation?.why)
+        assertEquals(1, parsed.alternatives.size)
+        assertEquals("j-alt-1", parsed.alternatives[0].id)
+        assertEquals(listOf("j-rec", "j-alt-1"), parsed.displayJourneys.map { it.id })
+    }
 }
