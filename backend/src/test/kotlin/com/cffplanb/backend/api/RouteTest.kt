@@ -298,6 +298,37 @@ class LocationsRouteTest {
         }
     }
 
+    private val nearby = object : TransportProvider {
+        override suspend fun search(request: SearchRequest) = ProviderResult.Success(emptyList())
+        override suspend fun searchNearby(lat: Double, lon: Double) = LR.Success(listOf(
+            LocationSuggestion("far", "Lausanne-Flon", "stop", 6.6300, 46.5200),
+            LocationSuggestion("addr", "Rue Lausanne 1", "address", 6.6323, 46.5197),
+            LocationSuggestion("close", "Lausanne", "stop", 6.6290, 46.5168),
+            LocationSuggestion("zero", "Lausanne gare", "stop", 6.6323, 46.5197),
+            LocationSuggestion("close", "Lausanne", "stop", 6.6400, 46.5190),
+            LocationSuggestion("out", "Geneve", "stop", 6.14, 46.21)))
+    }
+
+    @Test fun `near returns stops within radius closest first and honours query, limit, radiusKm`() = app(nearby) {
+        suspend fun ids(q: String) = parse(client.get("/api/locations?$q").bodyAsText()).a("locations").map { it.obj().str("id") }
+        assertEquals(listOf("zero", "far", "close"), ids("near=46.5197,6.6323"))
+        assertEquals(listOf("zero", "far"), ids("near=46.5197,6.6323&limit=2"))
+        assertEquals(listOf("zero"), ids("near=46.5197,6.6323&radiusKm=0.1"))
+        assertEquals(listOf("zero", "far", "close"), ids("near=46.5197,6.6323&radiusKm=999")) // clamped to 20 km: Geneve (~50 km) stays out
+    }
+
+    @Test fun `near combined with query filters by name, invalid near and radiusKm are 400`() = app(nearby) {
+        val l = parse(client.get("/api/locations?near=46.5197,6.6323&query=GARE").bodyAsText()).a("locations")
+        assertEquals(listOf("zero"), l.map { it.obj().str("id") })
+        for ((u, f) in listOf("near=badinput" to "near", "near=46.5" to "near", "near=1,2,3" to "near", "near=46.5,%206.6" to "near", "near=91,6" to "near",
+            "near=46,181" to "near", "near=NaN,1" to "near", "near=46.5197,6.6323&radiusKm=-1" to "radiusKm", "near=46.5197,6.6323&radiusKm=x" to "radiusKm", "near=46,6&query=" to "query")) {
+            val r = client.get("/api/locations?$u")
+            assertEquals(HttpStatusCode.BadRequest, r.status, u)
+            assertEquals(f, parse(r.bodyAsText()).o("error").str("field"), u)
+        }
+        assertEquals(HttpStatusCode.OK, client.get("/api/locations?near=46.5197,6.6323&foo=1").status)
+    }
+
     @Test fun `mock provider filters by name`() = app(MockTransportProvider()) {
         val arr = parse(client.get("/api/locations?query=laus").bodyAsText()).a("locations")
         assertEquals(1, arr.size); assertEquals("STOP", arr[0].obj().str("kind"))

@@ -72,6 +72,12 @@ class ResilientProvider(
             else delegate.searchLocations(query).also { record(it !is LocationsResult.Success) }
         }, { it is LocationsResult.Success })
 
+    override suspend fun searchNearby(lat: Double, lon: Double): LocationsResult =
+        cached("near:%.4f,%.4f".format(java.util.Locale.ROOT, lat, lon), locationTtlMs, {
+            if (isOpen()) LocationsResult.Failure(BREAKER_MESSAGE)
+            else delegate.searchNearby(lat, lon).also { record(it !is LocationsResult.Success) }
+        }, { it is LocationsResult.Success })
+
     override suspend fun resolvePlace(input: String): PlaceResult = delegate.resolvePlace(input)
 
     @Synchronized override fun feedStatus(): String = when {

@@ -307,6 +307,18 @@ class OjpTransportProvider(
     // ---- Autocomplete ----
     private val suggestCache = ConcurrentHashMap<String, Pair<Instant, List<LocationSuggestion>>>()
 
+    override suspend fun searchNearby(lat: Double, lon: Double): LocationsResult = try {
+        LocationsResult.Success(parseLocationSuggestions(postLocationRequest(buildNearbyRequest(lat, lon, nowTs()), suggestTimeoutMs)))
+    } catch (e: OjpTimeoutException) {
+        LocationsResult.Timeout("Location lookup timed out")
+    } catch (e: OjpRateLimitedException) {
+        LocationsResult.RateLimited("Transport provider is rate limiting requests")
+    } catch (e: OjpAuthenticationException) {
+        LocationsResult.Failure(e.message ?: "Transport provider authentication failed")
+    } catch (e: OjpUpstreamException) {
+        LocationsResult.Failure("Location lookup failed")
+    }
+
     override suspend fun searchLocations(query: String): LocationsResult {
         val key = query.trim().lowercase()
         suggestCache[key]?.let { (at, v) -> if (Duration.between(at, Instant.now(clock)).toMinutes() < 10) return LocationsResult.Success(v) }
@@ -358,8 +370,11 @@ class OjpTransportProvider(
         emptyList()
     }
 
-    internal fun buildLocationRequest(name: String, ts: String, limit: Int = 5, types: List<String> = listOf("stop")): String {
-        val escaped = escapeXml(name)
+    internal fun buildNearbyRequest(lat: Double, lon: Double, ts: String): String =
+        buildLocationRequest("", ts, limit = 50, initialInput = "<GeoPosition><siri:Longitude>$lon</siri:Longitude><siri:Latitude>$lat</siri:Latitude></GeoPosition>")
+
+    internal fun buildLocationRequest(name: String, ts: String, limit: Int = 5, types: List<String> = listOf("stop"),
+                                      initialInput: String = "<Name>${escapeXml(name)}</Name>"): String {
         return """<?xml version="1.0" encoding="UTF-8"?>
 <OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
   <OJPRequest>
@@ -369,7 +384,7 @@ class OjpTransportProvider(
       <OJPLocationInformationRequest>
         <siri:RequestTimestamp>$ts</siri:RequestTimestamp>
         <InitialInput>
-          <Name>$escaped</Name>
+          $initialInput
         </InitialInput>
         <Restrictions>
           ${types.joinToString("\n          ") { "<Type>$it</Type>" }}

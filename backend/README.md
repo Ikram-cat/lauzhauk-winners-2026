@@ -116,6 +116,11 @@ Autocomplete, proxied from OJP and cached 10 minutes.
 | --- | --- | --- | --- |
 | `query` | yes | — | trimmed, 1–120 code points |
 | `limit` | no | `8` | integer 1–20 |
+| `near` | no | — | `<lat>,<lon>` WGS84 decimal degrees, no spaces. Coordinate search: `STOP`s only, closest first. 400 with field `near` if malformed or out of range |
+| `radiusKm` | no | `2` | non-negative number, clamped to 20; only with `near`. 400 with field `radiusKm` otherwise |
+
+Either `query` or `near` is required. With both, the nearby stops are also filtered by a case-insensitive
+name substring of `query`. Example: `curl "localhost:8080/api/locations?near=46.5197,6.6323&limit=3"`.
 
 ```json
 { "locations": [ { "id": "ch:1:sloid:1120", "name": "Lausanne", "kind": "STOP",

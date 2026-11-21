@@ -17,6 +17,9 @@ interface TransportProvider {
 
     suspend fun searchLocations(query: String): LocationsResult = LocationsResult.Success(emptyList())
 
+    /** Stops near a WGS84 point, unsorted and unfiltered by distance; the caller applies radius, order and limit. */
+    suspend fun searchNearby(lat: Double, lon: Double): LocationsResult = LocationsResult.Success(emptyList())
+
     /** Resolves a stop id, "lat,lon" or free text to what [search] should be given; providers that need no resolution echo the input. */
     suspend fun resolvePlace(input: String): PlaceResult = PlaceResult.Found(ResolvedPlace(input, null, null, input))
 

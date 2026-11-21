@@ -26,7 +26,14 @@ import java.time.temporal.ChronoUnit
 
 internal val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 private val JOURNEY_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount", "limit")
-private val LOCATION_PARAMS = setOf("query", "limit")
+private val LOCATION_PARAMS = setOf("query", "limit", "near", "radiusKm")
+private val DECIMAL = Regex("[+-]?\\d+(\\.\\d+)?")
+
+private fun distanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val a = Math.sin(Math.toRadians(lat2 - lat1) / 2).let { it * it } +
+        Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(Math.toRadians(lon2 - lon1) / 2).let { it * it }
+    return 12742 * Math.asin(Math.sqrt(a))
+}
 
 /** A 400: [field] is the offending query parameter. */
 private class ParamError(val field: String, message: String) : Exception(message)
@@ -90,12 +97,34 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
 
         get("/api/locations") {
             val q = call.request.queryParameters
-            val query: String; val limit: Int
+            val query: String?; val limit: Int; var near: Pair<Double, Double>? = null; var radiusKm = 2.0
             try {
                 call.rejectDuplicates(LOCATION_PARAMS)
-                query = q.text("query"); limit = q.limit(20, 8)
+                val nearRaw = q["near"]
+                if (nearRaw == null) { query = q.text("query") } else {
+                    val parts = nearRaw.split(",")
+                    if (parts.size != 2 || !parts.all { DECIMAL.matches(it) }) throw ParamError("near", "Parameter 'near' must be <lat>,<lon> in decimal degrees")
+                    val lat = parts[0].toDouble(); val lon = parts[1].toDouble()
+                    if (lat !in -90.0..90.0 || lon !in -180.0..180.0) throw ParamError("near", "Parameter 'near' latitude must be within ±90 and longitude within ±180")
+                    near = lat to lon
+                    query = if (q["query"] != null) q.text("query") else null
+                    q["radiusKm"]?.let { v ->
+                        if (!DECIMAL.matches(v) || v.startsWith("-")) throw ParamError("radiusKm", "Parameter 'radiusKm' must be a non-negative number")
+                        radiusKm = minOf(v.toDouble(), 20.0)
+                    }
+                }
+                limit = q.limit(20, 8)
             } catch (e: ParamError) { call.fail(HttpStatusCode.BadRequest, "INVALID_REQUEST", e.message!!, e.field); return@get }
-            when (val r = searchService.searchLocations(query)) {
+            val result = near?.let { (lat, lon) ->
+                when (val n = searchService.searchNearby(lat, lon)) {
+                    is LocationsResult.Success -> LocationsResult.Success(n.locations
+                        .filter { it.kind.equals("stop", true) && it.x != null && it.y != null && (query == null || it.name.contains(query, ignoreCase = true)) }
+                        .map { it to distanceKm(lat, lon, it.y!!, it.x!!) }
+                        .filter { it.second <= radiusKm }.sortedBy { it.second }.map { it.first }.distinctBy { it.id }) // OJP lists each platform of a station separately
+                    else -> n
+                }
+            } ?: searchService.searchLocations(query!!)
+            when (val r = result) {
                 is LocationsResult.Success -> call.respond(HttpStatusCode.OK, LocationsResponseDto(r.locations.take(limit).map {
                     LocationDto(it.id, it.name, it.kind.uppercase(), if (it.x != null && it.y != null) CoordinatesDto(it.y, it.x) else null)
                 }))

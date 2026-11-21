@@ -28,6 +28,8 @@ class JourneySearchService(
 
     suspend fun searchLocations(query: String) = provider.searchLocations(query)
 
+    suspend fun searchNearby(lat: Double, lon: Double) = provider.searchNearby(lat, lon)
+
     suspend fun resolvePlace(input: String) = provider.resolvePlace(input)
 
     fun ojpStatus() = provider.feedStatus()
