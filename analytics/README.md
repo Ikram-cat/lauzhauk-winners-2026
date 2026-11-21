@@ -2,7 +2,7 @@
 
 Role C owns `analytics/` on `feature/analytics`. Python supports offline data validation, exploratory statistics and, if the observations support it, predictive modeling. The browser and Ktor MVP can start independently.
 
-**Current state.** This directory contains documentation. The historical CFF incident CSV schema, license, usable coverage, and outcome labels are unverified. No data pipeline, model, or evaluated artifact exists in this module.
+**Current state.** The `sbb_duration` package trains a model of the remaining duration of SBB disruptions on the public liveticker export (2024–2026), evaluates it chronologically, and exports it as JSON for the Kotlin backend. It also replays past incidents for the demo. The data's usage rights are not yet reviewed: the CSVs, the trained model and every generated file stay local and out of Git.
 
 ## Work order
 
@@ -15,7 +15,26 @@ Role C owns `analytics/` on `feature/analytics`. Python supports offline data va
 
 Use `scripts/` for repeatable inspection, validation and export entry points, `tests/` for synthetic test cases, and optional `notebooks/` for exploration. Keep raw CSV under the private, ignored `analytics/data/` directory and stage generated outputs in ignored `analytics/output/`. Promote a derived file to a reviewed tracked location after its data-use and version review.
 
-Choose and record the Python version with the first scaffold. From `analytics/`, create an isolated environment with `python -m venv .venv`. Invoke the environment’s Python directly via `.venv/bin/python` on POSIX or `.\.venv\Scripts\python.exe` in PowerShell. Pin dependencies once required and record the exact install, run, and test commands then. There are currently no scripts or test entry points here.
+Python 3.14, with dependencies pinned in `requirements.txt`. The liveticker CSVs go in `analytics/Daten/Daten/extern-liveticker/` (ignored), or in a directory set by `SBB_DATA_DIR`. Outputs go to `analytics/output/` (ignored), or `SBB_OUTPUT_DIR`. From `analytics/`:
+
+```sh
+python -m pip install -r requirements.txt   # or inside python -m venv .venv
+python -m sbb_duration.train                # metrics.json + duration_model.joblib
+python -m sbb_duration.export               # duration_model.v1.json + golden_vectors.json
+python -m pytest tests -p no:cacheprovider  # JSON evaluator == sklearn, advice thresholds, pessimistic >= p50
+python -m sbb_duration.replay [--detour 60] # 3 past incidents, terminal table + output/replay/replay-0N.json (MOCK)
+```
+
+| Module | Role |
+| --- | --- |
+| `data.py` | Loads all incident versions (audit + current) ordered by `last_modified_date`; SHA-256 provenance. |
+| `features.py` | `build_features`, shared by training, prediction and export; the Kotlin port mirrors it. |
+| `train.py` | Snapshots of ongoing versions, chronological 80/20 split by incident start, P50 and pessimistic (0.85) quantile models. Metrics are measured on the split; the exported model is refitted on all snapshots. |
+| `predict.py`, `advice.py` | sklearn prediction; advice codes `TAKE_DETOUR`, `DETOUR_IF_DEADLINE`, `WAIT`, `UNKNOWN`. |
+| `artifact.py`, `export.py` | JSON artifact (trees, categories, regexes, provenance, metrics, limitations) and its dependency-free reference evaluator. |
+| `replay.py` | Version-by-version replay of three test-period incidents, chosen by rule, using the split models that never saw them. |
+
+Current results on the test period (104 incidents, 639 snapshots after 2026-04-06): the P50 error is 97.9 min against 112.7 for the official announcement and 127.0 for the median per cause. The pessimistic estimate covers 73.7% of cases. The official announcement is too optimistic in 69% of snapshots. The API contract is in [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal).
 
 ## Evaluation and reproducibility
 

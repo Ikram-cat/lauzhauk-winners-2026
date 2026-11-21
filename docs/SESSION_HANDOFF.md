@@ -6,6 +6,44 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-21 · C · Disruption duration model, Kotlin estimator and outlook route
+
+**Branch and commit**
+`prediction` at `700f113` (replay), plus the documentation commit containing this entry. Based on `7f6734f`, which merged `origin/main` and B1.
+
+**Completed and files changed**
+
+- `analytics/sbb_duration/`: data / features / train / predict / advice / artifact / export / replay package, with `analytics/tests/` (3 files) and `analytics/requirements.txt`. Replaces `analytics/sbb_duration_model.py`, which was deleted along with the obsolete `model/` ignore entry.
+- Model: HistGradientBoosting quantile models for the P50 and a pessimistic estimate (q 0.85) of the minutes until the first `ENDED` version. Metrics come from an 80/20 chronological split by incident start (cutoff 2026-04-06). The exported model is refitted on all 3,063 snapshots.
+- Export: `duration_model.v1.json` (trees, categories, regexes, provenance, metrics, limitations) and `golden_vectors.json` (100 cases), written to the ignored `analytics/output/`. Infinite sklearn thresholds are clipped to ±max double so the file is valid JSON.
+- Backend: `POST /api/disruptions/outlook`.
+  - The artifact is loaded at startup from `DURATION_ARTIFACT_PATH`. If it is missing or invalid, `NoDurationEstimator` is used and the route returns `UNAVAILABLE`.
+  - New code: Kotlin feature port and tree evaluator under `service/duration/`, plus `AdviceService`.
+  - `Plugins.kt` and `Routes.kt` changed: CORS now allows POST, and `configureRoutes` takes an optional estimator. The user notifies B.
+- Docs: proposed contract section in `API_CONTRACT.md`, commands in `analytics/README.md` and `backend/README.md`, roadmap rows A2 and A3.
+
+**Commands and results**
+
+- From `analytics/`: `python -m sbb_duration.train`, then `export`, then `python -m pytest tests -p no:cacheprovider` gives 10 passed. The maximum gap between the JSON evaluator and sklearn is 1.07e-14.
+- Test metrics (104 incidents, 639 snapshots): P50 MAE 97.9 min, against 112.7 for the official announcement and 127.0 for the median per cause. Pessimistic coverage 73.7%.
+- From `backend/`, with JDK 21: `./gradlew --no-daemon test` gives 46 passed. `DurationGoldenVectorsTest` ran and matched within 1e-6. `DisruptionRouteTest` covers `UNAVAILABLE` and the 400 response.
+- Manual check: backend started with the real artifact, then curl on the contract example. Response `AVAILABLE`, p50 228 and pessimistic 507, the same as sklearn (228.26 and 506.52). The 400 response and the CORS preflight were also checked.
+- `python -m sbb_duration.replay`: three test-period incidents chosen by rule. Two are wins (mean error 884 → 183 min and 103 → 38 min). One is a counterexample where the SBB announcement was better (47 against 190 min). Files `output/replay/replay-0N.json` are labelled `MOCK`.
+
+**Status, blockers and decisions**
+
+- The data's usage rights are not reviewed. The CSVs, the model, the golden vectors and the replay JSON stay local, so deployed backends answer `UNAVAILABLE`.
+- The pessimistic estimate is not a calibrated probability: it covers 73.7% of the test period, below the 85% target. Accuracy drifts with time: recent incidents last longer.
+- Some `summary_en` values contain U+FFFD, meaning accents were lost at the source. The replay skips them; the model is unaffected because it only uses keywords.
+- Environment: JDK 21 is installed per-user under `%LOCALAPPDATA%\Programs\Temurin`, with `JAVA_HOME` set at user level, because the winget MSI needed UAC.
+
+**Next actions**
+
+1. A, B and D review the outlook contract proposal.
+2. Data-use review, then decide whether to package the artifact (Docker or Railway).
+3. A renders `replay-0N.json` in the UI. B connects the outlook route to verified disruptions and legs (CFF1, B5).
+4. Optional: calibrate the pessimistic estimate on a validation window.
+
 ## 2026-11-21 · B · Complete Ktor backend implementation
 
 **Branch and commit**

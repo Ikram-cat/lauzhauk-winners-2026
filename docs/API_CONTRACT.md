@@ -146,6 +146,100 @@ This illustrates the empty response shape. It makes no claim about service on th
 
 The frontend handles network or CORS failures as request failures even when there is no JSON body. Demo fallback is an explicit user or environment choice and retains its demo label.
 
+## Disruption outlook (proposal)
+
+**Status: proposal.** This endpoint is implemented on the `prediction` branch, and the frontend, backend and integration owners have not yet reviewed it. Its fields may change until that review. The `/health` and `/api/journeys` contracts are unchanged.
+
+`POST /api/disruptions/outlook` estimates how long an ongoing disruption will last and whether a detour is worth taking. The estimate comes from an offline model trained on the SBB public liveticker (2024–2026). The backend loads it at startup as a JSON artifact (see [analytics README](../analytics/README.md) and [backend README](../backend/README.md)). It is an estimate, not an official SBB forecast.
+
+### Request
+
+`Content-Type: application/json`.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `disruption.startedAt` | RFC 3339 timestamp with offset | Yes | When the disruption was first recorded. |
+| `disruption.reasonCode` | String or null | No | SBB cause code, such as `EG_008` for an overhead-line problem. Unknown or missing codes are allowed. |
+| `disruption.durationType` | String or null | No | SBB duration type, such as `UNTIL` or `UNTIL_APPROX_DATE_TIME`. |
+| `disruption.announcedEndAt` | RFC 3339 timestamp or null | No | End currently announced by SBB. Null means no announcement. |
+| `disruption.updatesSoFar` | Integer ≥ 0, default `0` | No | Number of earlier published versions of this disruption. |
+| `disruption.summaryEn` | String or null | No | English summary, such as `Interrupted service: Lausanne`. Used for the interruption and restriction keywords. |
+| `observedAt` | RFC 3339 timestamp with offset | No | Instant of the estimate. Defaults to the server clock. Pass it explicitly when replaying. |
+| `detourExtraMinutes` | Integer ≥ 0 or null | No | Extra travel time of the best alternative, in minutes. Without it, `advice.code` is `UNKNOWN`. |
+
+```json
+{
+  "disruption": {
+    "reasonCode": "EG_008",
+    "durationType": "UNTIL",
+    "startedAt": "2026-11-21T07:40:00+01:00",
+    "announcedEndAt": "2026-11-21T09:00:00+01:00",
+    "updatesSoFar": 2,
+    "summaryEn": "Interruption between Lausanne and Genève"
+  },
+  "observedAt": "2026-11-21T08:00:00+01:00",
+  "detourExtraMinutes": 35
+}
+```
+
+### Response
+
+`200` for every valid request, with or without a model.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `status` | `AVAILABLE` or `UNAVAILABLE` | `UNAVAILABLE` when the backend has no model loaded: `DURATION_ARTIFACT_PATH` unset, file missing, invalid, or of an unsupported version. |
+| `remainingMinutes.p50` | Integer or null | Median remaining duration, rounded to the nearest minute. |
+| `remainingMinutes.pessimistic` | Integer or null | Pessimistic remaining duration (0.85 quantile model), rounded up. It is **not** a calibrated probability: on the test period it covered 73.7% of cases. It is always ≥ `p50`. |
+| `expectedEndAt.p50`, `expectedEndAt.pessimistic` | RFC 3339 timestamp or null | `observedAt` plus the rounded minutes, using the offset of `observedAt`. |
+| `officialRemainingMinutes` | Integer or null | Minutes from `observedAt` to `announcedEndAt`, floored at 0. Null without an announcement. Provided even when `status` is `UNAVAILABLE`. |
+| `advice.code` | `TAKE_DETOUR`, `DETOUR_IF_DEADLINE`, `WAIT` or `UNKNOWN` | `TAKE_DETOUR` if detour < p50; `DETOUR_IF_DEADLINE` if detour < pessimistic; otherwise `WAIT`. `UNKNOWN` without a model or without `detourExtraMinutes`. Thresholds use unrounded minutes. The UI localizes the code. |
+| `advice.detourExtraMinutes` | Integer or null | Echo of the request field. |
+| `provenance` | Object or null | `kind` (`ESTIMATED`), `modelVersion`, `pessimisticQuantile`, and `pessimisticCoverage` (measured on the test split). Null when `UNAVAILABLE`. |
+
+```json
+{
+  "status": "AVAILABLE",
+  "remainingMinutes": { "p50": 228, "pessimistic": 507 },
+  "expectedEndAt": { "p50": "2026-11-21T11:48:00+01:00", "pessimistic": "2026-11-21T16:27:00+01:00" },
+  "officialRemainingMinutes": 60,
+  "advice": { "code": "TAKE_DETOUR", "detourExtraMinutes": 35 },
+  "provenance": {
+    "kind": "ESTIMATED",
+    "modelVersion": "duration-v1",
+    "pessimisticQuantile": 0.85,
+    "pessimisticCoverage": 0.7370892018779343
+  }
+}
+```
+
+```json
+{
+  "status": "UNAVAILABLE",
+  "remainingMinutes": null,
+  "expectedEndAt": null,
+  "officialRemainingMinutes": 60,
+  "advice": { "code": "UNKNOWN", "detourExtraMinutes": 35 },
+  "provenance": null
+}
+```
+
+### Errors
+
+`400 INVALID_REQUEST`, using the error envelope above, when:
+- the body is not valid JSON or lacks `disruption.startedAt`;
+- a timestamp is not RFC 3339 with an offset;
+- `startedAt` is after `observedAt`;
+- `updatesSoFar` or `detourExtraMinutes` is negative.
+
+A missing model is never an error. The browser must allow `POST`, which the backend's CORS configuration now does.
+
+### Limits and provenance
+
+- The model was trained on past liveticker incidents whose end is known. Its P50 error on the test period was 97.9 minutes, against 112.7 for the official announcement. Long or unusual incidents remain hard to predict.
+- The backend has no verified live disruption feed. Until one exists, clients send disruption facts themselves, and demo data must be labelled.
+- Historical replays for the demo come from `python -m sbb_duration.replay`. That command writes `analytics/output/replay/replay-0N.json` locally; the files are not committed because they contain source rows. Each file has `dataStatus: "MOCK"` and `kind: "HISTORICAL_REPLAY"`. Each `steps[].outlook` object holds `status`, `remainingMinutes`, `expectedEndAt` and `advice` from the response shape above. `officialRemainingMinutes`, `actualRemainingMinutes` and the model provenance sit at step or file level.
+
 ## Changes and future endpoints
 
 Use the same baseline JSON examples in frontend decoding, backend serialization and integration smoke checks. For additive output fields, define default behavior for clients that encounter missing or unfamiliar values. Any change to required fields, types, null semantics, ranking or supported queries needs review from frontend, backend and integration owners. Use a coordinated migration or new version for breaking changes. [Shared interfaces](../shared/INTERFACES.md) · [Development workflow](DEVELOPMENT_WORKFLOW.md)
