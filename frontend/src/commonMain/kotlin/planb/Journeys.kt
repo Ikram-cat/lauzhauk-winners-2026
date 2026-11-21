@@ -42,7 +42,8 @@ internal fun swissDeparture(date: String, hour: String): Instant? {
 @Serializable
 internal data class Leg(
     val origin: String, val destination: String, val departure: String, val arrival: String,
-    val serviceLabel: String? = null, val departurePlatform: String? = null
+    val serviceLabel: String? = null, val departurePlatform: String? = null,
+    val arrivalPlatform: String? = null, val mode: String? = null
 )
 
 @Serializable
@@ -104,6 +105,29 @@ internal fun chf(value: Double): String {
     return "CHF ${cents / 100}.${two((cents % 100).toInt())}"
 }
 
+@Serializable
+private data class HealthResponse(val status: String)
+
+@Serializable
+private data class ErrorResponse(val error: ErrorDetail)
+
+@Serializable
+private data class ErrorDetail(val code: String)
+
+internal data class JourneyOptions(val directOnly: Boolean = false, val arriveBy: Instant? = null) {
+    fun applyTo(journeys: List<Journey>): List<Journey> = journeys.filter { journey ->
+        (!directOnly || journey.transfers == 0) &&
+            (arriveBy == null || Instant.parse(journey.arrival) <= arriveBy)
+    }
+}
+
+internal val Journey.provenance: Copy
+    get() = when (dataStatus) {
+        "MOCK" -> Copy.Demo
+        "LIVE_SCHEDULE" -> Copy.ProviderSchedule
+        else -> Copy.UnknownSource
+    }
+
 internal data class Service(
     val destination: String, val offset: Int, val platform: String,
     val duration: Int, val label: String, val delay: Int = 0
@@ -147,7 +171,8 @@ private suspend fun demoSearch(origin: String, destination: String, start: Insta
         val arr = dep + duration.minutes
         Journey(
             "demo-$index", dep.toString(), arr.toString(), duration, 0, "MOCK",
-            listOf(Leg(origin, destination, dep.toString(), arr.toString(), service.label, service.platform.takeIf { fromLausanne }))
+            listOf(Leg(origin, destination, dep.toString(), arr.toString(), service.label,
+                service.platform.takeIf { fromLausanne }, mode = "TRANSIT"))
         )
     }
 }
