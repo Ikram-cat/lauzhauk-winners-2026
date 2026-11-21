@@ -8,6 +8,7 @@ import com.cffplanb.backend.provider.TransportProvider
 import com.cffplanb.backend.service.JourneySearchService
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -342,5 +343,48 @@ class LocationsRouteTest {
     @Test fun `upstream failures map to error envelope`() {
                 for ((r, st) in listOf(LR.Timeout("t") to 504, LR.RateLimited("r") to 503, LR.Failure("f") to 502))
             app(fixed(r)) { assertEquals(st, client.get("/api/locations?query=x").status.value) }
+    }
+}
+
+class DeadlineRouteTest {
+    // clock 15:00Z; mock arrivals at +60, +80, +90 min (deps +10, +5, +40)
+    private fun get(q: String, block: suspend (HttpResponse) -> Unit) = testApplication {
+        application {
+            install(ContentNegotiation) { json(Json { encodeDefaults = true }) }
+            configureRoutes(JourneySearchService(com.cffplanb.backend.provider.MockTransportProvider()),
+                Clock.fixed(Instant.parse("2026-11-21T15:00:00Z"), ZoneOffset.UTC))
+        }
+        block(client.get("/api/journeys?origin=A&destination=B$q"))
+    }
+    private fun flags(j: JsonObject) = j["journeys"]!!.jsonArray.map { it.jsonObject["feasible"]!!.jsonPrimitive.boolean }
+
+    @Test fun `some feasible, infeasible kept and flagged`() = get("&arrivalDeadline=2026-11-21T16%3A25%3A00Z") {
+        val j = Json.parseToJsonElement(it.bodyAsText()).jsonObject
+        assertEquals("2026-11-21T16:25:00Z", j["request"]!!.jsonObject["arrivalDeadline"]!!.jsonPrimitive.content)
+        assertEquals(listOf(true, true, false), flags(j)) // ordered by arrival
+        assertEquals("2026-11-21T15:10:00Z", j["latestFeasibleDeparture"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun `all feasible`() = get("&arrivalDeadline=2026-11-21T17%3A00%3A00Z") {
+        val j = Json.parseToJsonElement(it.bodyAsText()).jsonObject
+        assertEquals(listOf(true, true, true), flags(j))
+        assertEquals("2026-11-21T15:40:00Z", j["latestFeasibleDeparture"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun `none feasible`() = get("&arrivalDeadline=2026-11-21T15%3A30%3A00Z") {
+        val j = Json.parseToJsonElement(it.bodyAsText()).jsonObject
+        assertEquals(3, j["journeys"]!!.jsonArray.size)
+        assertEquals(listOf(false, false, false), flags(j))
+        assertEquals(JsonNull, j["latestFeasibleDeparture"])
+    }
+
+    @Test fun `no deadline leaves fields null`() = get("") {
+        val j = Json.parseToJsonElement(it.bodyAsText()).jsonObject
+        assertEquals(JsonNull, j["latestFeasibleDeparture"])
+        assertEquals(JsonNull, j["journeys"]!!.jsonArray[0].jsonObject["feasible"])
+    }
+
+    @Test fun `invalid deadline is 400`() = get("&arrivalDeadline=tomorrow") {
+        assertEquals(HttpStatusCode.BadRequest, it.status)
     }
 }

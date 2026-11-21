@@ -43,13 +43,15 @@ data class JourneyDto(
     val predictedDelayMinutes: Int? = null,
     val lateArrivalProbability: Double? = null,
     val estimatedFareChf: Double? = null,
+    val feasible: Boolean? = null,
     val dataStatus: String
 )
 
 @Serializable
 data class JourneySearchResponseDto(
     val request: SearchRequestDto,
-    val journeys: List<JourneyDto>
+    val journeys: List<JourneyDto>,
+    val latestFeasibleDeparture: String? = null
 )
 
 @Serializable

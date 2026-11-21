@@ -29,6 +29,8 @@ curl "http://localhost:8080/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve
 | `CORS_ALLOWED_ORIGINS` | No | (any) | Comma-separated allowed origins, e.g. `https://app.vercel.app` |
 | `TRANSPORT_PROVIDER` | No | `mock` | `mock` or `ojp` |
 | `OJP_API_KEY` | When `ojp` | — | Bearer token for opentransportdata.swiss. Never hardcoded. |
+| `RISK_SOURCE` | No | `artifact` | `artifact` or `none` (all risk values null) |
+| `RISK_ARTIFACT_PATH` | No | `/app/risk/predictions.json` | Falls back to `analytics/artifacts/predictions.json`. Reloaded when mtime changes. |
 
 ## Running tests
 
@@ -66,7 +68,9 @@ See [`docs/API_CONTRACT.md`](../docs/API_CONTRACT.md) for the full HTTP contract
 | Endpoint | Method | Description |
 |---|---|---|
 | `/health` | GET | Returns `{"status":"ok"}`. Makes no provider calls. |
-| `/api/journeys` | GET | Journey search. Params: `origin` (required), `destination` (required), `departure` (optional RFC 3339 with offset). |
+| `/api/journeys` | GET | Journey search. Params: `origin`, `destination` (required), `departure`, `arrivalDeadline` (optional RFC 3339 with offset). With a deadline, each journey gets `feasible` and the response a nullable `latestFeasibleDeparture`; infeasible journeys stay listed. Risk fields are filled only for an exact line+hour artifact match with non-low confidence. |
+| `/api/locations` | GET | `?query=` autocomplete (stop/address, max 10, cached). 400 on empty query. |
+| `/api/model` | GET | Risk artifact metadata: `modelVersion`, `generatedAt`, `coverage`, `source`, `keysLoaded`, `status` (`ok`/`missing`/`stale`). |
 
 ### Error codes
 

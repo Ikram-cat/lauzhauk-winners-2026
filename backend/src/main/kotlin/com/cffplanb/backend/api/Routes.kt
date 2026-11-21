@@ -15,7 +15,7 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 
-private val KNOWN_PARAMS = setOf("origin", "destination", "departure")
+private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline")
 private val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
 fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator) {
@@ -165,6 +165,22 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                 earliestDeparture = OffsetDateTime.now(clock)
             }
 
+            val deadlineRaw = rawQuery["arrivalDeadline"]
+            val deadline: OffsetDateTime? = if (deadlineRaw == null) null else try {
+                OffsetDateTime.parse(deadlineRaw, RFC3339_FORMATTER)
+            } catch (e: DateTimeParseException) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorResponseDto(
+                        ErrorDetailDto(
+                            "INVALID_REQUEST",
+                            "Invalid arrivalDeadline timestamp. Must be RFC 3339 with Z or numeric UTC offset."
+                        )
+                    )
+                )
+                return@get
+            }
+
             val searchRequest = SearchRequest(
                 origin = origin,
                 destination = destination,
@@ -178,10 +194,15 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                             origin = origin,
                             destination = destination,
                             earliestDeparture = RFC3339_FORMATTER.format(earliestDeparture),
-                            arrivalDeadline = null,
+                            arrivalDeadline = deadline?.let { RFC3339_FORMATTER.format(it) },
                             preference = "FASTEST"
                         ),
-                        journeys = result.journeys.map { it.toDto(risk.estimate(it)) }
+                        journeys = result.journeys.map {
+                            it.toDto(risk.estimate(it), deadline?.let { d -> !it.arrival.toInstant().isAfter(d.toInstant()) })
+                        },
+                        latestFeasibleDeparture = if (deadline == null) null else
+                            result.journeys.filter { !it.arrival.toInstant().isAfter(deadline.toInstant()) }
+                                .maxByOrNull { it.departure.toInstant() }?.let { RFC3339_FORMATTER.format(it.departure) }
                     )
                     call.respond(HttpStatusCode.OK, response)
                 }
@@ -220,7 +241,7 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
     }
 }
 
-private fun Journey.toDto(r: RiskEstimate?): JourneyDto = JourneyDto(
+private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?): JourneyDto = JourneyDto(
     id = id,
     departure = RFC3339_FORMATTER.format(departure),
     arrival = RFC3339_FORMATTER.format(arrival),
@@ -230,6 +251,7 @@ private fun Journey.toDto(r: RiskEstimate?): JourneyDto = JourneyDto(
     predictedDelayMinutes = r?.predictedDelayMinutes,
     lateArrivalProbability = r?.lateArrivalProbability,
     estimatedFareChf = null,
+    feasible = feasible,
     dataStatus = dataStatus.name
 )
 
