@@ -2,11 +2,11 @@
 
 package planb
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -47,6 +47,7 @@ private val Dark = darkColorScheme(
 @Composable
 internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
     var language by remember { mutableStateOf(Language.French) }
+    var languageMenuExpanded by remember { mutableStateOf(false) }
     var darkOverride by remember { mutableStateOf<Boolean?>(null) }
     val useDark = darkOverride ?: isSystemInDarkTheme()
     val colors = if (useDark) Dark else Light
@@ -79,8 +80,8 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
         }
     }
     val scope = rememberCoroutineScope()
-    var origin by remember { mutableStateOf("Lausanne") }
-    var destination by remember { mutableStateOf("Genève") }
+    var origin by remember { mutableStateOf("") }
+    var destination by remember { mutableStateOf("") }
     var date by remember { mutableStateOf("") }
     var hour by remember { mutableStateOf("") }
     var showOptions by remember { mutableStateOf(false) }
@@ -93,14 +94,18 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
     var journeys by remember { mutableStateOf(emptyList<Journey>()) }
     var expandedJourneyId by remember { mutableStateOf<String?>(null) }
     var chosenJourneyId by remember { mutableStateOf<String?>(null) }
-    var responseInfo by remember { mutableStateOf<JourneyResponse?>(null) }
+    var redirectResponse by remember { mutableStateOf<RedirectResponse?>(null) }
+    var preference by remember { mutableStateOf(Preference.FASTEST) }
+    var showOtherOptions by remember { mutableStateOf(false) }
+    var searchCollapsed by remember { mutableStateOf(false) }
+    var simplestInfoOpen by remember { mutableStateOf(false) }
+    var locationStatus by remember { mutableStateOf<Copy?>(null) }
+    var activeDeadline by remember { mutableStateOf<Instant?>(null) }
     var rescueFrom by remember { mutableStateOf("") }
     var showRescue by remember { mutableStateOf(false) }
     var fareProfile by remember { mutableStateOf(FareProfile()) }
     var showTravelcards by remember { mutableStateOf(false) }
     var request by remember { mutableStateOf<Job?>(null) }
-    val anchor = remember { Clock.System.now() }
-    val departuresPanel = remember { BringIntoViewRequester() }
     val scroll = rememberScrollState()
     val visibleJourneys = remember(journeys, appliedOptions) { appliedOptions.applyTo(journeys) }
     fun search(rescue: Boolean) {
@@ -115,7 +120,9 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
         journeys = emptyList()
         expandedJourneyId = null
         chosenJourneyId = null
-        responseInfo = null
+        redirectResponse = null
+        showOtherOptions = false
+        locationStatus = null
         status = Copy.Searching
         searchedRoute = null
         request = scope.launch {
@@ -128,18 +135,30 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                 if (start != null && deadline != null && deadline < start) {
                     throw SearchInputException(Copy.DeadlineBeforeStart)
                 }
+                activeDeadline = deadline
                 val options = JourneyOptions(requestedDirectOnly, deadline.takeIf { source.demo })
                 val response = if (rescue) {
-                    source.alternatives(from, to, checkNotNull(start), deadline)
-                } else source.search(from, to, start, deadline = deadline)
+                    val alt = source.alternatives(from, to, checkNotNull(start), deadline)
+                    RedirectResponse(
+                        situation = "UNKNOWN",
+                        recommendation = alt.journeys.firstOrNull(),
+                        alternatives = alt.journeys.drop(1).take(3),
+                        journeys = alt.journeys,
+                        latestFeasibleDeparture = alt.latestFeasibleDeparture,
+                        noFeasibleRoute = alt.noFeasibleRoute,
+                        advice = alt.advice
+                    )
+                } else source.search(from, to, start, preference = preference, deadline = deadline)
                 appliedOptions = options
-                responseInfo = response
-                journeys = response.journeys
-                expandedJourneyId = (options.applyTo(journeys).firstOrNull() ?: journeys.firstOrNull())?.id
-                status = if (journeys.isEmpty()) {
+                redirectResponse = response
+                val allJourneys = response.displayJourneys
+                journeys = allJourneys
+                expandedJourneyId = (options.applyTo(allJourneys).firstOrNull() ?: allJourneys.firstOrNull())?.id
+                status = if (allJourneys.isEmpty()) {
                     if (source.demo) Copy.EmptyDemo else Copy.EmptyJourney
                 } else null
                 searchedRoute = from to to
+                searchCollapsed = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (invalid: SearchInputException) {
@@ -170,15 +189,22 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                 Text(copy(if (source.demo) Copy.DemoMode else Copy.ApiMode), color = colors.onSurfaceVariant)
                                 if (!source.demo) Text(copy(health), fontSize = 11.sp, color = colors.onSurfaceVariant)
                             }
-                            TextButton(
-                                onClick = { language = if (language == Language.French) Language.English else Language.French },
-                                modifier = Modifier.semantics { contentDescription = copy(Copy.UseOtherLanguage) }
-                            ) { Text(if (language == Language.French) "EN" else "FR") }
+                            Box {
+                                TextButton(
+                                    onClick = { languageMenuExpanded = true },
+                                    modifier = Modifier.semantics { contentDescription = copy(Copy.UseOtherLanguage) }
+                                ) { Text(language.tag.uppercase()) }
+                                DropdownMenu(expanded = languageMenuExpanded, onDismissRequest = { languageMenuExpanded = false }) {
+                                    for (option in Language.entries) DropdownMenuItem(
+                                        text = { Text(option.tag.uppercase()) },
+                                        onClick = { language = option; languageMenuExpanded = false }
+                                    )
+                                }
+                            }
                         }
                         HorizontalDivider(color = colors.outlineVariant)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { scope.launch { scroll.scrollTo(0) } }) { Text(copy(Copy.Journeys)) }
-                            TextButton(onClick = { scope.launch { departuresPanel.bringIntoView() } }) { Text(copy(Copy.Departures)) }
                             Spacer(Modifier.weight(1f))
                             TextButton(onClick = { darkOverride = !useDark }) {
                                 Text(copy(if (useDark) Copy.UseLight else Copy.UseDark))
@@ -186,37 +212,60 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                         }
                         val searchPanel: @Composable () -> Unit = {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(copy(Copy.YourJourney), fontWeight = FontWeight.Black,
-                                    fontSize = if (compact) 38.sp else 56.sp, lineHeight = if (compact) 41.sp else 59.sp)
-                                Text(copy(Copy.StartsHere), color = colors.primary, fontWeight = FontWeight.Black,
-                                    fontSize = if (compact) 38.sp else 56.sp, lineHeight = if (compact) 41.sp else 59.sp)
-                                Text(copy(Copy.Intro), color = colors.onSurfaceVariant)
-                                Surface(shape = RoundedCornerShape(14.dp), shadowElevation = 2.dp) {
-                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Row(verticalAlignment = Alignment.Top) {
-                                            StationField(copy(Copy.From), origin, language, source, { origin = it }, { search(false) }, Modifier.weight(1f))
-                                            TextButton(onClick = {
-                                                val previous = origin
-                                                origin = destination
-                                                destination = previous
-                                            }, modifier = Modifier.semantics { contentDescription = copy(Copy.SwapStations) }) { RouteMark(colors.primary, swap = true) }
-                                            StationField(copy(Copy.To), destination, language, source, { destination = it }, { search(false) }, Modifier.weight(1f))
-                                        }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            OutlinedTextField(date, { date = it }, Modifier.weight(1f), label = { Text(copy(Copy.Date)) }, placeholder = { Text(copy(Copy.DateFormat)) }, singleLine = true)
-                                            OutlinedTextField(hour, { hour = it }, Modifier.weight(1f), label = { Text(copy(Copy.SwissTime)) }, placeholder = { Text("HH:mm") }, singleLine = true)
-                                        }
-                                        Text(copy(Copy.DateHint), color = colors.onSurfaceVariant, fontSize = 12.sp)
-                                        TextButton(onClick = { showOptions = !showOptions }) {
-                                            Text(copy(Copy.TripOptions) + if (showOptions) " -" else " +")
-                                        }
-                                        if (showOptions) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Checkbox(directOnly, { directOnly = it }, modifier = Modifier.semantics {
-                                                    contentDescription = copy(Copy.DirectOnly)
-                                                })
-                                                Text(copy(Copy.DirectOnly))
+                                if (searchCollapsed && searchedRoute != null) {
+                                    Surface(shape = RoundedCornerShape(14.dp), shadowElevation = 1.dp, color = colors.surfaceVariant) {
+                                        Row(
+                                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(Modifier.weight(1f)) {
+                                                Text(
+                                                    "${searchedRoute?.first?.let { localizedStationName(it, language) }} → " +
+                                                        "${searchedRoute?.second?.let { localizedStationName(it, language) }}",
+                                                    fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium
+                                                )
+                                                val whenText = activeDeadline?.let { "${copy(Copy.ArriveBy)} ${time(it)}" }
+                                                    ?: hour.takeIf { it.isNotBlank() }?.let { "${copy(Copy.SwissTime)} $it" }
+                                                    ?: copy(Copy.NowDeparture)
+                                                Text(whenText, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                                             }
+                                            TextButton(onClick = { searchCollapsed = false }) { Text(copy(Copy.EditSearch)) }
+                                        }
+                                    }
+                                } else {
+                                    Text(copy(Copy.YourJourney), fontWeight = FontWeight.Black,
+                                        fontSize = if (compact) 38.sp else 56.sp, lineHeight = if (compact) 41.sp else 59.sp)
+                                    Text(copy(Copy.StartsHere), color = colors.primary, fontWeight = FontWeight.Black,
+                                        fontSize = if (compact) 38.sp else 56.sp, lineHeight = if (compact) 41.sp else 59.sp)
+                                    Text(copy(Copy.Intro), color = colors.onSurfaceVariant)
+                                    Surface(shape = RoundedCornerShape(14.dp), shadowElevation = 2.dp) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(verticalAlignment = Alignment.Top) {
+                                                StationField(
+                                                    copy(Copy.From), origin, language, source, { origin = it }, { search(false) }, Modifier.weight(1f),
+                                                    trailing = {
+                                                        IconButton(onClick = {
+                                                            locationStatus = Copy.NearestStationPending
+                                                        }, modifier = Modifier.semantics { contentDescription = copy(Copy.UseMyLocation) }) {
+                                                            PinIcon(colors.primary)
+                                                        }
+                                                    }
+                                                )
+                                                TextButton(onClick = {
+                                                    val previous = origin
+                                                    origin = destination
+                                                    destination = previous
+                                                }, modifier = Modifier.semantics { contentDescription = copy(Copy.SwapStations) }) { RouteMark(colors.primary, swap = true) }
+                                                StationField(copy(Copy.To), destination, language, source, { destination = it }, { search(false) }, Modifier.weight(1f))
+                                            }
+                                            locationStatus?.let {
+                                                Text(copy(it), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                OutlinedTextField(date, { date = it }, Modifier.weight(1f), label = { Text(copy(Copy.Date)) }, placeholder = { Text(copy(Copy.DateFormat)) }, singleLine = true)
+                                                OutlinedTextField(hour, { hour = it }, Modifier.weight(1f), label = { Text(copy(Copy.SwissTime)) }, placeholder = { Text("HH:mm") }, singleLine = true)
+                                            }
+                                            Text(copy(Copy.DateHint), color = colors.onSurfaceVariant, fontSize = 12.sp)
                                             Text(copy(Copy.ArriveBy), fontWeight = FontWeight.Medium)
                                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                 OutlinedTextField(deadlineDate, { deadlineDate = it }, Modifier.weight(1f),
@@ -225,22 +274,37 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                                     label = { Text(copy(Copy.DeadlineTime)) }, placeholder = { Text("HH:mm") }, singleLine = true)
                                             }
                                             Text(copy(Copy.DeadlineHint), color = colors.onSurfaceVariant, fontSize = 12.sp)
+                                            TextButton(onClick = { showOptions = !showOptions }) {
+                                                Text(copy(Copy.TripOptions) + if (showOptions) " -" else " +")
+                                            }
+                                            if (showOptions) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Checkbox(directOnly, { directOnly = it }, modifier = Modifier.semantics {
+                                                        contentDescription = copy(Copy.DirectOnly)
+                                                    })
+                                                    Text(copy(Copy.DirectOnly))
+                                                }
+                                            }
+                                            OutlinedButton(onClick = { showTravelcards = !showTravelcards }, modifier = Modifier.fillMaxWidth()) {
+                                                Text(copy(Copy.AddTravelcards))
+                                            }
+                                            if (showTravelcards) TravelcardsMenu(
+                                                language, fareProfile,
+                                                journeys.firstOrNull { it.id == chosenJourneyId } ?: visibleJourneys.firstOrNull(),
+                                                close = { showTravelcards = false },
+                                                apply = { fareProfile = it; showTravelcards = false }
+                                            )
+                                            if (fareProfile.travelcard != Travelcard.STANDARD || fareProfile.firstClass) {
+                                                Text(copy(fareProfile.travelcard.label) + " / " +
+                                                    copy(if (fareProfile.firstClass) Copy.FirstClass else Copy.SecondClass),
+                                                    color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                            Button(
+                                                onClick = { search(false) },
+                                                modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = colors.primary)
+                                            ) { Text(copy(Copy.TravelNow), fontWeight = FontWeight.Bold) }
                                         }
-                                        OutlinedButton(onClick = { showTravelcards = !showTravelcards }, modifier = Modifier.fillMaxWidth()) {
-                                            Text(copy(Copy.AddTravelcards))
-                                        }
-                                        if (showTravelcards) TravelcardsMenu(
-                                            language, fareProfile,
-                                            journeys.firstOrNull { it.id == chosenJourneyId } ?: visibleJourneys.firstOrNull(),
-                                            close = { showTravelcards = false },
-                                            apply = { fareProfile = it; showTravelcards = false }
-                                        )
-                                        if (fareProfile.travelcard != Travelcard.STANDARD || fareProfile.firstClass) {
-                                            Text(copy(fareProfile.travelcard.label) + " / " +
-                                                copy(if (fareProfile.firstClass) Copy.FirstClass else Copy.SecondClass),
-                                                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                                        }
-                                        Button(onClick = { search(false) }, modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp)) { Text(copy(Copy.Search)) }
                                     }
                                 }
                             }
@@ -269,18 +333,134 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                         val noMatch = journeys.isNotEmpty() && visibleJourneys.isEmpty()
                         val feedback = status?.let(copy) ?: searchedRoute?.let { (from, to) ->
                             if (noMatch) copy(Copy.NoMatchingJourneys)
-                            else "$from - $to · ${language.count(visibleJourneys.size, Copy.Journey, Copy.JourneyPlural)}"
+                            else "${localizedStationName(from, language)} - ${localizedStationName(to, language)} · " +
+                                language.count(visibleJourneys.size, Copy.Journey, Copy.JourneyPlural)
                         }
                         if (feedback != null) {
                             Text(copy(Copy.Journeys), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                             Text(feedback, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.onSurfaceVariant)
-                            responseInfo?.let { info ->
-                                if (info.noFeasibleRoute == true) Text(copy(Copy.NoFeasibleRoute), fontWeight = FontWeight.Bold)
+                            redirectResponse?.let { info ->
+                                val hasDisruption = info.situation == "DISRUPTION_DETECTED"
+                                if (hasDisruption) {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
+                                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.error),
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                    ) {
+                                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                WarningTriangleIcon(MaterialTheme.colorScheme.error, Modifier.size(22.dp))
+                                                Text(
+                                                    copy(Copy.DisruptionBannerTitle),
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    style = MaterialTheme.typography.titleMedium
+                                                )
+                                            }
+                                            Text(
+                                                copy(Copy.DisruptionBannerBody),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            info.message?.let {
+                                                Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                                            }
+                                            info.disruption?.let { disruption ->
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    disruption.serviceLabel?.let {
+                                                        Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.error) {
+                                                            Text(it, Modifier.padding(horizontal = 7.dp, vertical = 2.dp), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                        }
+                                                    }
+                                                    val routeInfo = listOfNotNull(disruption.from, disruption.to)
+                                                        .map { localizedStationName(it, language) }.joinToString(" → ")
+                                                    if (routeInfo.isNotBlank()) {
+                                                        Text(routeInfo, fontWeight = FontWeight.SemiBold)
+                                                    }
+                                                }
+                                                if (disruption.cancelled == true) {
+                                                    Text(copy(Copy.ServiceCancelled), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                                                } else if (disruption.delayMinutes != null) {
+                                                    Text("${copy(Copy.EstimatedDelay)}+${disruption.delayMinutes} min", fontWeight = FontWeight.Bold)
+                                                }
+                                                disruption.cause?.let {
+                                                    Text(it, style = MaterialTheme.typography.bodyMedium)
+                                                }
+                                                if (disruption.confidence == "low") {
+                                                    Text(copy(Copy.LimitedLiveData), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if (info.situation == "UNKNOWN") {
+                                    Text(copy(Copy.LiveStatusUnavailable), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                                }
+                                if (!info.message.isNullOrBlank() && !hasDisruption) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = colors.surfaceVariant,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(info.message, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                                if (info.noFeasibleRoute == true) Text(copy(Copy.NoFeasibleRoute), fontWeight = FontWeight.Bold, color = colors.primary)
                                 info.latestFeasibleDeparture?.let {
                                     val instant = Instant.parse(it)
                                     Text("${copy(Copy.LeaveBy)} ${instant.toLocalDateTime(Zurich).date} · ${time(instant)}")
                                 }
                             }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                data class ModeTab(val pref: Preference, val icon: @Composable (Color) -> Unit, val label: Copy)
+                                val tabs = listOf(
+                                    ModeTab(Preference.FASTEST, { c -> LightningIcon(c) }, Copy.FastestMode),
+                                    ModeTab(Preference.SIMPLEST, { c -> RouteMark(c, swap = true) }, Copy.SimplestMode),
+                                    ModeTab(Preference.CHEAPEST, { c -> CoinIcon(c) }, Copy.CostMode)
+                                )
+                                for (tab in tabs) {
+                                    val active = preference == tab.pref
+                                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        val onTabColor = if (active) colors.onPrimary else colors.primary
+                                        if (active) {
+                                            Button(onClick = {}, modifier = Modifier.fillMaxWidth()) {
+                                                tab.icon(onTabColor)
+                                                Spacer(Modifier.width(6.dp))
+                                                Text(copy(tab.label), fontWeight = FontWeight.Bold)
+                                            }
+                                        } else {
+                                            OutlinedButton(
+                                                onClick = { preference = tab.pref; search(false) },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                tab.icon(onTabColor)
+                                                Spacer(Modifier.width(6.dp))
+                                                Text(copy(tab.label))
+                                            }
+                                        }
+                                        if (tab.pref == Preference.SIMPLEST) {
+                                            Surface(
+                                                shape = CircleShape, color = colors.surfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp).size(20.dp)
+                                                    .semantics { contentDescription = copy(Copy.SimplestInfoTooltip) }
+                                            ) {
+                                                TextButton(onClick = { simplestInfoOpen = true }, contentPadding = PaddingValues(0.dp)) {
+                                                    InfoIcon(colors.onSurfaceVariant)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (simplestInfoOpen) AlertDialog(
+                                onDismissRequest = { simplestInfoOpen = false },
+                                confirmButton = { TextButton(onClick = { simplestInfoOpen = false }) { Text(copy(Copy.Close)) } },
+                                title = { Text(copy(Copy.SimplestMode)) },
+                                text = { Text(copy(Copy.SimplestInfoTooltip)) }
+                            )
                             if (noMatch) {
                                 TextButton(onClick = {
                                     showOptions = true
@@ -289,35 +469,108 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                 Text(copy(Copy.EarliestReturned), fontWeight = FontWeight.Medium)
                             }
                             val cards = if (noMatch) listOfNotNull(journeys.minByOrNull { Instant.parse(it.arrival) }) else visibleJourneys
-                            for (journey in cards) {
-                                val expanded = expandedJourneyId == journey.id
-                                JourneyChoiceCard(
-                                    journey = journey,
-                                    language = language,
-                                    expanded = expanded,
-                                    chosen = chosenJourneyId == journey.id,
-                                    toggleDetails = { expandedJourneyId = if (expanded) null else journey.id },
-                                    chooseJourney = {
-                                        expandedJourneyId = journey.id
-                                        chosenJourneyId = journey.id
-                                    },
-                                    recommended = !noMatch && journey.id == visibleJourneys.firstOrNull { it.feasible != false }?.id,
-                                    fare = fareProfile.price(journey),
-                                    fullFare = if (fareProfile.travelcard == Travelcard.HALF_FARE)
-                                        fareProfile.copy(travelcard = Travelcard.STANDARD).price(journey) else null,
-                                    fareLabel = if (fareProfile.travelcard.canQuote) copy(Copy.PriceUnavailable)
-                                        else copy(Copy.CoverageUnverified),
-                                    model = model
-                                )
+                            val recommendation = redirectResponse?.recommendation?.takeIf { !noMatch && appliedOptions.applyTo(listOf(it)).isNotEmpty() }
+                            val nonRecommendationCards = if (recommendation != null) cards.filterNot { it.id == recommendation.id } else cards
+
+                            if (recommendation != null) {
+                                val expanded = expandedJourneyId == recommendation.id
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+                                    Text(
+                                        copy(Copy.MostRecommendedLabel),
+                                        modifier = Modifier.width(72.dp).padding(top = 18.dp),
+                                        color = colors.primary, fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                    Box(Modifier.weight(1f)) {
+                                        JourneyChoiceCard(
+                                            journey = recommendation,
+                                            language = language,
+                                            expanded = expanded,
+                                            chosen = chosenJourneyId == recommendation.id,
+                                            toggleDetails = { expandedJourneyId = if (expanded) null else recommendation.id },
+                                            chooseJourney = {
+                                                expandedJourneyId = recommendation.id
+                                                chosenJourneyId = recommendation.id
+                                            },
+                                            recommended = true,
+                                            fare = fareProfile.price(recommendation),
+                                            fullFare = if (fareProfile.travelcard == Travelcard.HALF_FARE)
+                                                fareProfile.copy(travelcard = Travelcard.STANDARD).price(recommendation) else null,
+                                            fareLabel = if (fareProfile.travelcard.canQuote) copy(Copy.PriceUnavailable)
+                                                else copy(Copy.CoverageUnverified),
+                                            model = model,
+                                            deadline = activeDeadline
+                                        )
+                                    }
+                                }
+                                if (nonRecommendationCards.isNotEmpty()) {
+                                    if (!showOtherOptions) {
+                                        Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
+                                            OutlinedButton(onClick = { showOtherOptions = true }) { Text(copy(Copy.ViewOtherOptions)) }
+                                        }
+                                    } else {
+                                        Text(
+                                            copy(Copy.OtherItineraries),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(top = 10.dp)
+                                        )
+                                        for (journey in nonRecommendationCards) {
+                                            val isExpanded = expandedJourneyId == journey.id
+                                            JourneyChoiceCard(
+                                                journey = journey,
+                                                language = language,
+                                                expanded = isExpanded,
+                                                chosen = chosenJourneyId == journey.id,
+                                                toggleDetails = { expandedJourneyId = if (isExpanded) null else journey.id },
+                                                chooseJourney = {
+                                                    expandedJourneyId = journey.id
+                                                    chosenJourneyId = journey.id
+                                                },
+                                                recommended = false,
+                                                fare = fareProfile.price(journey),
+                                                fullFare = if (fareProfile.travelcard == Travelcard.HALF_FARE)
+                                                    fareProfile.copy(travelcard = Travelcard.STANDARD).price(journey) else null,
+                                                fareLabel = if (fareProfile.travelcard.canQuote) copy(Copy.PriceUnavailable)
+                                                    else copy(Copy.CoverageUnverified),
+                                                model = model,
+                                                deadline = activeDeadline
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                for (journey in cards) {
+                                    val expanded = expandedJourneyId == journey.id
+                                    JourneyChoiceCard(
+                                        journey = journey,
+                                        language = language,
+                                        expanded = expanded,
+                                        chosen = chosenJourneyId == journey.id,
+                                        toggleDetails = { expandedJourneyId = if (expanded) null else journey.id },
+                                        chooseJourney = {
+                                            expandedJourneyId = journey.id
+                                            chosenJourneyId = journey.id
+                                        },
+                                        recommended = !noMatch && journey.id == visibleJourneys.firstOrNull { it.feasible != false }?.id,
+                                        fare = fareProfile.price(journey),
+                                        fullFare = if (fareProfile.travelcard == Travelcard.HALF_FARE)
+                                            fareProfile.copy(travelcard = Travelcard.STANDARD).price(journey) else null,
+                                        fareLabel = if (fareProfile.travelcard.canQuote) copy(Copy.PriceUnavailable)
+                                            else copy(Copy.CoverageUnverified),
+                                        model = model,
+                                        deadline = activeDeadline
+                                    )
+                                }
                             }
                             cards.firstOrNull { it.id == chosenJourneyId }?.let { chosen ->
                                 SmartWaitingTime(chosen, language)
                             }
                         }
-                        DepartureBoard(
-                            source.demo, anchor, visibleJourneys, searchedRoute != null, language,
-                            Modifier.bringIntoViewRequester(departuresPanel)
-                        )
+                        val activeModel = redirectResponse?.modelVersion ?: model?.modelVersion
+                        if (activeModel != null) {
+                            Text("${copy(Copy.ModelVersionLabel)}$activeModel", color = colors.onSurfaceVariant, fontSize = 12.sp)
+                        }
                         Text(copy(Copy.Prototype), color = colors.onSurfaceVariant, fontSize = 12.sp)
                     }
                 }
@@ -326,43 +579,3 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
     }
 }
 
-@Composable
-private fun DepartureBoard(
-    demo: Boolean, anchor: Instant, journeys: List<Journey>, searched: Boolean,
-    language: Language, modifier: Modifier
-) {
-    val copy = language::text
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val rows = if (demo) services.map { service ->
-        listOf(time(anchor + service.offset.minutes), service.destination, service.platform,
-            if (service.delay > 0) "+${service.delay} min" else copy(Copy.OnTime))
-    } else journeys.mapNotNull { journey ->
-        val leg = journey.legs.firstOrNull { it.mode == "TRANSIT" } ?: return@mapNotNull null
-        listOf(time(Instant.parse(leg.departure)), "${leg.origin} - ${leg.destination}",
-            leg.departurePlatform ?: "—", copy(journey.provenance))
-    }.distinct()
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(copy(if (demo) Copy.Upcoming else Copy.ResultDepartures),
-            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        if (demo) Text(copy(Copy.DemoData), color = muted)
-        if (rows.isEmpty()) {
-            Text(copy(if (searched) Copy.NoBoardableDepartures else Copy.SearchForDepartures), color = muted)
-        } else OutlinedCard(Modifier.fillMaxWidth()) {
-            BoardRow(listOf(Copy.Departure, Copy.Destination, Copy.Platform, if (demo) Copy.Status else Copy.Source).map(copy), true)
-            for (row in rows) {
-                HorizontalDivider()
-                BoardRow(row)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BoardRow(values: List<String>, header: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp)) {
-        for ((index, value) in values.withIndex()) Text(
-            value, Modifier.weight(if (index == 1) 1.45f else 1f).padding(horizontal = 4.dp),
-            fontSize = 13.sp, fontWeight = if (header || index < 3) FontWeight.Bold else FontWeight.Normal
-        )
-    }
-}

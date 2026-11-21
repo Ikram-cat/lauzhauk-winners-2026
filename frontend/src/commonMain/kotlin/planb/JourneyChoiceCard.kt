@@ -38,7 +38,8 @@ internal fun JourneyChoiceCard(
     fare: Double? = null,
     fullFare: Double? = null,
     fareLabel: String = "",
-    model: ModelInfo? = null
+    model: ModelInfo? = null,
+    deadline: Instant? = null
 ) {
     val copy = language::text
     val colors = MaterialTheme.colorScheme
@@ -55,9 +56,8 @@ internal fun JourneyChoiceCard(
         colors = CardDefaults.outlinedCardColors(containerColor = colors.surface)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (recommended) Surface(color = colors.primary, contentColor = colors.onPrimary, shape = MaterialTheme.shapes.small) {
-                Text(copy(Copy.Recommended), Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            journey.why?.let { whyText ->
+                Text(whyText, color = colors.primary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
             }
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) {
@@ -80,7 +80,14 @@ internal fun JourneyChoiceCard(
                 }
             }
             Text("${journey.durationMinutes} min · $transfer · ${copy(journey.provenance)}", color = colors.onSurfaceVariant)
-            if (journey.feasible == false) Text(copy(Copy.MissesDeadline), color = colors.onSurfaceVariant)
+            if (journey.feasible == false) {
+                val lateMin = deadline?.let { (end - it).inWholeMinutes.coerceAtLeast(1) }
+                val lateLabel = if (lateMin != null) "${copy(Copy.ArrivesLateBy)}$lateMin min" else copy(Copy.MissesDeadline)
+                Text(lateLabel, color = colors.primary, fontWeight = FontWeight.SemiBold)
+            } else if (deadline != null && journey.why == null) {
+                val earlyMin = (deadline - end).inWholeMinutes.coerceAtLeast(0)
+                Text("${copy(Copy.ArrivesBeforeDeadlineBy)}$earlyMin min", color = colors.onSurfaceVariant)
+            }
             if (fare != null && fullFare != null && fullFare > fare) {
                 Text("${copy(Copy.FullPrice)} · ${chf(fullFare)}", color = colors.onSurfaceVariant,
                     textDecoration = TextDecoration.LineThrough)
@@ -91,18 +98,13 @@ internal fun JourneyChoiceCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onClick = toggleDetails) {
-                    Text(when {
-                        language == Language.French && expanded -> "Masquer les détails"
-                        language == Language.French -> "Détails"
-                        expanded -> "Hide details"
-                        else -> "Details"
-                    })
+                    Text(copy(if (expanded) Copy.HideDetails else Copy.Details))
                 }
                 if (chosen) Text(
-                    if (language == Language.French) "Départ choisi" else "Departure selected",
+                    copy(Copy.DepartureSelected),
                     color = colors.primary, fontWeight = FontWeight.SemiBold
                 ) else Button(onClick = chooseJourney) {
-                    Text(if (language == Language.French) "Choisir ce départ" else "Choose this departure")
+                    Text(copy(Copy.ChooseThisDeparture))
                 }
             }
             if (expanded) {
@@ -114,7 +116,7 @@ internal fun JourneyChoiceCard(
                 }
                 if (risk != null && riskLabel != null && model?.modelVersion != null) {
                     val tenths = (risk * 1000).let { kotlin.math.round(it).toInt() }
-                    val separator = if (language == Language.French) "," else "."
+                    val separator = if (language == Language.English) "." else ","
                     val confidence = journey.riskConfidence?.let { " · $it" }.orEmpty()
                     Text("${tenths / 10}$separator${tenths % 10}% $riskLabel$confidence",
                         color = if (journey.riskConfidence == "very_low") colors.onSurfaceVariant else colors.onSurface)
@@ -131,7 +133,7 @@ internal fun JourneyChoiceCard(
                 fun label(instant: Instant) = if (startDay == endDay) time(instant)
                     else "${time(instant)} · ${instant.toLocalDateTime(Zurich).date}"
                 fun endpoint(value: String, fallback: Copy) =
-                    if (leg.mode == "WALK" && isCoordinate(value)) copy(fallback) else value
+                    if (leg.mode == "WALK" && isCoordinate(value)) copy(fallback) else localizedStationName(value, language)
                 Text("${label(departure)} ${endpoint(leg.origin, Copy.WalkFromAddress)} - ${label(arrival)} ${endpoint(leg.destination, Copy.WalkToAddress)}")
                 val details = listOfNotNull(
                     when (leg.mode) {

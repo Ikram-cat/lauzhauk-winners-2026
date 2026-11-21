@@ -25,8 +25,10 @@ import kotlin.time.Instant
 internal fun JourneyOverview(origin: String, destination: String, journey: Journey?, language: Language) {
     val copy = language::text
     val colors = MaterialTheme.colorScheme
-    val from = journey?.legs?.firstOrNull()?.origin?.takeUnless(::isCoordinate) ?: origin.ifBlank { copy(Copy.From) }
-    val to = journey?.legs?.lastOrNull()?.destination?.takeUnless(::isCoordinate) ?: destination.ifBlank { copy(Copy.To) }
+    val from = (journey?.legs?.firstOrNull()?.origin?.takeUnless(::isCoordinate) ?: origin.ifBlank { copy(Copy.From) })
+        .let { localizedStationName(it, language) }
+    val to = (journey?.legs?.lastOrNull()?.destination?.takeUnless(::isCoordinate) ?: destination.ifBlank { copy(Copy.To) })
+        .let { localizedStationName(it, language) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
