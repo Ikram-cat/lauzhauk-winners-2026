@@ -80,3 +80,8 @@ flowchart LR
 - Add deadline eligibility and preference scoring through `RecommendationService` once the API contract defines them. Preserve scheduled arrival as a comparable baseline. Record the factors behind each recommendation, especially when a later option is preferable under a user's constraints. [Roadmap](ROADMAP.md)
 - A future `PlacesProvider.near(station, constraints): List<Place>` can serve curated, sourced backup options through a Plan B API with its own validation and provenance. Add workspace availability, fares, occupancy and additional live signals only after verifying data availability and quality.
 - Keep initial search stateless. Persisted profiles, favorites or notification subscriptions would require a separate storage decision. Consider iOS and Android once the Web path is stable and the team has the relevant build and test environment. Review the HTTP boundaries before sharing UI or Kotlin DTO code. [Decisions](DECISIONS.md)
+
+
+## Challenge extensions
+
+The [challenge plan](CHALLENGES.md) adds a second KMP UI target for submission. Keep trip input, confirmed-field validation, extraction orchestration and recovery presentation in `commonMain` where supported. Use platform adapters for image selection and platform UI conventions. Ktor owns optional provider calls and disruption matching. Keep inference separate from deterministic journey ranking so manual search continues when the model path fails.

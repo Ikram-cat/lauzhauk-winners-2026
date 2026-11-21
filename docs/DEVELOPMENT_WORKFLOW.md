@@ -41,3 +41,8 @@ Use PRs for `main`. Obtain explicit authorization before modifying GitHub branch
 At the end of a significant session, update the [handoff](SESSION_HANDOFF.md) with the branch, relevant commit, completed work, changed paths, checks, blockers, pending decisions, dependencies, and ordered next actions. Update the [roadmap](ROADMAP.md) when any task status changes and the [decision log](DECISIONS.md) when the team makes a significant architectural decision. Keep the [master plan](MASTER_PLAN.md) unchanged unless explicitly authorized to edit it.
 
 Send D the module's handoff entry when concurrent PRs touch the same file. D reconciles entries against Git history and verified checks while preserving each owner's evidence. When no application changes merge, record what actually changed and which runtime checks remain pending.
+
+
+## Challenge evidence in PRs
+
+Include [criterion IDs](CHALLENGES.md), the command and observed result for each tested target, and relevant contribution credits. When using JetBrains Air, include a summary of the task assignment, human steering and reviewed changes. Keep private session data out of the PR.

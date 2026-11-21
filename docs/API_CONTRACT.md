@@ -151,3 +151,8 @@ The frontend handles network or CORS failures as request failures even when ther
 Use the same baseline JSON examples in frontend decoding, backend serialization and integration smoke checks. For additive output fields, define default behavior for clients that encounter missing or unfamiliar values. Any change to required fields, types, null semantics, ranking or supported queries needs review from frontend, backend and integration owners. Use a coordinated migration or new version for breaking changes. [Shared interfaces](../shared/INTERFACES.md) · [Development workflow](DEVELOPMENT_WORKFLOW.md)
 
 Deadline and preference requests are future contract work. `POST /api/recommendations` and `GET /api/places?stationId=…` are suggested later interfaces and have no v1 schema. Define their eligibility, provenance and failure behavior before implementation. [Roadmap](ROADMAP.md)
+
+
+## Challenge extensions in design
+
+The [challenge plan](CHALLENGES.md) requires reviewing any extraction or disruption endpoints before implementation. Agree on image size and media types, timeout and fallback, candidate fields and unknowns, and retention behavior for screenshot extraction. For disruption recovery, agree on affected leg identifiers, source/time, unknown-match behavior, deadline impact, and explicit next-action or no-feasible-option outcomes. Existing v1 examples remain the search baseline.

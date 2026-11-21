@@ -46,3 +46,15 @@ All four tasks can start from this documentation baseline. A and B review the [v
 | I5 | T+20–T+22 h | D · Freeze and submit | I3, official submission requirements, at least one verified differentiated capability from B4, A3 if integrated into the UI, or I4 | Planned | Re-run public smoke tests and demonstrate the capability with honest provenance. Record screenshots, credits, data limitations, fallback and tested commit, and preserve the known-good `submission` checkpoint. If the capability misses the gate, preserve and submit the stable MVP and record the full target as unmet. |
 
 Stretch options include verified fares, contextual occupancy proxies, multimodal input, notifications, and native builds. Review them only after the stable demo and confirmed data or platform availability.
+
+
+## Challenge submission work
+
+See the [official criteria mapping](CHALLENGES.md). These tasks extend the baseline milestones above. A second KMP target is required for the JetBrains submission even though it is outside the Web MVP.
+
+| ID | Owner | Target and dependencies | Status | Definition of done |
+| --- | --- | --- | --- | --- |
+| F4 | A | T+11 · F1 and B1 | Ready | Run the shared journey core on Web/Wasm and desktop JVM, or a verified Android alternative. Record both builds and the shared boundary (JB1, JB2). |
+| B5 | B with C and A | T+11 replay, T+22 integrated · B2 and verified disruption identifiers or synthetic fixtures | Planned | Match events to legs, explain the impact, and return a feasible next step or an explicit no-option state (CFF1, CFF2). |
+| F5 | A with B and C | T+22 · F4, reviewed extraction interface and test samples | Planned | Run screenshot plus typed context and manual fallback on both targets, show both themes and locales, and capture measured frugality (JB3, JB4, AX1, AX2). |
+| I6 | D with all roles | Throughout development and freeze · I1, F4, B5, F5 | Planned | Record actual Air work and reviews, team credits, two-platform rehearsal, every criterion's evidence, and remaining gaps (JB5, AX3). |

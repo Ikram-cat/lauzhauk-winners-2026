@@ -7,3 +7,8 @@ Use this runbook after a public deployment is available. Follow the [deployment 
 3. Explain the recommendation as earliest scheduled arrival among the eligible results. Show departure, arrival, duration, transfers, and any supplied platform. Show alternatives if returned. Record the actual observation time and the deployed revision instead of hard-coding timetable results into the script.
 4. At the stable milestone, exercise a validation error and capture evidence of the empty and failure states using a controlled test environment. Present any final Plan B feature with its actual data limitations. Report unavailable features as such.
 5. Retain the last verified public deployment and its recorded revision. If the provider is unavailable, use the previously verified rollback when relevant or a tested, approved local mock mode if available. Keep the mock label visible and say when the demonstration uses a recording. A mock or recording provides demo continuity. Public milestone evidence requires a verified real journey.
+
+
+## Sponsor judging sequence
+
+Show Web and the second KMP target. Use a synthetic appointment screenshot plus typed context, correct one extracted value, and confirm the journey. Show one sourced real itinerary and a clearly labeled disruption replay with an affected leg and actionable recovery. Switch locale and theme on both targets. Explain shared logic versus platform-specific code, measured inference use, and reviewed Air work and contributions. Record evidence against the [challenge IDs](CHALLENGES.md).

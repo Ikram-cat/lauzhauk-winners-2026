@@ -13,3 +13,8 @@ If approved, start with serialization DTOs only and preserve platform-neutral de
 ## Making a contract change
 
 Raise the impact in the PR with before-and-after JSON, its verification plan, and deployment compatibility. Update the protocol and examples with the coordinated producer/consumer changes. Use the module tests and integration smoke test to verify the contract across the deployed path. See [shared interfaces](INTERFACES.md) and the [development workflow](../docs/DEVELOPMENT_WORKFLOW.md).
+
+
+## Challenge boundary
+
+The JetBrains submission needs genuine sharing across client targets. Put shared client workflow in the frontend KMP project's `commonMain` first. Adopt a separate shared Kotlin module only when multiple projects need it. [Challenge plan](../docs/CHALLENGES.md)

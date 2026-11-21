@@ -23,3 +23,8 @@
 - Update [SESSION_HANDOFF.md](docs/SESSION_HANDOFF.md) using its entry format. Include the date, owner, branch, verified revision, completed work, files, checks, status, blockers, decisions, dependencies, and prioritized next steps. Update [ROADMAP.md](docs/ROADMAP.md) when a task changes status.
 - Include the updates in the related PR when possible. When concurrent agents need to edit progress records, send each entry and task status change to the integration owner for consolidation. Preserve other agents' unmerged entries and verify conflicting claims against the checkout and history before reconciling them.
 - Keep ongoing progress in the handoff and roadmap. Change permanent rules, architecture, and interfaces only when the corresponding decision or agreement changes.
+
+
+## Challenge work
+
+Read the [challenge plan](docs/CHALLENGES.md) before taking a sponsor-related task. Reference its criterion IDs in the PR and attach reproducible evidence. Record actual JetBrains Air work and review decisions. Keep personal screenshots, restricted data and secrets out of evidence.
