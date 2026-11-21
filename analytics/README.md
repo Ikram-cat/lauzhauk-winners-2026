@@ -1,10 +1,60 @@
 # Analytics
 
-Role C owns `analytics/` on `feature/analytics`. Python supports offline data validation, exploratory statistics and, if the observations support it, predictive modeling. The browser and Ktor MVP can start independently.
+Offline pipeline that turns the SBB extern-liveticker CSVs into two artifacts for the backend. Python never runs online.
 
-**Current state.** This directory contains documentation. The historical CFF incident CSV schema, license, usable coverage, and outcome labels are unverified. No data pipeline, model, or evaluated artifact exists in this module.
+## Rebuild
 
-## Work order
+```bash
+python -m venv ~/code/venv-analytics && ~/code/venv-analytics/bin/pip install -r analytics/requirements.txt
+ln -s /path/to/Daten analytics/Daten/Daten      # analytics/Daten/ is gitignored raw data
+~/code/venv-analytics/bin/python -m analytics.build_artifacts --data analytics/Daten/Daten/extern-liveticker --out analytics/artifacts
+~/code/venv-analytics/bin/python -m pytest analytics -q
+```
+
+`--data` may also come from `$LIVETICKER_DATA`. `analytics/artifacts/` is gitignored (rebuild, don't commit).
+Code: `duration_model.py` (snapshots, train, evaluate, `predict_remaining`, `advice`), `line_hour.py` (byLineHour), `build_artifacts.py` (entry point).
+
+## Artifacts (`analytics/artifacts/`)
+
+- `incident_duration.joblib` + `incident_duration.json`: quantile models (P50, P80, log target) for "how much longer will this live incident last". JSON holds features, categories, quantiles, training window, counts, metrics. Load the joblib as `{"models","features","categories"}` and call `duration_model.predict_remaining(features, bundle)`. The shipped model is refit on all snapshots after evaluation.
+- `predictions.json`, the file the backend joins on:
+
+```json
+{"modelVersion": "...", "generatedAt": "UTC ISO", "coverage": {"from": "...", "to": "...", "scope": "..."},
+ "notes": ["..."],
+ "byLineHour": [{"key": "Bern - Thun", "hourBucket": 8, "lateProbability": 0.0-1.0,
+                 "expectedDelayMin": 67.7, "sampleSize": 1, "confidence": "low|medium|high"}]}
+```
+
+`hourBucket` is the local Europe/Zurich hour 0-23. `confidence`: sampleSize <8 low, 8-19 medium, >=20 high.
+
+## Data and measured results (build of 2026-11-21)
+
+Coverage 2024-03-04 to 2026-10-11. 550 incidents, 5,305 versions, 520 with a known end, 3,063 snapshots.
+Chronological split (last 20% of incidents by start, cutoff 2026-04-06; train incidents must also have ended before the cutoff): 416 train / 104 test incidents.
+
+| Metric (minutes, test) | Value |
+| --- | --- |
+| MAE, model P50 | 100.6 (train 61.0) |
+| MAE, median-per-reason baseline | 128.6 |
+| Snapshots with official announcement (n=626): model / official / baseline | 98.5 / 112.7 / 127.0 |
+| Official estimate too optimistic | 69% |
+| P80 coverage (target 80%) | 66% test, 80% train |
+
+byLineHour: 1,246 (line, hour) keys over 153 line corridors, **0 with sampleSize >= 20** (max 10; 15 with >= 8). Treat all as low/medium confidence.
+
+## Limitations
+
+- The model predicts remaining minutes of a disruption already in the liveticker. It cannot predict whether a disruption will occur, nor per-train delay, platforms or fares.
+- The P80 interval is under-covered on recent data (66% vs 80%): it is optimistic. Errors of 1-2 h are normal; the sample is small (520 incidents).
+- Disruptions over 24 h and incidents without an ENDED version are dropped.
+- **Key gap versus OJP:** the CSVs hold no OJP lineRef (`ojp:91008:E`) or train number. `key` is the corridor text from the description ("Lausanne - Brig"), parsed for ~80% of incidents (102 of 507 unparsable, excluded). The backend needs its own corridor-to-line mapping; no OJP refs are fabricated.
+- `lateProbability` is the share of days a corridor had an active disruption in that hour, not a per-train lateness rate (no non-disrupted trips in the data). `expectedDelayMin` is the median disruption duration, an upper bound on passenger delay.
+- Data are public-liveticker incidents only (not intern-liveticker or Ereignismeldungen).
+
+## Original work order (kept from the scaffold)
+
+
 
 1. Start with the transport interface while awaiting data. Review the candidate provider’s documented fields and terms, sample a permitted response, record only observed field behavior, and propose sanitized fixtures covering legs, optional platforms, and empty results. Agree on fixture placement with Role B. Use the examples in the [API contract](../docs/API_CONTRACT.md) as synthetic input for consumer checks.
 2. When the CSV arrives, record source, dataset version or checksum, permitted use, and sharing constraints. Inspect encoding, delimiter, headers, row count, timestamps, coverage, duplicates, missingness, and potential personal fields locally. Determine the unit of observation, time zone, and whether non-incident services and usable labels are represented. Ask the data owner about unresolved semantics before freezing ingestion decisions.
