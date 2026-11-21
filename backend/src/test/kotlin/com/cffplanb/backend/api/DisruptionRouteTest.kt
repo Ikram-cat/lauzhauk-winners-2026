@@ -1,0 +1,46 @@
+package com.cffplanb.backend.api
+
+import com.cffplanb.backend.config.AppConfig
+import com.cffplanb.backend.config.configureApp
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.server.testing.*
+import kotlinx.serialization.json.*
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class DisruptionRouteTest {
+    private val fixedClock = Clock.fixed(Instant.parse("2026-11-21T07:00:00Z"), ZoneOffset.UTC)
+
+    @Test
+    fun `outlook is UNAVAILABLE without artifact and rejects an invalid timestamp`() = testApplication {
+        application { configureApp(fixedClock, AppConfig(transportProvider = "mock", durationArtifactPath = null)) }
+
+        val ok = client.post("/api/disruptions/outlook") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"disruption":{"reasonCode":"EG_008","durationType":"UNTIL",
+                "startedAt":"2026-11-21T07:40:00+01:00","announcedEndAt":"2026-11-21T09:00:00+01:00",
+                "updatesSoFar":2,"summaryEn":"Interruption between Lausanne and Genève"},
+                "observedAt":"2026-11-21T08:00:00+01:00","detourExtraMinutes":35}""")
+        }
+        assertEquals(HttpStatusCode.OK, ok.status)
+        val body = Json.parseToJsonElement(ok.bodyAsText()).jsonObject
+        assertEquals("UNAVAILABLE", body["status"]!!.jsonPrimitive.content)
+        assertEquals(JsonNull, body["remainingMinutes"])
+        assertEquals(JsonNull, body["provenance"])
+        assertEquals(60, body["officialRemainingMinutes"]!!.jsonPrimitive.int)
+        assertEquals("UNKNOWN", body["advice"]!!.jsonObject["code"]!!.jsonPrimitive.content)
+
+        val bad = client.post("/api/disruptions/outlook") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"disruption":{"startedAt":"not-a-date"}}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, bad.status)
+        val error = Json.parseToJsonElement(bad.bodyAsText()).jsonObject["error"]!!.jsonObject
+        assertEquals("INVALID_REQUEST", error["code"]!!.jsonPrimitive.content)
+    }
+}

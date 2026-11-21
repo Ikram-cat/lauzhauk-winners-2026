@@ -6,6 +6,7 @@ import com.cffplanb.backend.api.configureRoutes
 import com.cffplanb.backend.provider.MockTransportProvider
 import com.cffplanb.backend.provider.OjpTransportProvider
 import com.cffplanb.backend.service.JourneySearchService
+import com.cffplanb.backend.service.duration.DurationArtifactLoader
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -32,6 +33,7 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     // CORS
     install(CORS) {
         allowMethod(HttpMethod.Get)
+        allowMethod(HttpMethod.Post)
         allowMethod(HttpMethod.Options)
         allowHeader(HttpHeaders.ContentType)
         allowHeader(HttpHeaders.Accept)
@@ -71,6 +73,7 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     }
 
     val searchService = JourneySearchService(provider)
+    val durationEstimator = DurationArtifactLoader.load(config.durationArtifactPath)
 
-    configureRoutes(searchService, clock)
+    configureRoutes(searchService, clock, durationEstimator)
 }

@@ -5,6 +5,8 @@ import com.cffplanb.backend.domain.JourneyLeg
 import com.cffplanb.backend.domain.SearchRequest
 import com.cffplanb.backend.service.JourneySearchService
 import com.cffplanb.backend.service.SearchResult
+import com.cffplanb.backend.service.duration.DisruptionDurationEstimator
+import com.cffplanb.backend.service.duration.NoDurationEstimator
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -17,11 +19,17 @@ import java.time.format.DateTimeParseException
 private val KNOWN_PARAMS = setOf("origin", "destination", "departure")
 private val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
-fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock) {
+fun Application.configureRoutes(
+    searchService: JourneySearchService,
+    clock: Clock,
+    durationEstimator: DisruptionDurationEstimator = NoDurationEstimator
+) {
     routing {
         get("/health") {
             call.respond(HttpStatusCode.OK, HealthResponseDto("ok"))
         }
+
+        disruptionRoutes(durationEstimator, clock)
 
         get("/api/journeys") {
             // --- Duplicate parameter detection via raw query string ---

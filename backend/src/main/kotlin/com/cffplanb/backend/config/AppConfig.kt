@@ -8,7 +8,9 @@ data class AppConfig(
         ?.filter { it.isNotEmpty() }
         ?: emptyList(),
     val transportProvider: String = System.getenv("TRANSPORT_PROVIDER") ?: "mock",
-    val ojpApiKey: String? = System.getenv("OJP_API_KEY")
+    val ojpApiKey: String? = System.getenv("OJP_API_KEY"),
+    /** Path to analytics duration_model.v1.json; unset or invalid -> duration estimates unavailable. */
+    val durationArtifactPath: String? = System.getenv("DURATION_ARTIFACT_PATH")
 ) {
     companion object {
         fun fromEnv(): AppConfig = AppConfig()

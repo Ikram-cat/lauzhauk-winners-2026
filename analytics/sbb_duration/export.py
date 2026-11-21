@@ -8,6 +8,7 @@ golden_vectors.json (100 test-period cases with expected outputs).
 import argparse
 import json
 import math
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,7 +55,9 @@ def export_tree(predictor, n_categories: list) -> list:
             bitset = predictor.raw_left_cat_bitsets[node["bitset_idx"]]
             split["leftCategories"] = [c for c in range(n_categories[split["feature"]]) if _bit_set(bitset, c)]
         else:
-            split["threshold"] = float(node["num_threshold"])
+            # sklearn uses +inf when every non-missing value goes left. JSON has no Infinity:
+            # +-max double is equivalent for finite inputs (missing values never reach this test).
+            split["threshold"] = float(np.clip(node["num_threshold"], -sys.float_info.max, sys.float_info.max))
         out.append(split)
     return out
 
@@ -101,7 +104,8 @@ def build_artifact(bundle: dict) -> dict:
                           for name, pattern in TEXT_FLAGS.items()},
         },
         "traversal": "start at node 0; missing value -> missingLeft; categorical -> left if code in "
-                     "leftCategories; numeric -> left if value <= threshold; stop at a node with 'leaf'",
+                     "leftCategories; numeric -> left if value <= threshold (infinite sklearn thresholds are clipped to +-max double); "
+                     "stop at a node with 'leaf'",
         "training": {
             "note": "metrics measured on the chronological split; final model trained on all snapshots",
             "quantiles": metrics["quantiles"],
@@ -162,10 +166,10 @@ def main(argv=None):
 
     bundle = load_bundle(args.output_dir / "duration_model.joblib")
     artifact_path = args.output_dir / ARTIFACT_FILE
-    artifact_path.write_text(json.dumps(build_artifact(bundle), separators=(",", ":")), encoding="utf-8")
+    artifact_path.write_text(json.dumps(build_artifact(bundle), separators=(",", ":"), allow_nan=False), encoding="utf-8")
     _, _, _, test, _ = prepare(args.data_dir)
     golden = build_golden(test, bundle)
-    (args.output_dir / GOLDEN_FILE).write_text(json.dumps(golden, indent=1, ensure_ascii=False), encoding="utf-8")
+    (args.output_dir / GOLDEN_FILE).write_text(json.dumps(golden, indent=1, ensure_ascii=False, allow_nan=False), encoding="utf-8")
 
     # Self-check: the JSON evaluation agrees with sklearn (pytest checks it too).
     artifact = load_artifact(artifact_path)
