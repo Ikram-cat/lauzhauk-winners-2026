@@ -34,9 +34,14 @@ class CorridorRiskTest {
     @Test fun `forward and reverse corridor match`() {
         val f = est.estimate(journey("Lausanne" to "Genève"))!!
         assertEquals("corridor", f.source); assertEquals("high", f.confidence); assertEquals("Lausanne - Genève", f.label)
-        assertEquals(30, f.predictedDelayMinutes); assertEquals(0.05, f.lateArrivalProbability)
+        assertNull(f.predictedDelayMinutes); assertEquals(30, f.disruptionDurationMin); assertEquals("corridor_duration", f.basis); assertEquals(0.05, f.lateArrivalProbability)
         assertEquals("corridor", est.estimate(journey("Genève" to "Lausanne"))!!.source)
         assertEquals("corridor", est.estimate(journey("Genf" to "Lausanne, gare"))!!.source)
+    }
+
+    @Test fun `real delay estimate populates predictedDelayMinutes`() {
+        val r = est.estimate(journey("Aarau" to "Olten"))!!
+        assertEquals(7, r.predictedDelayMinutes); assertNull(r.disruptionDurationMin); assertEquals("corridor_delay", r.basis)
     }
 
     @Test fun `multi-stop via match`() {
@@ -51,15 +56,15 @@ class CorridorRiskTest {
 
     @Test fun `baseline fallback then unknown`() {
         val r = est.estimate(journey("Chur" to "Davos"))!!
-        assertEquals("baseline", r.source); assertEquals(0.02, r.lateArrivalProbability); assertEquals(20, r.predictedDelayMinutes)
+        assertEquals("baseline", r.source); assertEquals(0.02, r.lateArrivalProbability); assertNull(r.predictedDelayMinutes); assertEquals(20, r.disruptionDurationMin); assertEquals("baseline_duration", r.basis)
         val j = journey("Chur" to "Davos")
         assertNull(est.estimate(j.copy(departure = j.departure.plusHours(3), legs = j.legs.map { it.copy(departure = it.departure.plusHours(3)) })))
     }
 
     @Test fun `model info counts and sample`() {
         val i = est.info()
-        assertEquals(3, i.corridorsLoaded); assertEquals(1, i.baselineLoaded)
-        assertEquals(listOf("Bern - Zürich HB", "Lausanne - Brig", "Lausanne - Genève"), i.corridorSample)
+        assertEquals(4, i.corridorsLoaded); assertEquals(1, i.baselineLoaded)
+        assertEquals(listOf("Aarau - Olten", "Bern - Zürich HB", "Lausanne - Brig", "Lausanne - Genève"), i.corridorSample)
     }
 
     @Test fun `real artifact corridors and baseline parse when present`() {

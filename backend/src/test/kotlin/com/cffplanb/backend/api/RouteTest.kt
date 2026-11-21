@@ -363,6 +363,7 @@ class DeadlineRouteTest {
         assertEquals("2026-11-21T16:25:00Z", j["request"]!!.jsonObject["arrivalDeadline"]!!.jsonPrimitive.content)
         assertEquals(listOf(true, true, false), flags(j)) // ordered by arrival
         assertEquals("2026-11-21T15:10:00Z", j["latestFeasibleDeparture"]!!.jsonPrimitive.content)
+        assertEquals(false, j["noFeasibleRoute"]!!.jsonPrimitive.boolean)
     }
 
     @Test fun `all feasible`() = get("&arrivalDeadline=2026-11-21T17%3A00%3A00Z") {
@@ -376,6 +377,7 @@ class DeadlineRouteTest {
         assertEquals(3, j["journeys"]!!.jsonArray.size)
         assertEquals(listOf(false, false, false), flags(j))
         assertEquals(JsonNull, j["latestFeasibleDeparture"])
+        assertEquals(true, j["noFeasibleRoute"]!!.jsonPrimitive.boolean)
     }
 
     @Test fun `no deadline leaves fields null`() = get("") {

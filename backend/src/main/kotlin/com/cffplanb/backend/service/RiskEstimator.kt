@@ -14,11 +14,13 @@ import java.time.ZoneId
 
 /** source: corridor | baseline | line (legacy byLineHour). label: matched corridor / baseline hour. */
 data class RiskEstimate(
-    val predictedDelayMinutes: Int,
+    val predictedDelayMinutes: Int?, // only a real per-traveller delay estimate; null for duration-based rows
     val lateArrivalProbability: Double,
     val source: String? = null,
     val confidence: String? = null,
-    val label: String? = null
+    val label: String? = null,
+    val disruptionDurationMin: Int? = null, // median disruption length, NOT a traveller delay
+    val basis: String? = null // corridor_duration | corridor_delay | baseline_duration | baseline_delay | line_delay
 )
 
 data class ModelInfo(
@@ -62,6 +64,7 @@ internal data class CorridorRow(
     val via: List<String> = emptyList(),
     val disruptionProbabilityPerDay: Double? = null,
     val expectedDelayMin: Double? = null,
+    val delayEstimateMin: Double? = null,
     val sampleSize: Int? = null,
     val confidence: String? = null
 )
@@ -71,6 +74,7 @@ internal data class BaselineRow(
     val hourBucket: Int,
     val disruptionProbabilityPerHour: Double? = null,
     val expectedDelayMin: Double? = null,
+    val delayEstimateMin: Double? = null,
     val sampleSize: Int? = null
 )
 
@@ -119,6 +123,14 @@ internal fun stationForms(raw: String, aliases: Map<String, String> = emptyMap()
     Regex("^(.*?)\\s*\\((.*)\\)$").find(full)?.let { add(it.groupValues[1]); add(it.groupValues[2]) } // "genf (geneve)"
     for (sep in listOf(",", "/", " - ", "-")) if (sep in full) add(full.substringBefore(sep))
     return out.flatMap { listOf(it, aliases[it] ?: it) }.filter { it.isNotEmpty() }.toSet()
+}
+
+/** delayEstimateMin (real delay) wins; otherwise expectedDelayMin is a disruption duration. */
+private fun durationOrDelay(prefix: String, delay: Double?, duration: Double?): Triple<Int?, Int?, String>? {
+    fun r(x: Double) = Math.round(x).toInt().coerceAtLeast(0)
+    if (delay != null && !delay.isNaN()) return Triple(r(delay), null, "${prefix}_delay")
+    if (duration != null && !duration.isNaN()) return Triple(null, r(duration), "${prefix}_duration")
+    return null
 }
 
 private fun confidenceFor(n: Int?) = when { n == null -> "low"; n >= 20 -> "high"; n >= 8 -> "medium"; else -> "low" }
@@ -198,12 +210,13 @@ class ArtifactRiskEstimator(
         for (leg in transit) {
             val o = stationForms(leg.origin, l.aliases); val d = stationForms(leg.destination, l.aliases)
             for (c in l.corridors) {
-                val p = c.row.disruptionProbabilityPerDay; val dm = c.row.expectedDelayMin
-                if (p == null || dm == null || p.isNaN() || dm.isNaN() || !matches(c, o, d)) continue
+                val p = c.row.disruptionProbabilityPerDay
+                val t = durationOrDelay("corridor", c.row.delayEstimateMin, c.row.expectedDelayMin)
+                if (p == null || t == null || p.isNaN() || !matches(c, o, d)) continue
                 if (worst == null || p > worst.lateArrivalProbability) {
-                    worst = RiskEstimate(Math.round(dm).toInt().coerceAtLeast(0), p.coerceIn(0.0, 1.0), "corridor",
+                    worst = RiskEstimate(t.first, p.coerceIn(0.0, 1.0), "corridor",
                         c.row.confidence?.lowercase()?.takeIf { it in setOf("low", "medium", "high") } ?: confidenceFor(c.row.sampleSize),
-                        c.row.corridor ?: "${c.row.from} - ${c.row.to}")
+                        c.row.corridor ?: "${c.row.from} - ${c.row.to}", t.second, t.third)
                 }
             }
         }
@@ -213,9 +226,10 @@ class ArtifactRiskEstimator(
 
         val hour = journey.departure.atZoneSameInstant(zone).hour
         val b = l.baseline[hour] ?: return null
-        val p = b.disruptionProbabilityPerHour; val dm = b.expectedDelayMin
-        if (p == null || dm == null || p.isNaN() || dm.isNaN()) return null
-        return RiskEstimate(Math.round(dm).toInt().coerceAtLeast(0), p.coerceIn(0.0, 1.0), "baseline", confidenceFor(b.sampleSize), "hour $hour")
+        val p = b.disruptionProbabilityPerHour
+        val t = durationOrDelay("baseline", b.delayEstimateMin, b.expectedDelayMin)
+        if (p == null || t == null || p.isNaN()) return null
+        return RiskEstimate(t.first, p.coerceIn(0.0, 1.0), "baseline", confidenceFor(b.sampleSize), "hour $hour", t.second, t.third)
     }
 
     /**
@@ -238,7 +252,7 @@ class ArtifactRiskEstimator(
             delay += d
             ok *= 1 - p.coerceIn(0.0, 1.0)
         }
-        return RiskEstimate(Math.round(delay).toInt().coerceAtLeast(0), (1 - ok).coerceIn(0.0, 1.0), "line", conf, transit.mapNotNull { it.serviceLabel }.joinToString("+"))
+        return RiskEstimate(Math.round(delay).toInt().coerceAtLeast(0), (1 - ok).coerceIn(0.0, 1.0), "line", conf, transit.mapNotNull { it.serviceLabel }.joinToString("+"), null, "line_delay")
     }
 
     override fun info(): ModelInfo {

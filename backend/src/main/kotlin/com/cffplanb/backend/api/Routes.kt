@@ -190,6 +190,9 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
 
             when (val result = searchService.search(searchRequest)) {
                 is SearchResult.Success -> {
+                    val latestFeasible = if (deadline == null) null else
+                        result.journeys.filter { !it.arrival.toInstant().isAfter(deadline.toInstant()) }
+                            .maxByOrNull { it.departure.toInstant() }?.let { RFC3339_FORMATTER.format(it.departure) }
                     val response = JourneySearchResponseDto(
                         request = SearchRequestDto(
                             origin = origin,
@@ -201,9 +204,8 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                         journeys = result.journeys.map {
                             it.toDto(risk.estimate(it), deadline?.let { d -> !it.arrival.toInstant().isAfter(d.toInstant()) })
                         },
-                        latestFeasibleDeparture = if (deadline == null) null else
-                            result.journeys.filter { !it.arrival.toInstant().isAfter(deadline.toInstant()) }
-                                .maxByOrNull { it.departure.toInstant() }?.let { RFC3339_FORMATTER.format(it.departure) }
+                        latestFeasibleDeparture = latestFeasible,
+                        noFeasibleRoute = deadline?.let { latestFeasible == null }
                     )
                     call.respond(HttpStatusCode.OK, response)
                 }
@@ -256,7 +258,9 @@ private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?): JourneyDto = Jo
     dataStatus = dataStatus.name,
     riskSource = r?.source,
     riskConfidence = r?.confidence,
-    riskLabel = r?.label
+    riskLabel = r?.label,
+    disruptionDurationMin = r?.disruptionDurationMin,
+    riskBasis = r?.basis
 )
 
 private fun JourneyLeg.toDto(): JourneyLegDto = JourneyLegDto(
