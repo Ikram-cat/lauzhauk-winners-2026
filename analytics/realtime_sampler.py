@@ -150,30 +150,39 @@ def _pct(xs: list[float], q: float) -> float:
     return xs[min(len(xs) - 1, int(q * len(xs)))]
 
 
-def summarize(src: Path = CSV_PATH, dst: Path = SUMMARY_PATH) -> dict:
+def summarize(src: Path = CSV_PATH, dst: Path = SUMMARY_PATH, export: Path | None = None) -> dict:
     with src.open(newline="") as f:
         rows = list(csv.DictReader(f))
     latest = {}  # the same departure is sampled every run: keep its last (most up to date) observation
     for r in rows:
         latest[(r["stop_ref"], r["journey_ref"], r["operating_day"], r["timetabled"])] = r
-    groups = defaultdict(list)
+    groups, by_line = defaultdict(list), defaultdict(list)
     for r in latest.values():
         groups[(r["station_name"], int(r["bucket_hour_local"]))].append(r)
-    portions = []
-    for (st, h), rs in sorted(groups.items()):
+        by_line[(r.get("service_label") or "", r["station_name"], int(r["bucket_hour_local"]))].append(r)
+
+    def stats(rs):  # cancelled or estimate-less departures are not in the delay stats
         ds = [float(r["delay_min"]) for r in rs if r["delay_min"] not in ("", None) and r["cancelled"] != "1"]
-        if len(ds) >= MIN_SAMPLES:  # cancelled or estimate-less departures are not in the delay stats
-            portions.append({"station": st, "hourBucket": h, "samples": len(ds), "medianDelayMin": round(statistics.median(ds), 1),
-                             "p90DelayMin": round(_pct(ds, 0.9), 1), "shareLate": round(sum(d > LATE_MIN for d in ds) / len(ds), 2),
-                             "cancelled": sum(r["cancelled"] == "1" for r in rs)})
-    canc = [{"station": r["station_name"], "lineRef": r["line_ref"], "timetabled": r["timetabled"], "journeyRef": r["journey_ref"]}
+        if len(ds) < MIN_SAMPLES:
+            return None
+        return {"samples": len(ds), "medianDelayMin": round(statistics.median(ds), 1), "p90DelayMin": round(_pct(ds, 0.9), 1),
+                "shareLate": round(sum(d > LATE_MIN for d in ds) / len(ds), 2)}
+
+    portions = [{"station": st, "hourBucket": h, **m, "cancelled": sum(r["cancelled"] == "1" for r in rs)}
+                for (st, h), rs in sorted(groups.items()) if (m := stats(rs))]
+    lines = [{"serviceLabel": sl, "station": st, "hourBucket": h, **m}
+             for (sl, st, h), rs in sorted(by_line.items()) if sl and (m := stats(rs))]
+    canc = [{"station": r["station_name"], "lineRef": r["line_ref"], "serviceLabel": r.get("service_label") or None,
+             "timetabled": r["timetabled"], "journeyRef": r["journey_ref"]}
             for r in latest.values() if r["cancelled"] == "1"][:MAX_CANCELLATIONS]
     times = sorted(r["sampled_at_utc"] for r in rows)
-    out = {"generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    now = datetime.now(timezone.utc)
+    out = {"modelVersion": now.strftime("rt-%Y%m%d-%H%M"), "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
            "window": {"from": times[0] if times else None, "to": times[-1] if times else None, "samples": len(latest)},
-           "portions": portions, "cancellations": canc}
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(json.dumps(out, ensure_ascii=False, indent=1))
+           "portions": portions, "lines": lines, "cancellations": canc}
+    for d in (dst, *([export] if export else [])):
+        d.parent.mkdir(parents=True, exist_ok=True)
+        d.write_text(json.dumps(out, ensure_ascii=False, indent=1))
     return out
 
 
@@ -184,6 +193,7 @@ def main(argv=None) -> None:
     ap.add_argument("--summarize", action="store_true")
     ap.add_argument("--interval", type=int, default=60)
     ap.add_argument("--duration", type=int, default=3600)
+    ap.add_argument("--export-backend", metavar="PATH", help="also write the summary JSON here (implies --summarize)")
     ap.add_argument("--stations-file")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -197,9 +207,10 @@ def main(argv=None) -> None:
                   f"deviation={sum(r['deviation'] for r in rows)} unplanned={sum(r['unplanned'] for r in rows)}")
         else:
             run_loop(st, key, a.interval, a.duration)
-    if a.summarize:
-        s = summarize()
-        print(f"unique departures={s['window']['samples']} portions={len(s['portions'])} cancellations={len(s['cancellations'])}")
+    if a.summarize or a.export_backend:
+        s = summarize(export=Path(a.export_backend) if a.export_backend else None)
+        print(f"{s['modelVersion']} unique departures={s['window']['samples']} portions={len(s['portions'])} "
+              f"lines={len(s['lines'])} cancellations={len(s['cancellations'])}")
 
 
 if __name__ == "__main__":

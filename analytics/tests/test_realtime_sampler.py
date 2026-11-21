@@ -61,6 +61,39 @@ def test_summarize_threshold_cancel_and_dedup(tmp_path):
     assert [c["journeyRef"] for c in out["cancellations"]] == ["j70"]
 
 
+def _rows(path, specs):
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, rs.COLUMNS)
+        w.writeheader()
+        for i, (st, label, d, h, c) in enumerate(specs):
+            w.writerow({"sampled_at_utc": "2026-11-21T20:00:00Z", "station_name": st, "stop_ref": "x", "line_ref": "L", "service_label": label,
+                        "journey_ref": f"j{i}", "operating_day": "d", "timetabled": f"T{i}", "delay_min": d, "cancelled": c,
+                        "bucket_hour_local": h})
+
+
+def test_aggregation_math_lines_and_export(tmp_path):
+    src, dst, exp = tmp_path / "s.csv", tmp_path / "o.json", tmp_path / "sub" / "e.json"
+    # 10 IR90 delays 0..9 -> median 4.5, p90 (index 9) 9.0, late (>2) = 3..9 = 7/10; 10 R1 on time, same station/hour
+    specs = [("S", "IR90", d, 22, 0) for d in range(10)] + [("S", "R1", 0, 22, 0) for _ in range(10)]
+    specs += [("S", "X", 1, 22, 0)] * 5            # label below threshold: no line row, still in the portion
+    _rows(src, specs)
+    out = rs.summarize(src, dst, exp)
+    assert out["modelVersion"].startswith("rt-") and exp.read_text() == dst.read_text()
+    by = {l["serviceLabel"]: l for l in out["lines"]}
+    assert set(by) == {"IR90", "R1"} and (by["IR90"]["medianDelayMin"], by["IR90"]["p90DelayMin"], by["IR90"]["shareLate"]) == (4.5, 9.0, 0.7)
+    p = out["portions"][0]
+    assert (p["samples"], p["medianDelayMin"], p["shareLate"]) == (25, 1.0, 0.28)
+
+
+def test_midnight_bucket_and_cancellations_capped(tmp_path):
+    wrap = lambda tt: f"<OJP xmlns='http://www.vdv.de/ojp' xmlns:siri='http://www.siri.org.uk/siri'>{_ev(tt)}</OJP>".encode()
+    assert rs.parse_events(wrap("2026-11-21T22:30:00Z"), "S", "r", "t")[0]["bucket_hour_local"] == 23   # 23:30 CET
+    assert rs.parse_events(wrap("2026-11-21T23:30:00Z"), "S", "r", "t")[0]["bucket_hour_local"] == 0    # past local midnight
+    src = tmp_path / "s.csv"
+    _rows(src, [("S", "R1", 1, 8, 1) for _ in range(150)])
+    assert len(rs.summarize(src, tmp_path / "o.json")["cancellations"]) == rs.MAX_CANCELLATIONS
+
+
 @pytest.mark.skipif(not os.environ.get("OJP_API_KEY"), reason="no OJP_API_KEY")
 def test_live_lausanne():
     xml = rs.fetch("Lausanne", "ch:1:sloid:1120", os.environ["OJP_API_KEY"])

@@ -55,7 +55,16 @@ set -a; . ~/lauzhack-ojp.env; set +a
 ~/code/venv-analytics/bin/python -m analytics.realtime_sampler --summarize   # -> artifacts/realtime_delays.json
 ```
 
-The summary keeps the last observation of each departure (so repeated polls are not double counted) and groups by station and local hour. A `portions` row is emitted only with **at least 10** departures that have a delay estimate and are not cancelled. It gives `medianDelayMin`, `p90DelayMin`, `shareLate` (fraction of departures with delay **> 2 minutes**) and the `cancelled` count in that bucket. `cancellations` is the raw evidence list (max 100).
+The summary keeps the last observation of each departure (so repeated polls are not double counted). Departures with no delay estimate or cancelled are excluded from delay statistics. Output `artifacts/realtime_delays.json` (gitignored; the backend bundles a copy at `backend/src/main/resources/realtime/realtime_delays.json`):
+
+- `modelVersion` (`rt-yyyymmdd-hhmm`, UTC), `generatedAt`, `window {from,to,samples}` (unique departures).
+- `portions`: per station and Europe/Zurich `hourBucket` of the timetabled time: `samples`, `medianDelayMin`, `p90DelayMin`, `shareLate` (fraction with delay **> 2 minutes**) and `cancelled` (cancelled or skipped-stop departures in that station/hour).
+- `lines`: the same statistics per `serviceLabel` (e.g. `IR90`), station and hour, without `cancelled`.
+- `cancellations`: evidence list (station, lineRef, serviceLabel, timetabled, journeyRef), capped at 100.
+
+Threshold: a `portions` or `lines` row is emitted only with **at least 10** departures that have a delay estimate and are not cancelled.
+
+Refresh: collect with `--loop`, then `python -m analytics.realtime_sampler --summarize`, or `--export-backend <path>` to also write the same JSON to `<path>` (e.g. the backend resources file) and print a one-line summary.
 
 Caveat: this measures **today's conditions** over the sampled window, not a historical average. A bucket seen on one evening says nothing about other days; collect several days before treating it as chronic lateness.
 
