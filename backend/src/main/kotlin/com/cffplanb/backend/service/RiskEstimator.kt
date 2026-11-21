@@ -100,10 +100,13 @@ private class Loaded(
 )
 
 private val ACCENTS = Regex("\\p{M}+")
+private val WS = Regex("\\s+")
+private val PARENTHESISED = Regex("^(.*?)\\s*\\((.*)\\)$")
+private val HUB_SUFFIX = Regex("[ ,]+(hb|gare|bahnhof|bf)$")
 
 private fun fold(s: String): String =
     java.text.Normalizer.normalize(s.trim(), java.text.Normalizer.Form.NFD).replace(ACCENTS, "")
-        .lowercase().replace(Regex("\\s+"), " ").trim()
+        .lowercase().replace(WS, " ").trim()
 
 /**
  * Comparable forms of a station name: full name plus the part before ",", "/", "-" and a trailing
@@ -117,10 +120,10 @@ internal fun stationForms(raw: String, aliases: Map<String, String> = emptyMap()
         val t = x.trim().trim(',', '-').trim()
         if (t.isEmpty()) return
         out += t
-        out += t.replace(Regex("[ ,]+(hb|gare|bahnhof|bf)$"), "").trim()
+        out += t.replace(HUB_SUFFIX, "").trim()
     }
     add(full)
-    Regex("^(.*?)\\s*\\((.*)\\)$").find(full)?.let { add(it.groupValues[1]); add(it.groupValues[2]) } // "genf (geneve)"
+    PARENTHESISED.find(full)?.let { add(it.groupValues[1]); add(it.groupValues[2]) } // "genf (geneve)"
     for (sep in listOf(",", "/", " - ", "-")) if (sep in full) add(full.substringBefore(sep))
     return out.flatMap { listOf(it, aliases[it] ?: it) }.filter { it.isNotEmpty() }.toSet()
 }
