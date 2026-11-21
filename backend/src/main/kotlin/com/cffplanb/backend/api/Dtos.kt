@@ -43,11 +43,36 @@ data class JourneyDto(
     val predictedDelayMinutes: Int? = null,
     val lateArrivalProbability: Double? = null,
     val estimatedFareChf: Double? = null,
-    val dataStatus: String
+    val feasible: Boolean? = null,
+    val dataStatus: String,
+    val riskSource: String? = null,
+    val riskConfidence: String? = null,
+    val riskLabel: String? = null
 )
 
 @Serializable
 data class JourneySearchResponseDto(
     val request: SearchRequestDto,
-    val journeys: List<JourneyDto>
+    val journeys: List<JourneyDto>,
+    val latestFeasibleDeparture: String? = null
 )
+
+@Serializable
+data class ModelInfoDto(
+    val modelVersion: String?,
+    val generatedAt: String?,
+    val coverage: kotlinx.serialization.json.JsonElement?,
+    val source: String,
+    val keysLoaded: Int,
+    val status: String,
+    val corridorsLoaded: Int = 0,
+    val baselineLoaded: Int = 0,
+    val byLineHourCells: Int = 0,
+    val corridorKeysSample: List<String> = emptyList()
+)
+
+@Serializable
+data class LocationDto(val id: String, val name: String, val kind: String, val x: Double? = null, val y: Double? = null)
+
+@Serializable
+data class LocationsResponseDto(val locations: List<LocationDto>)

@@ -16,6 +16,8 @@ sealed class SearchResult {
 
 class JourneySearchService(private val provider: TransportProvider) {
 
+    suspend fun searchLocations(query: String) = provider.searchLocations(query)
+
     suspend fun search(request: SearchRequest): SearchResult {
         return when (val providerResult = provider.search(request)) {
             is ProviderResult.Success -> {

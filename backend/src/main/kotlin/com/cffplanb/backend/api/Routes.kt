@@ -3,7 +3,8 @@ package com.cffplanb.backend.api
 import com.cffplanb.backend.domain.Journey
 import com.cffplanb.backend.domain.JourneyLeg
 import com.cffplanb.backend.domain.SearchRequest
-import com.cffplanb.backend.service.JourneySearchService
+import com.cffplanb.backend.provider.LocationsResult
+import com.cffplanb.backend.service.*
 import com.cffplanb.backend.service.SearchResult
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -14,13 +15,45 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 
-private val KNOWN_PARAMS = setOf("origin", "destination", "departure")
+private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline")
 private val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
-fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock) {
+fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator) {
     routing {
         get("/health") {
             call.respond(HttpStatusCode.OK, HealthResponseDto("ok"))
+        }
+
+        get("/api/model") {
+            val i = risk.info()
+            call.respond(HttpStatusCode.OK, ModelInfoDto(i.modelVersion, i.generatedAt, i.coverage, "artifact", i.keysLoaded, i.status,
+                i.corridorsLoaded, i.baselineLoaded, i.byLineHourCells, i.corridorSample))
+        }
+
+        get("/api/locations") {
+            val params = call.request.queryParameters
+            val bad = params.names().firstOrNull { it != "query" }?.let { "Unknown parameter: $it" }
+                ?: if ((params.getAll("query")?.size ?: 0) > 1) "Duplicate parameter: query" else null
+            val q = params["query"]?.trim()
+            val err = bad ?: when {
+                q == null -> "Missing required parameter: query"
+                q.isEmpty() -> "Parameter 'query' must not be blank"
+                q.codePointCount(0, q.length) > 120 -> "Parameter 'query' exceeds 120 code points"
+                else -> null
+            }
+            if (err != null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", err)))
+                return@get
+            }
+            when (val r = searchService.searchLocations(q!!)) {
+                is LocationsResult.Success -> call.respond(
+                    HttpStatusCode.OK,
+                    LocationsResponseDto(r.locations.take(10).map { LocationDto(it.id, it.name, it.kind, it.x, it.y) })
+                )
+                is LocationsResult.Timeout -> call.respond(HttpStatusCode.GatewayTimeout, ErrorResponseDto(ErrorDetailDto("UPSTREAM_TIMEOUT", r.message)))
+                is LocationsResult.RateLimited -> call.respond(HttpStatusCode.ServiceUnavailable, ErrorResponseDto(ErrorDetailDto("UPSTREAM_RATE_LIMITED", r.message)))
+                is LocationsResult.Failure -> call.respond(HttpStatusCode.BadGateway, ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", r.message)))
+            }
         }
 
         get("/api/journeys") {
@@ -133,6 +166,22 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                 earliestDeparture = OffsetDateTime.now(clock)
             }
 
+            val deadlineRaw = rawQuery["arrivalDeadline"]
+            val deadline: OffsetDateTime? = if (deadlineRaw == null) null else try {
+                OffsetDateTime.parse(deadlineRaw, RFC3339_FORMATTER)
+            } catch (e: DateTimeParseException) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorResponseDto(
+                        ErrorDetailDto(
+                            "INVALID_REQUEST",
+                            "Invalid arrivalDeadline timestamp. Must be RFC 3339 with Z or numeric UTC offset."
+                        )
+                    )
+                )
+                return@get
+            }
+
             val searchRequest = SearchRequest(
                 origin = origin,
                 destination = destination,
@@ -146,10 +195,15 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                             origin = origin,
                             destination = destination,
                             earliestDeparture = RFC3339_FORMATTER.format(earliestDeparture),
-                            arrivalDeadline = null,
+                            arrivalDeadline = deadline?.let { RFC3339_FORMATTER.format(it) },
                             preference = "FASTEST"
                         ),
-                        journeys = result.journeys.map { it.toDto() }
+                        journeys = result.journeys.map {
+                            it.toDto(risk.estimate(it), deadline?.let { d -> !it.arrival.toInstant().isAfter(d.toInstant()) })
+                        },
+                        latestFeasibleDeparture = if (deadline == null) null else
+                            result.journeys.filter { !it.arrival.toInstant().isAfter(deadline.toInstant()) }
+                                .maxByOrNull { it.departure.toInstant() }?.let { RFC3339_FORMATTER.format(it.departure) }
                     )
                     call.respond(HttpStatusCode.OK, response)
                 }
@@ -188,17 +242,21 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
     }
 }
 
-private fun Journey.toDto(): JourneyDto = JourneyDto(
+private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?): JourneyDto = JourneyDto(
     id = id,
     departure = RFC3339_FORMATTER.format(departure),
     arrival = RFC3339_FORMATTER.format(arrival),
     durationMinutes = durationMinutes,
     transfers = transfers,
     legs = legs.map { it.toDto() },
-    predictedDelayMinutes = null,
-    lateArrivalProbability = null,
+    predictedDelayMinutes = r?.predictedDelayMinutes,
+    lateArrivalProbability = r?.lateArrivalProbability,
     estimatedFareChf = null,
-    dataStatus = dataStatus.name
+    feasible = feasible,
+    dataStatus = dataStatus.name,
+    riskSource = r?.source,
+    riskConfidence = r?.confidence,
+    riskLabel = r?.label
 )
 
 private fun JourneyLeg.toDto(): JourneyLegDto = JourneyLegDto(
