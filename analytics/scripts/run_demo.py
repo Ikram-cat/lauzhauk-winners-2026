@@ -1,13 +1,14 @@
 """One command for the demo: build the analytics outputs if needed, then run the backend with the model.
 
-    python analytics/scripts/run_demo.py [--port 8080] [--model eval|final] [--rebuild] [--offline]
+    python analytics/scripts/run_demo.py [--port 8080] [--provider demo|mock|ojp] [--model eval|final] [--rebuild] [--offline]
 
 1. If an output is missing (or --rebuild): train, export, timelines and replays (python -m sbb_duration.*).
 2. Build the backend (gradlew installDist) and start it on --port with
    DURATION_ARTIFACT_PATH (eval artifact by default: its models never saw the replayed incidents)
    and DISRUPTION_TIMELINES_DIR (replayed incidents, MOCK).
-   TRANSPORT_PROVIDER is ojp when OJP_API_KEY is set in the environment or in .env, else mock;
-   --offline forces mock and skips the service-points download.
+   TRANSPORT_PROVIDER defaults to demo: MOCK journeys for the replays (Lausanne -> Genève and
+   Zürich Stadelhofen -> Stettbach, with an alternative avoiding the section), the team mock otherwise.
+   --provider ojp needs OJP_API_KEY in the environment or in .env. --offline skips downloads.
 Stop with Ctrl+C. See docs/DEMO.md.
 """
 import argparse
@@ -60,7 +61,9 @@ def main(argv=None) -> None:
     parser.add_argument("--model", choices=["eval", "final"], default="eval",
                         help="eval: split models, honest for replays (default); final: trained on all data")
     parser.add_argument("--rebuild", action="store_true", help="retrain and regenerate every output")
-    parser.add_argument("--offline", action="store_true", help="mock provider, no download")
+    parser.add_argument("--provider", choices=["demo", "mock", "ojp"], default="demo",
+                        help="demo (default): MOCK demo journeys; mock: team mock; ojp: live timetable (key needed)")
+    parser.add_argument("--offline", action="store_true", help="no download; refuses --provider ojp")
     args = parser.parse_args(argv)
 
     missing = [f for f in REQUIRED if not (OUTPUT / f).exists()]
@@ -76,8 +79,10 @@ def main(argv=None) -> None:
         env["JAVA_HOME"] = home
     secrets = read_dotenv()
     key = env.get("OJP_API_KEY") or secrets.get("OJP_API_KEY")
-    provider = "ojp" if key and not args.offline else "mock"
+    provider = args.provider
     if provider == "ojp":
+        if args.offline or not key:
+            sys.exit("--provider ojp needs OJP_API_KEY (environment or .env) and no --offline")
         env["OJP_API_KEY"] = key
     artifact = OUTPUT / ("duration_model.v1.eval.json" if args.model == "eval" else "duration_model.v1.json")
     env.update(PORT=str(args.port), TRANSPORT_PROVIDER=provider, DURATION_ARTIFACT_PATH=str(artifact),

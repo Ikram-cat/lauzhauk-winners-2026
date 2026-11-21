@@ -3,6 +3,7 @@ package com.cffplanb.backend.config
 import com.cffplanb.backend.api.ErrorDetailDto
 import com.cffplanb.backend.api.ErrorResponseDto
 import com.cffplanb.backend.api.configureRoutes
+import com.cffplanb.backend.provider.DemoScenarioTransportProvider
 import com.cffplanb.backend.provider.MockTransportProvider
 import com.cffplanb.backend.provider.OjpTransportProvider
 import com.cffplanb.backend.service.JourneySearchService
@@ -66,6 +67,10 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
                 ?: error("OJP_API_KEY environment variable is required when TRANSPORT_PROVIDER=ojp")
             log.info("Using OJP transport provider")
             OjpTransportProvider(apiKey = apiKey, clock = clock)
+        }
+        "demo" -> {
+            log.info("Using demo scenario transport provider (MOCK journeys for the disruption replays)")
+            DemoScenarioTransportProvider()
         }
         else -> {
             log.info("Using Mock transport provider")
