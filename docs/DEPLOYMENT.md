@@ -51,3 +51,8 @@ Confirm health returns HTTP 200 and that a service-time search returns at least 
 1. Identify the last verified frontend/backend revision pair, their public origins, and the effective environment settings. A recent checkpoint tag or deployment record provides the starting point. Determine whether a single service can roll back while retaining compatibility with the other.
 2. If needed and available for the current account, use Vercel's Instant Rollback on the eligible frontend deployment and Railway's rollback action on the retained backend deployment. Confirm the restored configuration and remember that an existing frontend artifact can embed an older API URL. To resume automatic Vercel production promotion after rollback, follow the documented promotion procedure. [Vercel Instant Rollback](https://vercel.com/docs/instant-rollback) · [Railway deployment actions](https://docs.railway.com/deployments/deployment-actions)
 3. If the previous deployment cannot be restored, have the authorized integration owner merge a reviewed revert to `main` and deploy from that reviewed revision. In either case, repeat health, browser/CORS, and real search verification. Record the replacement deployment IDs, restored revision, settings needed, and follow-up in the [session handoff](SESSION_HANDOFF.md).
+
+
+## Challenge build and inference
+
+Keep the Web deployment and record a reproducible second-target launch command and demo environment. Configure any optional model-provider secret on the backend only, cap calls and timeouts, and verify search works when extraction is unavailable. Confirm provider data handling before accepting personal images. See the [challenge plan](CHALLENGES.md).

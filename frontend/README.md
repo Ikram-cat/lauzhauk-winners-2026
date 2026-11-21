@@ -27,3 +27,8 @@ Once the scaffold lands, install the JDK pinned by the frontend build, run comma
 The distribution should be in `build/dist/wasmJs/productionExecutable` relative to the Gradle project owning the target. Verify the actual path and serve the produced site over HTTP during the spike. Execute state and response-mapping tests through the scaffold’s browser test task once configured. In a clean browser, test keyboard interaction, narrow and wide layouts, loading, successful results, no results, transport failure, and rapid successive submissions. Record the verified commands for the chosen toolchain.
 
 See [frontend interfaces](INTERFACES.md), [API contract](../docs/API_CONTRACT.md), [testing](../docs/TESTING.md), and [deployment](../docs/DEPLOYMENT.md).
+
+
+## Sponsor deliverables
+
+Use Web/Wasm and desktop JVM for the same core Compose workflow, with Android emulator as the alternate target. Share presentation and extraction orchestration in `commonMain`, add French and English and both themes, and isolate image pickers per platform. Verify manual recovery when extraction fails and an actionable next step after a disruption. [Challenge plan](../docs/CHALLENGES.md)

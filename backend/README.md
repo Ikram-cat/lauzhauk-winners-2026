@@ -33,3 +33,8 @@ After scaffolding, install the pinned JDK and run the Gradle wrapper from `backe
 Configure `PORT` and `CORS_ALLOWED_ORIGINS` for local tests and deployment using the documented settings. Verify a local health request against the selected port. Use `testApplication` with a fake `TransportProvider` and fixed clock to test route responses. Run adapter mapping tests against fixtures and isolate live-provider verification in manual or dedicated integration smoke tests. Build the Docker image from the module after `Dockerfile` lands and verify its published health endpoint before deploying it to Railway. Record the actual commands in this README once verified.
 
 See [backend interfaces](INTERFACES.md), [API contract](../docs/API_CONTRACT.md), [deployment](../docs/DEPLOYMENT.md), and [testing](../docs/TESTING.md).
+
+
+## Sponsor deliverables
+
+Review the extraction and disruption interfaces with A and D. Keep model calls bounded and optional, and match verified events to itinerary legs with source and timestamp. Provide fixture-backed cancellation replay and no-feasible-alternative checks. [Challenge plan](../docs/CHALLENGES.md)

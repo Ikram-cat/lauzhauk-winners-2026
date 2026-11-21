@@ -36,3 +36,8 @@ Run after both services deploy and after any change to production domains, API c
 | T+22 · submission | Repeat the deployed smoke test on the submission revision. Verify at least one distinctive Plan B feature and its provenance. Capture the submission artifacts and tag. If differentiation remains pending, preserve the stable demo and record its evidence and the unmet feature target. | D with relevant owners |
 
 Tags and a successful health check give release context. Acceptance requires the feature checks listed for the milestone. Evaluate timelines relative to the actual kickoff recorded by the team. [Master plan](MASTER_PLAN.md) · [Roadmap](ROADMAP.md)
+
+
+## Sponsor acceptance checks
+
+Follow the [criterion mapping](CHALLENGES.md). Run the same core demo on both KMP targets. Verify both themes and French and English without clipped copy. Exercise correct, ambiguous and failed image extraction, user corrections, and the zero-model-call manual path. Report measured calls, latency and observable token or cost totals on the agreed sample. Test matched, unrelated and uncertain incidents, feasible alternatives and no feasible route. Record mock provenance and actual Air evidence separately.

@@ -52,3 +52,8 @@ Keep `main` deployable once the runnable baseline lands. Start the assigned feat
 - [Workflow](docs/DEVELOPMENT_WORKFLOW.md), [deployment](docs/DEPLOYMENT.md), [testing](docs/TESTING.md), [demo script](docs/DEMO_SCRIPT.md), and [CI plan](.github/workflows/README.md) for delivery procedures.
 - [Roadmap](docs/ROADMAP.md) and [session handoff](docs/SESSION_HANDOFF.md) for the active work queue and verified state.
 - Module guidance for [frontend rules](frontend/AGENTS.md) and [interfaces](frontend/INTERFACES.md), [backend rules](backend/AGENTS.md) and [interfaces](backend/INTERFACES.md), [analytics rules](analytics/AGENTS.md) and [interfaces](analytics/INTERFACES.md), and [shared rules](shared/AGENTS.md) and [interfaces](shared/INTERFACES.md).
+
+
+## Sponsor challenge submission
+
+The [challenge plan](docs/CHALLENGES.md) maps the official JetBrains, AXA and SBB/CFF briefs to owners and demo evidence. Beyond the Web MVP, the submission targets Web and desktop KMP, shared Compose, French and English, light and dark themes, bounded screenshot-plus-text extraction, and personalized disruption recovery. These features are planned.

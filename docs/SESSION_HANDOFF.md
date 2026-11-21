@@ -6,6 +6,10 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-21 - D - Sponsor criteria alignment
+
+Prepared on `feature/integration` from merged baseline `0d1e8a6`. Reviewed the official AXA, JetBrains and SBB briefs and added `CHALLENGES.md`. Updated root and module onboarding, architecture and interface planning, deployment, testing, demo and workflow guides, and roadmap. The master plan remains the original baseline. No application source, builds, deployments or challenge evidence exist in this checkout. Next, agree the second KMP target and extraction/recovery contracts, then execute F4, B5, F5 and I6.
+
 ## 2026-11-21 · D · Integration and documentation
 
 **Branch and commit**  

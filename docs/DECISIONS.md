@@ -25,3 +25,8 @@ This log records the project baseline as of 21 November 2026. The master plan su
 ## Recording a decision
 
 Add a dated entry with the decision owner, status, rationale, alternatives, impact and supporting evidence. Update the affected contract and module documentation through the reviewing owners in the same PR. If a decision is superseded, link the entries so the reasoning remains available. [Development workflow](DEVELOPMENT_WORKFLOW.md)
+
+
+## Challenge planning decision
+
+The official JetBrains brief requires two KMP targets. Prefer Web/Wasm plus desktop JVM because they can share Compose without iOS tooling. Keep Android emulator as the alternate second target, and retain the Web MVP fallback if browser feasibility fails. Prefer appointment screenshot plus typed context over audio for the first AXA demonstration. Use a deterministic disruption replay for CFF when a verified live event is unavailable. See the [criterion mapping](CHALLENGES.md) for required evidence.
