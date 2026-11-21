@@ -99,5 +99,12 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { src.current() } // warm up so the first search does not pay for the 4.8 MB fetch
         }
     } else { log.info("GTFS-RT disabled; using OJP stop events only"); null }
-    configureRoutes(searchService, clock, risk, gtfs)
+    // Same precedence as the risk artifact; no bundled resource and no env file = delay model stays "missing".
+    val delayPath = config.delayArtifactPath?.takeIf { Files.exists(Path.of(it)) }?.let { Path.of(it) }
+        ?: RealtimeDelayModel::class.java.getResourceAsStream("/realtime/realtime_delays.json")?.use {
+            Files.createTempFile("realtime_delays", ".json").also { f -> Files.copy(it, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING); f.toFile().deleteOnExit() }
+        } ?: config.delayArtifactPath?.let { Path.of(it) }
+    val delay = RealtimeDelayModel(delayPath)
+    log.info("Delay artifact status={} modelVersion={}", delay.info().status, delay.info().modelVersion)
+    configureRoutes(searchService, clock, risk, gtfs, delay)
 }

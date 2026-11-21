@@ -19,8 +19,9 @@ private val KNOWN = setOf("origin", "destination", "departure", "arrivalDeadline
 private val jsonOut = Json { encodeDefaults = true }
 
 /** GET /api/redirect: same inputs and validation as /api/journeys, answers "what is broken, and where should I go instead". */
-fun Route.redirectRoute(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator, gtfs: com.cffplanb.backend.gtfs.GtfsRealtimeSource? = null) {
-    val redirect = RedirectService(searchService, DisruptionDetector(searchService::stopEvents, gtfs = gtfs?.let { g -> { g.current() } }), clock)
+fun Route.redirectRoute(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator, gtfs: com.cffplanb.backend.gtfs.GtfsRealtimeSource? = null, delay: RealtimeDelayModel = RealtimeDelayModel.NONE) {
+    val snap: (suspend () -> com.cffplanb.backend.gtfs.GtfsSnapshot?)? = gtfs?.let { g -> { g.current() } }
+    val redirect = RedirectService(searchService, DisruptionDetector(searchService::stopEvents, gtfs = snap), clock, delay, snap)
 
     get("/api/redirect") {
         val q = call.request.queryParameters
@@ -78,7 +79,7 @@ fun Route.redirectRoute(searchService: JourneySearchService, clock: Clock, risk:
         val price = { f: FareQuote -> f.price(fareClass, discount) }
         val fareOf = { j: com.cffplanb.backend.domain.Journey -> plan.fares?.get(j.id)?.let(price) }
         val shown = listOfNotNull(plan.recommendation) + plan.alternatives
-        val (dtos, latest, advice) = rescue(shown, deadline, risk, plan.fares, price)
+        val (dtos, latest, advice) = rescue(shown, deadline, risk, plan.fares, price, delay)
         fun best(p: Preference) = shown.minWithOrNull(RecommendationService.comparator(p, fareOf))?.id
         val rec = dtos.firstOrNull()?.let { r ->
             JsonObject(((jsonOut.encodeToJsonElement(JourneyDto.serializer(), r)) as JsonObject) + ("why" to JsonPrimitive(plan.why)))

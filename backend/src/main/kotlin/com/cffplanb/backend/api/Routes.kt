@@ -22,9 +22,9 @@ private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalD
 private val ALT_PARAMS = setOf("from", "to", "notBefore", "arrivalDeadline")
 internal val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
-fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator, gtfs: GtfsRealtimeSource? = null) {
+fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator, gtfs: GtfsRealtimeSource? = null, delay: RealtimeDelayModel = RealtimeDelayModel.NONE) {
     routing {
-        redirectRoute(searchService, clock, risk, gtfs)
+        redirectRoute(searchService, clock, risk, gtfs, delay)
         get("/health") {
             call.respond(HttpStatusCode.OK, HealthResponseDto("ok"))
         }
@@ -33,7 +33,8 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
             val i = risk.info()
             call.respond(HttpStatusCode.OK, ModelInfoDto(i.modelVersion, i.generatedAt, i.coverage, "artifact", i.keysLoaded, i.status,
                 i.corridorsLoaded, i.baselineLoaded, i.byLineHourCells, i.corridorSample,
-                gtfsRtEnabled = gtfs != null, gtfsRtAgeSeconds = gtfs?.ageSeconds(), gtfsRtTripUpdates = gtfs?.peek()?.trips?.size ?: 0, gtfsRtCancelled = gtfs?.peek()?.cancelled ?: 0))
+                gtfsRtEnabled = gtfs != null, gtfsRtAgeSeconds = gtfs?.ageSeconds(), gtfsRtTripUpdates = gtfs?.peek()?.trips?.size ?: 0, gtfsRtCancelled = gtfs?.peek()?.cancelled ?: 0,
+                delayModelVersion = delay.info().modelVersion, delayPortions = delay.info().portions, delayLines = delay.info().lines, delayArtifactStatus = delay.info().status))
         }
 
         get("/api/locations") {
@@ -85,7 +86,7 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
             }
             when (val result = searchService.search(SearchRequest(from!!, to!!, notBefore!!))) {
                 is SearchResult.Success -> {
-                    val (dtos, latest, advice) = rescue(result.journeys, deadline, risk, result.fares)
+                    val (dtos, latest, advice) = rescue(result.journeys, deadline, risk, result.fares, delay = delay)
                     call.respond(HttpStatusCode.OK, AlternativesResponseDto(
                         AlternativesRequestDto(from, to, RFC3339_FORMATTER.format(notBefore), deadline?.let { RFC3339_FORMATTER.format(it) }),
                         dtos, latest, if (deadline != null) latest == null else dtos.isEmpty(), advice))
@@ -263,7 +264,7 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                     val fareOf = { j: Journey -> result.fares?.get(j.id)?.let(price) }
                     fun best(p: Preference) = result.journeys.minWithOrNull(RecommendationService.comparator(p, fareOf))?.id
                     val sorted = result.journeys.sortedWith(RecommendationService.comparator(preference, fareOf))
-                    val (dtos, latestFeasible, advice) = rescue(sorted, deadline, risk, result.fares, price)
+                    val (dtos, latestFeasible, advice) = rescue(sorted, deadline, risk, result.fares, price, delay)
                     val response = JourneySearchResponseDto(
                         request = SearchRequestDto(
                             origin = origin,
@@ -319,19 +320,19 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
 
 /** Shared by /api/journeys and /api/alternatives: DTOs with reasons, latestFeasibleDeparture, advice. */
 internal fun rescue(journeys: List<Journey>, deadline: OffsetDateTime?, risk: RiskEstimator, fares: Map<String, FareQuote>?,
-                   price: (FareQuote) -> Double? = { it.full2nd }): Triple<List<JourneyDto>, String?, String> {
+                   price: (FareQuote) -> Double? = { it.full2nd }, delay: RealtimeDelayModel = RealtimeDelayModel.NONE): Triple<List<JourneyDto>, String?, String> {
     val risks = journeys.map { risk.estimate(it) }
     val latest = deadline?.let { d -> journeys.filter { !it.arrival.toInstant().isAfter(d.toInstant()) }.maxByOrNull { it.departure.toInstant() } }
         ?.let { RFC3339_FORMATTER.format(it.departure) }
     val dtos = journeys.mapIndexed { i, j ->
-        j.toDto(risks[i], deadline?.let { !j.arrival.toInstant().isAfter(it.toInstant()) }, reasonsFor(j, journeys, risks[i], deadline), fares, price)
+        j.toDto(risks[i], deadline?.let { !j.arrival.toInstant().isAfter(it.toInstant()) }, reasonsFor(j, journeys, risks[i], deadline), fares, price, delay.forJourney(j))
     }
     return Triple(dtos, latest, adviceFor(journeys, risks, deadline))
 }
 
 // fares == null: lookup disabled, all fare fields null; missing id: lookup failed, fareStatus UNAVAILABLE.
 // fareChf is the requested class/discount; a quote lacking that number is also UNAVAILABLE.
-private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?, reasons: List<String>, fares: Map<String, FareQuote>?, price: (FareQuote) -> Double?): JourneyDto {
+private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?, reasons: List<String>, fares: Map<String, FareQuote>?, price: (FareQuote) -> Double?, d: JourneyDelay?): JourneyDto {
     val fare = fares?.get(id)
     val selected = fare?.let(price)
     return JourneyDto(
@@ -358,7 +359,11 @@ private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?, reasons: List<St
     fareSource = fare?.source,
     fareStatus = fares?.let { if (selected != null) "PRICED" else "UNAVAILABLE" },
     fareChf = selected,
-    firstClassHalfFareChf = fare?.half1st
+    firstClassHalfFareChf = fare?.half1st,
+    expectedArrival = RFC3339_FORMATTER.format(arrival.plusMinutes((d?.minutes ?: 0).toLong())),
+    expectedDelayMin = d?.minutes,
+    delaySource = d?.source ?: "none",
+    delaySamples = d?.samples
 )
 }
 

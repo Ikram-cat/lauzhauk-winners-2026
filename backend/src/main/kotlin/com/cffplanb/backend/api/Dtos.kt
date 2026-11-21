@@ -59,7 +59,12 @@ data class JourneyDto(
     val fareSource: String? = null,
     val fareStatus: String? = null,
     val fareChf: Double? = null,
-    val firstClassHalfFareChf: Double? = null
+    val firstClassHalfFareChf: Double? = null,
+    /** Scheduled arrival + worst measured leg delay; equals [arrival] when delaySource is "none". */
+    val expectedArrival: String? = null,
+    val expectedDelayMin: Int? = null,
+    val delaySource: String? = null,
+    val delaySamples: Int? = null
 )
 
 @Serializable
@@ -102,7 +107,11 @@ data class ModelInfoDto(
     val gtfsRtEnabled: Boolean = false,
     val gtfsRtAgeSeconds: Long? = null,
     val gtfsRtTripUpdates: Int = 0,
-    val gtfsRtCancelled: Int = 0
+    val gtfsRtCancelled: Int = 0,
+    val delayModelVersion: String? = null,
+    val delayPortions: Int = 0,
+    val delayLines: Int = 0,
+    val delayArtifactStatus: String = "missing"
 )
 
 @Serializable
