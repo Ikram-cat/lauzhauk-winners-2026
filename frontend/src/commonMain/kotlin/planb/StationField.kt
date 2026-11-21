@@ -15,6 +15,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,11 +35,14 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 
 internal data class StationSuggestion(
     val name: String,
     val address: String? = null,
-    val aliases: List<String> = emptyList()
+    val aliases: List<String> = emptyList(),
+    val kind: String? = null
 ) {
     internal val searchTerms = listOfNotNull(name, address) + aliases
 }
@@ -101,14 +105,26 @@ internal fun StationField(
     label: String,
     value: String,
     language: Language,
+    source: JourneySource,
     update: (String) -> Unit,
     search: () -> Unit,
     modifier: Modifier
 ) {
-    val suggestions = remember(value) {
-        stationSuggestions(value).filterNot { it.name == value.trim() }
-    }
     var menuRequested by remember { mutableStateOf(false) }
+    var remote by remember(value, source) { mutableStateOf(emptyList<StationSuggestion>()) }
+    LaunchedEffect(value, menuRequested, source) {
+        if (!source.demo && menuRequested && value.trim().length >= 2) {
+            delay(300)
+            remote = try {
+                source.locations(value.trim()).map { StationSuggestion(it.name, kind = it.kind) }.distinct()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
+    val suggestions = if (source.demo) stationSuggestions(value).filterNot { it.name == value.trim() } else remote
     var highlighted by remember(value) { mutableIntStateOf(-1) }
     val expanded = menuRequested && suggestions.isNotEmpty()
     fun choose(station: StationSuggestion) {
@@ -176,7 +192,9 @@ internal fun StationField(
         ) {
             Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
                 Text(
-                    if (language == Language.French) "Suggestions de gares" else "Station suggestions",
+                    if (source.demo) {
+                        if (language == Language.French) "Suggestions de gares" else "Station suggestions"
+                    } else if (language == Language.French) "Gares et adresses" else "Stops and addresses",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         .semantics { liveRegion = LiveRegionMode.Polite },
                     style = MaterialTheme.typography.labelMedium,
@@ -188,7 +206,12 @@ internal fun StationField(
                         text = {
                             Column {
                                 Text(station.name)
-                                station.address?.let {
+                                val detail = station.address ?: when (station.kind) {
+                                    "address" -> if (language == Language.French) "Adresse" else "Address"
+                                    "stop" -> if (language == Language.French) "Arrêt" else "Stop"
+                                    else -> null
+                                }
+                                detail?.let {
                                     Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodySmall)
                                 }
