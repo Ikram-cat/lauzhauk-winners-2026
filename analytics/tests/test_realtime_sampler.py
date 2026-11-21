@@ -75,14 +75,14 @@ def test_aggregation_math_lines_and_export(tmp_path):
     src, dst, exp = tmp_path / "s.csv", tmp_path / "o.json", tmp_path / "sub" / "e.json"
     # 10 IR90 delays 0..9 -> median 4.5, p90 (index 9) 9.0, late (>2) = 3..9 = 7/10; 10 R1 on time, same station/hour
     specs = [("S", "IR90", d, 22, 0) for d in range(10)] + [("S", "R1", 0, 22, 0) for _ in range(10)]
-    specs += [("S", "X", 1, 22, 0)] * 5            # label below threshold: no line row, still in the portion
+    specs += [("S", "X", 1, 22, 0)] * 4            # below the line threshold (5): no line row, still in the portion
     _rows(src, specs)
     out = rs.summarize(src, dst, exp)
     assert out["modelVersion"].startswith("rt-") and exp.read_text() == dst.read_text()
     by = {l["serviceLabel"]: l for l in out["lines"]}
     assert set(by) == {"IR90", "R1"} and (by["IR90"]["medianDelayMin"], by["IR90"]["p90DelayMin"], by["IR90"]["shareLate"]) == (4.5, 9.0, 0.7)
     p = out["portions"][0]
-    assert (p["samples"], p["medianDelayMin"], p["shareLate"]) == (25, 1.0, 0.28)
+    assert (p["samples"], p["medianDelayMin"], p["shareLate"]) == (24, 1.0, 0.29)
 
 
 def test_midnight_bucket_and_cancellations_capped(tmp_path):
@@ -92,6 +92,14 @@ def test_midnight_bucket_and_cancellations_capped(tmp_path):
     src = tmp_path / "s.csv"
     _rows(src, [("S", "R1", 1, 8, 1) for _ in range(150)])
     assert len(rs.summarize(src, tmp_path / "o.json")["cancellations"]) == rs.MAX_CANCELLATIONS
+
+
+def test_line_rows_emitted_at_five_samples(tmp_path):
+    src = tmp_path / "s.csv"
+    _rows(src, [("S", "RL4", 1, 22, 0)] * 0 + [("S", "RL4", d, 22, 0) for d in (0, 1, 2, 3, 4)] + [("S", "R8", 0, 22, 0) for _ in range(4)])
+    out = rs.summarize(src, tmp_path / "o.json")
+    assert [(l["serviceLabel"], l["samples"]) for l in out["lines"]] == [("RL4", 5)]   # 4 < 5 dropped
+    assert out["portions"] == []                                                     # 9 < 10: portions keep the stricter threshold
 
 
 @pytest.mark.skipif(not os.environ.get("OJP_API_KEY"), reason="no OJP_API_KEY")

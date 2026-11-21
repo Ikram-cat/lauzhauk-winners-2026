@@ -62,7 +62,7 @@ The summary keeps the last observation of each departure (so repeated polls are 
 - `lines`: the same statistics per `serviceLabel` (e.g. `IR90`), station and hour, without `cancelled`.
 - `cancellations`: evidence list (station, lineRef, serviceLabel, timetabled, journeyRef), capped at 100.
 
-Threshold: a `portions` or `lines` row is emitted only with **at least 10** departures that have a delay estimate and are not cancelled.
+Thresholds: a `portions` row is emitted only with **at least 10** departures that have a delay estimate and are not cancelled; a `lines` row with **at least 5** (per-line cells are small, so their statistics are noisier).
 
 Refresh: collect with `--loop`, then `python -m analytics.realtime_sampler --summarize`, or `--export-backend <path>` to also write the same JSON to `<path>` (e.g. the backend resources file) and print a one-line summary.
 

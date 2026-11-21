@@ -25,6 +25,7 @@ SUMMARY_PATH = HERE / "artifacts" / "realtime_delays.json"
 COLUMNS = ["sampled_at_utc", "station_name", "stop_ref", "line_ref", "service_label", "journey_ref", "operating_day",
            "timetabled", "estimated", "delay_min", "cancelled", "unplanned", "deviation", "quay", "bucket_hour_local"]
 MIN_SAMPLES = 10   # portions with fewer departures are not emitted
+MIN_LINE_SAMPLES = 5   # per-line cells are smaller; noisier statistics, documented in the README
 LATE_MIN = 2       # shareLate = fraction of departures with delay > this
 MAX_CANCELLATIONS = 100
 ZRH = ZoneInfo("Europe/Zurich")
@@ -161,9 +162,9 @@ def summarize(src: Path = CSV_PATH, dst: Path = SUMMARY_PATH, export: Path | Non
         groups[(r["station_name"], int(r["bucket_hour_local"]))].append(r)
         by_line[(r.get("service_label") or "", r["station_name"], int(r["bucket_hour_local"]))].append(r)
 
-    def stats(rs):  # cancelled or estimate-less departures are not in the delay stats
+    def stats(rs, need=MIN_SAMPLES):  # cancelled or estimate-less departures are not in the delay stats
         ds = [float(r["delay_min"]) for r in rs if r["delay_min"] not in ("", None) and r["cancelled"] != "1"]
-        if len(ds) < MIN_SAMPLES:
+        if len(ds) < need:
             return None
         return {"samples": len(ds), "medianDelayMin": round(statistics.median(ds), 1), "p90DelayMin": round(_pct(ds, 0.9), 1),
                 "shareLate": round(sum(d > LATE_MIN for d in ds) / len(ds), 2)}
@@ -171,7 +172,7 @@ def summarize(src: Path = CSV_PATH, dst: Path = SUMMARY_PATH, export: Path | Non
     portions = [{"station": st, "hourBucket": h, **m, "cancelled": sum(r["cancelled"] == "1" for r in rs)}
                 for (st, h), rs in sorted(groups.items()) if (m := stats(rs))]
     lines = [{"serviceLabel": sl, "station": st, "hourBucket": h, **m}
-             for (sl, st, h), rs in sorted(by_line.items()) if sl and (m := stats(rs))]
+             for (sl, st, h), rs in sorted(by_line.items()) if sl and (m := stats(rs, MIN_LINE_SAMPLES))]
     canc = [{"station": r["station_name"], "lineRef": r["line_ref"], "serviceLabel": r.get("service_label") or None,
              "timetabled": r["timetabled"], "journeyRef": r["journey_ref"]}
             for r in latest.values() if r["cancelled"] == "1"][:MAX_CANCELLATIONS]
