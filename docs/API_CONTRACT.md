@@ -370,7 +370,7 @@ How the backend proceeds:
 4. The alternative is the earliest-arriving journey of the same search that no active disruption touches. `detourExtraMinutes` = alternative arrival − planned arrival, floored at 0.
 5. The outlook is computed with that detour. If no unaffected alternative exists, `detourExtraMinutes` is null, `alternative.status` is `NONE_UNAFFECTED`, and `advice.code` is `UNKNOWN`.
 
-The planned timetable (OJP, mock) does not know the disruption, so its alternatives usually go through the same section. With the mock provider, every Lausanne → Genève journey is affected.
+The planned timetable (OJP, mock) does not know the disruption, so its alternatives usually go through the same section. With the mock provider, every Lausanne → Genève journey is affected. For the demo, `TRANSPORT_PROVIDER=demo` returns separate `MOCK` journeys for Lausanne → Genève and Zürich Stadelhofen → Stettbach, each with one alternative that avoids the section (+100 and +23 min); see [DEMO.md](DEMO.md).
 
 Response `200`:
 

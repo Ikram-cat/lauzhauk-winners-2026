@@ -7,14 +7,25 @@ This is the run sheet for the disruption-duration demo (SBB challenge). The jour
 Run from the repository root:
 
 ```sh
-python analytics/scripts/run_demo.py            # port 8080, evaluation model, replayed incidents
-python analytics/scripts/run_demo.py --offline  # mock provider, no network at all
+python analytics/scripts/run_demo.py            # port 8080, demo journeys, evaluation model, replayed incidents
+python analytics/scripts/run_demo.py --offline  # same, without any download (no network needed)
 python analytics/scripts/run_demo.py --rebuild  # retrain and regenerate every output first
+python analytics/scripts/run_demo.py --provider mock   # the team mock instead of the demo journeys
 ```
 
 The script does the following:
 - **Builds the analytics outputs if any is missing:** `train`, `export`, `sources` (timelines) and `replay`, all in `analytics/output/`, which is never committed. This needs the local SBB data in `analytics/Daten/Daten/`, about 1 minute.
-- **Builds and starts the backend** with `DURATION_ARTIFACT_PATH=analytics/output/duration_model.v1.eval.json` and `DISRUPTION_TIMELINES_DIR=analytics/output/timelines`. The provider is `ojp` when `OJP_API_KEY` is set in the environment or in `.env`, and `mock` otherwise.
+- **Builds and starts the backend** with `DURATION_ARTIFACT_PATH=analytics/output/duration_model.v1.eval.json`, `DISRUPTION_TIMELINES_DIR=analytics/output/timelines` and `TRANSPORT_PROVIDER=demo`.
+
+The `demo` provider (`backend/.../provider/DemoScenarioTransportProvider.kt`) is separate from the team mock, and every journey it returns is `MOCK`. Its times are plausible approximations relative to the requested departure, not a timetable:
+- **Lausanne → Genève:**
+  - IC 1, 35 min, via Morges;
+  - IR 90, 51 min, via Renens VD, Morges and Allaman;
+  - a lake alternative that avoids the section: m2 to Ouchy, CGN boat to Évian, Léman Express L1 to Genève, arriving 100 min after the IC 1.
+- **Zürich Stadelhofen → Stettbach:** S11, 6 min, and a tram alternative (Tram 11 + Tram 7) arriving 23 min later.
+- **Any other request:** the team mock, unchanged.
+
+`--provider ojp` uses the live timetable once a colleague's OJP setup and a key are available.
 
 It finds JDK 21 through `JAVA_HOME`, or `%LOCALAPPDATA%\Programs\Temurin\jdk-21*` on Windows. Ready when it prints `Backend on http://localhost:8080`. Stop it with Ctrl+C.
 
@@ -24,16 +35,17 @@ Python 3.14 with `analytics/requirements.txt` installed. `--model final` loads t
 
 The timeline is `analytics/output/timelines/timeline-2195005188970.json`. `python -m sbb_duration.sources` (from `analytics/`) prints its notified moments. The cause is a power failure (`EG_011`). With only 4 past incidents of that cause, the explanation uses all causes (`scope: ALL_REASONS`): 416 incidents, median duration 160 min, real end a median 8 min after the announcement.
 
-All times are local. The detour cost in the timelines is a hypothetical +60 min.
+All times are local. The last columns come from `POST /api/journeys/impact` for Lausanne → Genève: the planned IC 1 is affected, and the computed detour is +100 min via the lake. The notifications in the timeline file use a hypothetical +60 min detour instead.
 
-| # | Time | What happens (source) | SBB announcement | Our prediction (P50 / pessimistic) | Advice (+60 min detour) | Reality (hindsight) |
+| # | Time | What happens (source) | SBB announcement | Our prediction (P50 / pessimistic) | Advice, detour +100 min | Reality (hindsight) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 17:35 | First detection: VIA reports Renens VD – Allaman / Morges, lines IC1, IR15, IR57, IR90, IR95, RE33, R8, R9 | – | – (no public announcement yet) | – | 209 min left |
-| 2 | 17:44 | SBB announces "at least until 18:30" | 46 min | 72 / 121 min | Take the detour | 200 min left |
-| 3 | 18:30 | SBB pushes the end to 20:30 (notification) | 120 min | 136 / 174 min | Take the detour | 154 min left |
-| 4 | 18:46 | Internal liveticker: 14 replacement buses ordered (notification) | 104 min | 115 / 167 min | Take the detour | 138 min left |
-| 5 | 19:08 | Internal: buses on site at Renens VD and Morges at 19:30 | 82 min | 83 / 141 min | Take the detour | 116 min left |
-| 6 | 20:02 | Advice changes (notification); VIA publishes the replacement bus | 27 min | 28 / 79 min | Detour if you cannot be late | 61 min left |
+| 1 | 17:35 | First detection: VIA reports Renens VD – Allaman / Morges, lines IC1, IR15, IR57, IR90, IR95, RE33, R8, R9 | – | – (no public announcement yet: show detection only) | – | 209 min left |
+| 2 | 17:44 | SBB announces "at least until 18:30" | 46 min | 72 / 121 min | `DETOUR_IF_DEADLINE`: detour if you cannot be late | 200 min left |
+| 3 | 18:31 | SBB pushes the end to 20:30 (notification) | 119 min | 139 / 174 min | `TAKE_DETOUR` | 153 min left |
+| 4 | 18:47 | Internal liveticker: 14 replacement buses ordered (notification) | 103 min | 118 / 167 min | `TAKE_DETOUR` | 137 min left |
+| 5 | 19:09 | Internal: buses on site at Renens VD and Morges at 19:30 | 81 min | 84 / 141 min | `DETOUR_IF_DEADLINE` | 115 min left |
+| 6 | 20:03 | VIA publishes the replacement bus | 27 min | 28 / 79 min | `WAIT`: should be over before the detour pays off | 61 min left |
+| 6b | 20:30 | SBB moves the end to 21:00 | 30 min | 25 / 70 min | `WAIT` | 34 min left |
 | 7 | 21:04 | Internal: "Premiers trains Lausanne – Genève": **real resumption** | 21:00 announced | prediction stops (`SERVICE_RESUMED`) | – | 0 |
 | 8 | 21:05 | SBB still announces an end at 23:59, and the public feed closes automatically at 00:00 | 174 min | – | – | – |
 
@@ -41,9 +53,12 @@ The message: against the real resumption at 21:04, the announcement is off by **
 
 ### Journey check
 
-Lausanne → Genève at 18:31 is affected: it passes Lausanne (line end) and Genève (line end), and Morges (disruption point) when the provider returns intermediate stops.
-- With the mock provider, every Lausanne → Genève journey is affected. No unaffected alternative exists, so `detourExtraMinutes` is null and `advice.code` is `UNKNOWN`. In that case, explain the advice with the timeline's hypothetical +60 min, or with the outlook request below.
-- The backend test `JourneyImpactServiceTest` replays the same instant with a lake alternative via Évian: detour +95 min, advice `DETOUR_IF_DEADLINE`.
+Between 17:43 and 21:04, Lausanne → Genève is affected:
+- the IC 1 and the IR 90 pass Lausanne, Morges and Genève (and Renens VD and Allaman for the IR), matched by sloid;
+- the lake journey touches only Genève, so it is the unaffected alternative: `detourExtraMinutes` = 100;
+- the advice is never `UNKNOWN` in this window. The backend test `DemoScenarioTransportProviderTest` checks the demo instants of both incidents.
+
+Before 17:43 there is no public announcement, so there is no prediction and the advice is `UNKNOWN`; show the VIA detection only. From 21:04 the journey is no longer affected, because the real resumption has happened.
 
 ## Fallback requests (curl)
 
@@ -74,10 +89,11 @@ python -m sbb_duration.replay               # 3 other replays (Granges-Marnand, 
 | Symptom | Cause | Action |
 | --- | --- | --- |
 | `status: "UNAVAILABLE"` in every outlook | Artifact not loaded (warning at startup) | Run with `--rebuild`, or check `DURATION_ARTIFACT_PATH`. |
+| `advice.code: "UNKNOWN"` in the journey check | Team mock instead of the demo provider (no unaffected alternative), or `observedAt` before 17:43 | Start with the default `--provider demo`; use the times in the table. |
 | `affected: false` for Lausanne → Genève | Timelines not loaded, wrong `observedAt`, or station names sent in a legacy encoding | Check the startup log for `Loaded 10 replay disruption timelines`; use `observedAt` between 17:35 and 21:04 on 2026-09-17; use `Geneve`. |
 | Backend does not start | No JDK 21 | Set `JAVA_HOME` to a JDK 21. |
 | OJP errors (`502`/`504`) | Network or key | Restart with `--offline` (mock provider). Replay and predictions do not need the network. |
-| Renens story does not land | – | Switch to **Zürich Stadelhofen – Stettbach** (`2195005195846`, 2026-09-25, accident, cause `EG_047` with 52 past incidents). Its public end (20:30) matches the end of operations, so no "real resumption" caveat is needed. At 15:52 SBB announces 187 min, we predict 212 / 267, reality 278. At 18:54 SBB says 155, we say 138, reality 96. Mean error 76.2 min (SBB) against 63.2 (model). Journey: `{"origin":"Zürich Stadelhofen","destination":"Stettbach","observedAt":"2026-09-25T18:40:00+02:00"}`. |
+| Renens story does not land | – | Switch to **Zürich Stadelhofen – Stettbach** (`2195005195846`, 2026-09-25, accident, cause `EG_047` with 52 past incidents). Its public end (20:30) matches the end of operations, so no "real resumption" caveat is needed. At 15:53 SBB announces 187 min, we predict 212 / 267, reality 278. At 18:54 SBB says 155, we say 138, reality 96. Mean error 76.2 min (SBB) against 63.2 (model). Journey check `{"origin":"Zurich Stadelhofen","destination":"Stettbach","observedAt":"2026-09-25T18:40:00+02:00"}`: S11 affected, tram alternative +23 min, `TAKE_DETOUR` (also at 15:53 and 20:00). |
 | No data on the demo machine | `analytics/Daten/` is not in Git | Copy `analytics/output/` from a machine that has the data. The backend only needs `duration_model.v1.eval.json` and `timelines/`. |
 
 Key figures for the pitch are generated in `analytics/output/pitch_numbers.md` (`python -m sbb_duration.pitch`).

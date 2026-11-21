@@ -27,7 +27,7 @@ curl "http://localhost:8080/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve
 |---|---|---|---|
 | `PORT` | No | `8080` | Listen port |
 | `CORS_ALLOWED_ORIGINS` | No | (any) | Comma-separated allowed origins, e.g. `https://app.vercel.app` |
-| `TRANSPORT_PROVIDER` | No | `mock` | `mock` or `ojp` |
+| `TRANSPORT_PROVIDER` | No | `mock` | `mock`, `ojp`, or `demo`: MOCK journeys for the disruption replays (Lausanne → Genève, Zürich Stadelhofen → Stettbach, each with an alternative avoiding the section), the team mock for any other request |
 | `OJP_API_KEY` | When `ojp` | — | Bearer token for opentransportdata.swiss. Never hardcoded. |
 | `DURATION_ARTIFACT_PATH` | No | (unset) | Path to `duration_model.v1.json` produced by `analytics/` (`python -m sbb_duration.train` then `python -m sbb_duration.export`). Unset, missing, invalid or unsupported: one warning at startup and `/api/disruptions/outlook` answers `status: UNAVAILABLE`. |
 | `DISRUPTION_TIMELINES_DIR` | No | (unset) | Directory of analytics `timeline-*.json` (`python -m sbb_duration.sources`), replayed as active disruptions (`MOCK`) by `POST /api/journeys/impact`. Unset: no journey is affected. |
