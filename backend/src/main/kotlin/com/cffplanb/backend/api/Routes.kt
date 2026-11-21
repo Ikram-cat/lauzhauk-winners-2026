@@ -1,8 +1,10 @@
 package com.cffplanb.backend.api
 
+import com.cffplanb.backend.domain.Discount
 import com.cffplanb.backend.domain.Journey
 import com.cffplanb.backend.domain.JourneyLeg
 import com.cffplanb.backend.domain.SearchRequest
+import com.cffplanb.backend.provider.FareQuote
 import com.cffplanb.backend.provider.LocationsResult
 import com.cffplanb.backend.service.*
 import com.cffplanb.backend.service.SearchResult
@@ -15,7 +17,7 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 
-private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline")
+private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount")
 private val ALT_PARAMS = setOf("from", "to", "notBefore", "arrivalDeadline")
 private val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
@@ -80,7 +82,7 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
             }
             when (val result = searchService.search(SearchRequest(from!!, to!!, notBefore!!))) {
                 is SearchResult.Success -> {
-                    val (dtos, latest, advice) = rescue(result.journeys, deadline, risk)
+                    val (dtos, latest, advice) = rescue(result.journeys, deadline, risk, result.fares)
                     call.respond(HttpStatusCode.OK, AlternativesResponseDto(
                         AlternativesRequestDto(from, to, RFC3339_FORMATTER.format(notBefore), deadline?.let { RFC3339_FORMATTER.format(it) }),
                         dtos, latest, if (deadline != null) latest == null else dtos.isEmpty(), advice))
@@ -219,27 +221,61 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                 return@get
             }
 
+            val preferenceRaw = rawQuery["preference"]
+            val preference = if (preferenceRaw == null) Preference.FASTEST
+                else Preference.entries.firstOrNull { it.name.equals(preferenceRaw.trim(), ignoreCase = true) }
+            if (preference == null) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'preference' must be one of FASTEST, CHEAPEST, SIMPLEST"))
+                )
+                return@get
+            }
+
+            val fareClassRaw = rawQuery["fareClass"]
+            val fareClass = if (fareClassRaw == null) 2 else fareClassRaw.trim().takeIf { it == "1" || it == "2" }?.toInt()
+            if (fareClass == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'fareClass' must be 1 or 2")))
+                return@get
+            }
+            val discountRaw = rawQuery["discount"]
+            val discount = if (discountRaw == null) Discount.NONE
+                else Discount.entries.firstOrNull { it.name.equals(discountRaw.trim(), ignoreCase = true) }
+            if (discount == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'discount' must be one of NONE, HALF_FARE")))
+                return@get
+            }
+
             val searchRequest = SearchRequest(
                 origin = origin,
                 destination = destination,
-                earliestDeparture = earliestDeparture
+                earliestDeparture = earliestDeparture,
+                fareClass = fareClass,
+                discount = discount
             )
 
             when (val result = searchService.search(searchRequest)) {
                 is SearchResult.Success -> {
-                    val (dtos, latestFeasible, advice) = rescue(result.journeys, deadline, risk)
+                    val price = { q: FareQuote -> q.price(fareClass, discount) }
+                    val fareOf = { j: Journey -> result.fares?.get(j.id)?.let(price) }
+                    fun best(p: Preference) = result.journeys.minWithOrNull(RecommendationService.comparator(p, fareOf))?.id
+                    val sorted = result.journeys.sortedWith(RecommendationService.comparator(preference, fareOf))
+                    val (dtos, latestFeasible, advice) = rescue(sorted, deadline, risk, result.fares, price)
                     val response = JourneySearchResponseDto(
                         request = SearchRequestDto(
                             origin = origin,
                             destination = destination,
                             earliestDeparture = RFC3339_FORMATTER.format(earliestDeparture),
                             arrivalDeadline = deadline?.let { RFC3339_FORMATTER.format(it) },
-                            preference = "FASTEST"
+                            preference = preference.name,
+                            fareClass = fareClass,
+                            discount = discount.name
                         ),
                         journeys = dtos,
                         latestFeasibleDeparture = latestFeasible,
                         noFeasibleRoute = deadline?.let { latestFeasible == null },
-                        advice = advice
+                        advice = advice,
+                        recommendations = RecommendationsDto(best(Preference.FASTEST), best(Preference.CHEAPEST), best(Preference.SIMPLEST))
                     )
                     call.respond(HttpStatusCode.OK, response)
                 }
@@ -279,17 +315,23 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
 }
 
 /** Shared by /api/journeys and /api/alternatives: DTOs with reasons, latestFeasibleDeparture, advice. */
-private fun rescue(journeys: List<Journey>, deadline: OffsetDateTime?, risk: RiskEstimator): Triple<List<JourneyDto>, String?, String> {
+private fun rescue(journeys: List<Journey>, deadline: OffsetDateTime?, risk: RiskEstimator, fares: Map<String, FareQuote>?,
+                   price: (FareQuote) -> Double? = { it.full2nd }): Triple<List<JourneyDto>, String?, String> {
     val risks = journeys.map { risk.estimate(it) }
     val latest = deadline?.let { d -> journeys.filter { !it.arrival.toInstant().isAfter(d.toInstant()) }.maxByOrNull { it.departure.toInstant() } }
         ?.let { RFC3339_FORMATTER.format(it.departure) }
     val dtos = journeys.mapIndexed { i, j ->
-        j.toDto(risks[i], deadline?.let { !j.arrival.toInstant().isAfter(it.toInstant()) }, reasonsFor(j, journeys, risks[i], deadline))
+        j.toDto(risks[i], deadline?.let { !j.arrival.toInstant().isAfter(it.toInstant()) }, reasonsFor(j, journeys, risks[i], deadline), fares, price)
     }
     return Triple(dtos, latest, adviceFor(journeys, risks, deadline))
 }
 
-private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?, reasons: List<String>): JourneyDto = JourneyDto(
+// fares == null: lookup disabled, all fare fields null; missing id: lookup failed, fareStatus UNAVAILABLE.
+// fareChf is the requested class/discount; a quote lacking that number is also UNAVAILABLE.
+private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?, reasons: List<String>, fares: Map<String, FareQuote>?, price: (FareQuote) -> Double?): JourneyDto {
+    val fare = fares?.get(id)
+    val selected = fare?.let(price)
+    return JourneyDto(
     id = id,
     departure = RFC3339_FORMATTER.format(departure),
     arrival = RFC3339_FORMATTER.format(arrival),
@@ -298,7 +340,7 @@ private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?, reasons: List<St
     legs = legs.map { it.toDto() },
     predictedDelayMinutes = r?.predictedDelayMinutes,
     lateArrivalProbability = r?.lateArrivalProbability,
-    estimatedFareChf = null,
+    estimatedFareChf = fare?.full2nd,
     feasible = feasible,
     dataStatus = dataStatus.name,
     riskSource = r?.source,
@@ -306,8 +348,16 @@ private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?, reasons: List<St
     riskLabel = r?.label,
     disruptionDurationMin = r?.disruptionDurationMin,
     riskBasis = r?.basis,
-    reasons = reasons
+    reasons = reasons,
+    halfFareChf = fare?.half2nd,
+    firstClassFareChf = fare?.full1st,
+    fareProduct = fare?.product,
+    fareSource = fare?.source,
+    fareStatus = fares?.let { if (selected != null) "PRICED" else "UNAVAILABLE" },
+    fareChf = selected,
+    firstClassHalfFareChf = fare?.half1st
 )
+}
 
 private fun JourneyLeg.toDto(): JourneyLegDto = JourneyLegDto(
     mode = mode.name,

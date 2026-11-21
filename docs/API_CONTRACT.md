@@ -179,10 +179,53 @@ These fields and endpoints were added during implementation. All are additive: a
 | `riskBasis` | `corridor_duration` \| `baseline_duration` \| `corridor_delay` \| null | What the numbers describe. `*_duration` means the estimate is the typical length of a disruption on that corridor, not a delay a traveller will experience. |
 | `riskConfidence` | `low` \| `medium` \| `high` \| `very_low` \| null | Sample-size band of the matched artifact row. |
 | `disruptionDurationMin` | Integer or null | Typical disruption length in minutes for the matched corridor or hour baseline. Not a predicted delay. |
+| `estimatedFareChf` | Number or null | Now populated: SBB/CFF NOVA 2nd-class full-fare single (Streckenbillett), CHF, for the journey's first-leg origin to last-leg destination. Null when no price is available. |
+| `halfFareChf` | Number or null | 2nd class with Half-Fare card, CHF. |
+| `firstClassFareChf` | Number or null | 1st class full fare, CHF. |
+| `fareProduct` | String or null | Upstream product name, e.g. `Streckenbillett`. |
+| `fareSource` | `NOVA` \| `MOCK` \| null | Price source. |
+| `fareChf` | Number or null | Price for the requested `fareClass` and `discount` (what the user would pay): 2+`NONE` = `estimatedFareChf`, 2+`HALF_FARE` = `halfFareChf`, 1+`NONE` = `firstClassFareChf`, 1+`HALF_FARE` = `firstClassHalfFareChf`. Null when that number is missing. |
+| `firstClassHalfFareChf` | Number or null | 1st class with Half-Fare card, CHF. |
+| `fareStatus` | `PRICED` \| `UNAVAILABLE` \| null | `UNAVAILABLE` when the fare lookup failed or returned no price for the requested class and discount; null when fare lookup is disabled on the instance (`FARE_BASE_URL` blank). |
+
+Fares come from `transport.opendata.ch` (`/v1/connections` then `/v1/fare`, keyless; base URL `FARE_BASE_URL`, default `https://transport.opendata.ch`). Each lookup has a 3 s per-request timeout and the search spends at most 5 s on fares; a failed lookup never fails or blocks the search. Quotes are cached per trimmed, lowercased `origin|destination` for 6 h (failures for 5 min, at most 500 entries), so the price ignores departure time and journeys sharing an origin and destination share one price. The price is for the stop names, also on `MOCK` journeys.
+
+### `preference` query parameter (`/api/journeys`)
+
+Optional, one of `FASTEST` (default), `CHEAPEST`, `SIMPLEST`, case-insensitive; any other value returns `400 INVALID_REQUEST`. `request.preference` echoes the canonical upper-case value and `journeys` is sorted by it:
+
+| Preference | Order |
+| --- | --- |
+| `FASTEST` | arrival asc, transfers asc, departure asc, id |
+| `CHEAPEST` | `fareChf` asc with nulls last, arrival asc, id (`fareChf` equals `estimatedFareChf` with default `fareClass`/`discount`) |
+| `SIMPLEST` | transfers asc, leg count asc, arrival asc, id |
 
 `predictedDelayMinutes` remains the field for a validated delay estimate and stays null while the only available signal is disruption duration. It is populated only when an artifact row carries `delayEstimateMin`.
 
+### `fareClass` and `discount` query parameters (`/api/journeys`)
+
+| Parameter | Values | Default | Invalid |
+| --- | --- | --- | --- |
+| `fareClass` | `1` or `2` | `2` | `400 INVALID_REQUEST` `Parameter 'fareClass' must be 1 or 2` |
+| `discount` | `NONE` or `HALF_FARE`, case-insensitive | `NONE` | `400 INVALID_REQUEST` `Parameter 'discount' must be one of NONE, HALF_FARE` |
+
+Both are echoed in `request` (`fareClass` as an integer, `discount` upper-case). They select `fareChf` only; the raw price fields and the fare cache do not depend on them. Example for `fareClass=1&discount=HALF_FARE` (real NOVA numbers, Lausanne to Zürich HB):
+
+```json
+"request": { "origin": "Lausanne", "destination": "Zürich", "preference": "CHEAPEST", "fareClass": 1, "discount": "HALF_FARE", "...": "..." },
+"journeys": [{ "id": "mock-direct-1", "estimatedFareChf": 77.0, "halfFareChf": 38.5, "firstClassFareChf": 131.0,
+               "firstClassHalfFareChf": 65.5, "fareChf": 65.5, "fareStatus": "PRICED", "...": "..." }]
+```
+
+`FARE_BASE_URL=mock` replaces NOVA with fixed demo prices (42.00 / 21.00 / 72.00 / 36.00, `fareSource` `MOCK`) for offline demos.
+
 ### Additional response fields
+
+`recommendations` (`/api/journeys` only) is `{ "fastest", "cheapest", "simplest" }`, each the id of the best journey under that preference over the same candidate set, or null when there are no journeys. It does not depend on the requested `preference`.
+
+```json
+"recommendations": { "fastest": "mock-direct-1", "cheapest": "mock-direct-1", "simplest": "mock-direct-1" }
+```
 
 `latestFeasibleDeparture` (offset timestamp or null) is the latest departure among journeys that still meet `arrivalDeadline`; `noFeasibleRoute` (Boolean) is true when a deadline was supplied and nothing qualifies; `advice` is one sentence, at most 240 characters, built only from data present in the response, and states explicitly when risk is unknown.
 

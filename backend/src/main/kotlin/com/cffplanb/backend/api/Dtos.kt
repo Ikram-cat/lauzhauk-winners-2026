@@ -17,7 +17,9 @@ data class SearchRequestDto(
     val destination: String,
     val earliestDeparture: String,
     val arrivalDeadline: String? = null,
-    val preference: String = "FASTEST"
+    val preference: String = "FASTEST",
+    val fareClass: Int = 2,
+    val discount: String = "NONE"
 )
 
 @Serializable
@@ -50,8 +52,18 @@ data class JourneyDto(
     val riskLabel: String? = null,
     val disruptionDurationMin: Int? = null,
     val riskBasis: String? = null,
-    val reasons: List<String> = emptyList()
+    val reasons: List<String> = emptyList(),
+    val halfFareChf: Double? = null,
+    val firstClassFareChf: Double? = null,
+    val fareProduct: String? = null,
+    val fareSource: String? = null,
+    val fareStatus: String? = null,
+    val fareChf: Double? = null,
+    val firstClassHalfFareChf: Double? = null
 )
+
+@Serializable
+data class RecommendationsDto(val fastest: String?, val cheapest: String?, val simplest: String?)
 
 @Serializable
 data class JourneySearchResponseDto(
@@ -59,7 +71,8 @@ data class JourneySearchResponseDto(
     val journeys: List<JourneyDto>,
     val latestFeasibleDeparture: String? = null,
     val noFeasibleRoute: Boolean? = null,
-    val advice: String? = null
+    val advice: String? = null,
+    val recommendations: RecommendationsDto? = null
 )
 
 @Serializable
