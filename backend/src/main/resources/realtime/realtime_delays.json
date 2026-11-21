@@ -1,0 +1,244 @@
+{
+ "modelVersion": "rt-20261121-2155",
+ "generatedAt": "2026-11-21T21:55:56Z",
+ "window": {
+  "from": "2026-11-21T20:55:12Z",
+  "to": "2026-11-21T21:55:47Z",
+  "samples": 545
+ },
+ "portions": [
+  {
+   "station": "Bern",
+   "hourBucket": 22,
+   "samples": 43,
+   "medianDelayMin": 0.3,
+   "p90DelayMin": 1.2,
+   "shareLate": 0.09,
+   "cancelled": 0
+  },
+  {
+   "station": "Bern",
+   "hourBucket": 23,
+   "samples": 19,
+   "medianDelayMin": 0.2,
+   "p90DelayMin": 0.7,
+   "shareLate": 0.0,
+   "cancelled": 1
+  },
+  {
+   "station": "Biel/Bienne",
+   "hourBucket": 22,
+   "samples": 14,
+   "medianDelayMin": 0.5,
+   "p90DelayMin": 1.1,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Biel/Bienne",
+   "hourBucket": 23,
+   "samples": 12,
+   "medianDelayMin": 0.2,
+   "p90DelayMin": 0.5,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Fribourg",
+   "hourBucket": 22,
+   "samples": 13,
+   "medianDelayMin": 0.2,
+   "p90DelayMin": 1.2,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Fribourg",
+   "hourBucket": 23,
+   "samples": 13,
+   "medianDelayMin": 0.2,
+   "p90DelayMin": 1.0,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Genève",
+   "hourBucket": 22,
+   "samples": 18,
+   "medianDelayMin": 0.7,
+   "p90DelayMin": 4.2,
+   "shareLate": 0.17,
+   "cancelled": 0
+  },
+  {
+   "station": "Genève",
+   "hourBucket": 23,
+   "samples": 18,
+   "medianDelayMin": 0.6,
+   "p90DelayMin": 1.5,
+   "shareLate": 0.06,
+   "cancelled": 0
+  },
+  {
+   "station": "Lausanne",
+   "hourBucket": 22,
+   "samples": 27,
+   "medianDelayMin": 0.9,
+   "p90DelayMin": 2.0,
+   "shareLate": 0.07,
+   "cancelled": 0
+  },
+  {
+   "station": "Lausanne",
+   "hourBucket": 23,
+   "samples": 17,
+   "medianDelayMin": 0.3,
+   "p90DelayMin": 0.9,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Montreux",
+   "hourBucket": 22,
+   "samples": 14,
+   "medianDelayMin": 1.2,
+   "p90DelayMin": 5.3,
+   "shareLate": 0.21,
+   "cancelled": 0
+  },
+  {
+   "station": "Montreux",
+   "hourBucket": 23,
+   "samples": 12,
+   "medianDelayMin": 0.7,
+   "p90DelayMin": 1.5,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Neuchâtel",
+   "hourBucket": 22,
+   "samples": 15,
+   "medianDelayMin": 0.5,
+   "p90DelayMin": 1.2,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Neuchâtel",
+   "hourBucket": 23,
+   "samples": 15,
+   "medianDelayMin": 0.2,
+   "p90DelayMin": 0.9,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Olten",
+   "hourBucket": 22,
+   "samples": 29,
+   "medianDelayMin": 1.1,
+   "p90DelayMin": 3.1,
+   "shareLate": 0.28,
+   "cancelled": 1
+  },
+  {
+   "station": "Olten",
+   "hourBucket": 23,
+   "samples": 18,
+   "medianDelayMin": 0.5,
+   "p90DelayMin": 0.8,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Renens VD",
+   "hourBucket": 22,
+   "samples": 28,
+   "medianDelayMin": 0.9,
+   "p90DelayMin": 2.8,
+   "shareLate": 0.25,
+   "cancelled": 0
+  },
+  {
+   "station": "Renens VD",
+   "hourBucket": 23,
+   "samples": 18,
+   "medianDelayMin": 0.7,
+   "p90DelayMin": 1.1,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Vevey",
+   "hourBucket": 22,
+   "samples": 17,
+   "medianDelayMin": 1.1,
+   "p90DelayMin": 4.3,
+   "shareLate": 0.24,
+   "cancelled": 0
+  },
+  {
+   "station": "Vevey",
+   "hourBucket": 23,
+   "samples": 15,
+   "medianDelayMin": 0.4,
+   "p90DelayMin": 1.2,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Yverdon-les-Bains",
+   "hourBucket": 22,
+   "samples": 12,
+   "medianDelayMin": 0.3,
+   "p90DelayMin": 1.1,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Yverdon-les-Bains",
+   "hourBucket": 23,
+   "samples": 12,
+   "medianDelayMin": 0.2,
+   "p90DelayMin": 1.1,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Zürich HB",
+   "hourBucket": 22,
+   "samples": 72,
+   "medianDelayMin": 1.0,
+   "p90DelayMin": 2.3,
+   "shareLate": 0.17,
+   "cancelled": 0
+  },
+  {
+   "station": "Zürich HB",
+   "hourBucket": 23,
+   "samples": 14,
+   "medianDelayMin": 0.5,
+   "p90DelayMin": 2.5,
+   "shareLate": 0.14,
+   "cancelled": 0
+  }
+ ],
+ "lines": [],
+ "cancellations": [
+  {
+   "station": "Olten",
+   "lineRef": "ojp:91003:Y",
+   "serviceLabel": "ICE",
+   "timetabled": "2026-11-21T21:29:00Z",
+   "journeyRef": "ch:1:sjyid:100001:377-002"
+  },
+  {
+   "station": "Bern",
+   "lineRef": "ojp:91003:Y",
+   "serviceLabel": "ICE",
+   "timetabled": "2026-11-21T22:08:00Z",
+   "journeyRef": "ch:1:sjyid:100001:377-002"
+  }
+ ]
+}
