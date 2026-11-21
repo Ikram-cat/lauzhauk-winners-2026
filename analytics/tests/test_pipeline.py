@@ -69,9 +69,74 @@ def test_predictions_schema():
     assert {"modelVersion", "generatedAt", "coverage", "notes", "byLineHour"} <= pred.keys()
     assert {"from", "to", "scope"} <= pred["coverage"].keys()
     assert any("lineRef" in n for n in pred["notes"])
-    rows = pred["byLineHour"]
+    rows = by_line_hour(incidents_table(v), 1)  # unfiltered cells keep the round-1 schema
     assert {r["hourBucket"] for r in rows} == {8, 9}  # 07:00-09:00Z = 08:00-10:00 Zurich
     for r in rows:
         assert r.keys() == {"key", "hourBucket", "lateProbability", "expectedDelayMin", "sampleSize", "confidence"}
         assert r["key"] == "Bern - Thun" and 0 <= r["lateProbability"] <= 1
         assert 0 <= r["hourBucket"] <= 23 and r["confidence"] in {"low", "medium", "high"}
+
+
+# ---- round 2: corridors / hourBaseline / aliases ----
+from analytics import corridors as cor  # noqa: E402
+
+
+def _inc(rows):
+    """rows: (id, start, end, [stops]) in UTC -> incident table with stops/csource set."""
+    df = pd.DataFrame([dict(start=T(s), end=T(e), stops=st, csource="line") for _, s, e, st in rows],
+                      index=[r[0] for r in rows])
+    df["duration_min"] = (df.end - df.start).dt.total_seconds() / 60
+    return df
+
+
+def test_parse_corridor_two_and_multi_stop():
+    assert cor.parse_corridor("on the Genève - Lausanne line between", None) == (["Genève", "Lausanne"], "line")
+    s, src = cor.parse_corridor("Train service interrupted on the line Murten/Morat - Kerzers, between Murten/Morat "
+                                "and Kerzers, as well as on the line X - Y.", None)
+    assert (s, src) == (["Murten/Morat", "Kerzers"], "line")
+    assert cor.parse_corridor("on the Lausanne - Vevey - Brig line between", None)[0] == ["Lausanne", "Vevey", "Brig"]
+    assert cor.parse_corridor("Limited train service between Etoy and Allaman are subject", None) == \
+        (["Etoy", "Allaman"], "segment")
+    assert cor.parse_corridor("Limited train service at Bex.", "Im Bahnhof Bex") == (None, None)
+
+
+def test_station_normalisation_and_aliases():
+    canon, aliases = cor.build_station_table(["Genève", "Genève", "Geneve ", "  Zürich  HB", "Zürich HB", "Bern"])
+    assert cor.normalize_station("Genf", canon) == "Genève"
+    assert cor.normalize_station(" geneva ", canon) == "Genève"
+    assert cor.normalize_station("Zurich", canon) == "Zürich HB" and cor.normalize_station("ZÜRICH hb", canon) == "Zürich HB"
+    assert cor.normalize_station("Biel", canon) == "Biel/Bienne"
+    assert cor.normalize_station("Unknown  Halt", canon) == "Unknown Halt"
+    assert aliases["Genf"] == "Genève" and aliases["Geneve"] == "Genève"
+
+
+def test_corridor_pooling_math():
+    # 3 incidents over A-B/B-A: two on the same local day (UTC 08-09 & 10-11 Jan 5), one Jan 7; 1 on C-D (dropped)
+    inc = _inc([("1", "2026-01-05 08:00", "2026-01-05 09:00", ["A", "B"]),
+                ("2", "2026-01-05 10:00", "2026-01-05 12:00", ["B", "A"]),
+                ("3", "2026-01-07 08:00", "2026-01-07 11:00", ["A", "X", "B"]),
+                ("4", "2026-01-05 08:00", "2026-01-05 09:00", ["C", "D"])])
+    rows, st = cor.corridors(inc, window_days=10)
+    assert st == {"poolsTotal": 2, "droppedSampleLt3": 1} and len(rows) == 1
+    r = rows[0]
+    assert (r["from"], r["to"], r["sampleSize"], r["disruptionDays"]) == ("A", "B", 3, 2)
+    assert r["disruptionProbabilityPerDay"] == 0.2 and r["expectedDelayMin"] == 120.0  # median(60,120,180)
+    assert r["confidence"] == "low" and "via" not in r  # modal via is empty
+
+
+def test_hour_baseline_24_rows_and_probability():
+    inc = _inc([("1", "2026-01-05 08:00", "2026-01-05 09:00", None), ("2", "2026-01-06 08:00", "2026-01-06 08:30", None)])
+    hb = cor.hour_baseline(inc, window_days=4)
+    assert [r["hourBucket"] for r in hb] == list(range(24))
+    h9 = hb[9]  # 08:00Z = 09:00 Zurich
+    assert h9["sampleSize"] == 2 and h9["disruptionProbabilityPerHour"] == 0.5 and h9["expectedDelayMin"] == 45.0
+    assert hb[3]["sampleSize"] == 0 and hb[3]["disruptionProbabilityPerHour"] == 0.0
+
+
+def test_artifact_drops_noise_and_is_joinable():
+    v = dm.add_start_end(versions())
+    pred = build_predictions(v, dm.build_snapshots(v), "2026-01-01T00:00:00Z")
+    assert pred["byLineHour"] == [] and pred["stats"]["byLineHourCellsDropped"] == 2  # n=1 cells < 8
+    assert pred["corridors"] == [] and pred["stats"]["corridorsDroppedSampleLt3"] == 1  # n=1 < 3
+    assert len(pred["hourBaseline"]) == 24 and {"joinHints", "stationAliases"} <= pred.keys()
+    json.dumps(pred, ensure_ascii=False)

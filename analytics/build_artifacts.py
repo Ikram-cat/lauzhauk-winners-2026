@@ -13,6 +13,7 @@ from pathlib import Path
 import joblib
 
 from . import duration_model as dm
+from . import corridors as cor
 from .line_hour import by_line_hour, incidents_table
 
 DEFAULT_DATA = "analytics/Daten/Daten/extern-liveticker"
@@ -23,7 +24,15 @@ def build_predictions(vend, snap, generated_at) -> dict:
     start, end = vend.start.min(), vend.end.max()
     window_days = max(1, (end.normalize() - start.normalize()).days + 1)
     inc = incidents_table(vend)
-    rows = by_line_hour(inc, window_days)
+    all_rows = by_line_hour(inc, window_days)
+    rows = [r for r in all_rows if r["sampleSize"] >= cor.MIN_CELL_N]
+    parsed = [cor.parse_corridor(a, b)[0] for a, b in zip(inc.desc_en, inc.desc_de)]
+    canon, aliases = cor.build_station_table(n for p in parsed if p for n in p)
+    inc2 = cor.add_corridors(inc, canon)
+    crows, cstats = cor.corridors(inc2, window_days)
+    covered_ids = {r.name for _, r in inc2[inc2.stops.notna()].iterrows()}
+    kept_pairs = {tuple(sorted((c["from"], c["to"]))) for c in crows}
+    in_kept = sum(tuple(sorted((s[0], s[-1]))) in kept_pairs for s in inc2.stops.dropna())
     return {
         "modelVersion": VERSION, "generatedAt": generated_at,
         "coverage": {"from": start.isoformat(), "to": end.isoformat(),
@@ -38,9 +47,25 @@ def build_predictions(vend, snap, generated_at) -> dict:
             "expectedDelayMin = median total duration (minutes) of the disruptions active in that bucket; "
             "an upper bound on passenger delay, not a measured delay.",
             "sampleSize = distinct incidents in the bucket; confidence: <8 low, 8-19 medium, >=20 high.",
+            "corridors: pooled over hours and both directions (A-B + B-A); see stats, joinHints, "
+            "hourBaseline (nationwide, 24 rows) and stationAliases. Corridors with <3 incidents are dropped; "
+            "byLineHour cells with <8 incidents are dropped.",
             f"{inc.key.isna().sum()} of {len(inc)} incidents had no parsable line corridor and are excluded.",
         ],
         "byLineHour": rows,
+        "corridors": crows,
+        "hourBaseline": cor.hour_baseline(inc, window_days),
+        "stationAliases": aliases,
+        "joinHints": cor.JOIN_HINTS,
+        "stats": {
+            "incidents": len(inc), "incidentsWithCorridor": len(covered_ids),
+            "incidentsInKeptCorridors": in_kept,
+            "shareInKeptCorridors": round(in_kept / len(inc), 4),
+            "corridorsKept": len(crows), "corridorsKeptSampleGe20": sum(c["sampleSize"] >= 20 for c in crows),
+            "corridorsDroppedSampleLt3": cstats["droppedSampleLt3"],
+            "byLineHourCellsKept": len(rows), "byLineHourCellsDropped": len(all_rows) - len(rows),
+            "byLineHourMinSampleSize": cor.MIN_CELL_N, "windowDays": window_days,
+        },
     }
 
 
@@ -82,7 +107,8 @@ def main(argv=None) -> dict:
     pred = build_predictions(v, snap, now)
     (out / "predictions.json").write_text(json.dumps(pred, indent=1, ensure_ascii=False))
     n20 = sum(r["sampleSize"] >= 20 for r in pred["byLineHour"])
-    print(f"byLineHour: {len(pred['byLineHour'])} keys, {n20} with sampleSize>=20")
+    print(f"stats: {json.dumps(pred['stats'])}")
+    print("hourBaseline sampleSize:", [r["sampleSize"] for r in pred["hourBaseline"]])
     return {"metrics": metrics, "n_keys": len(pred["byLineHour"]), "n_keys_ge20": n20}
 
 

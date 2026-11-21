@@ -16,7 +16,8 @@ def line_key(desc_en, desc_de):
     """Line corridor as printed in the text ('Lausanne - Brig'), or None. NOT an OJP lineRef."""
     for rx, s in ((_EN, desc_en), (_DE, desc_de)):
         if isinstance(s, str) and (m := rx.search(s)):
-            return m.group(1).strip()
+            k = re.sub(r"^line ", "", m.group(1).split(",")[0].strip())  # "line A - B, between ..." glitch
+            return k
     return None
 
 
