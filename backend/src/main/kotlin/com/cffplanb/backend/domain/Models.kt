@@ -4,6 +4,7 @@ import java.time.OffsetDateTime
 
 enum class LegMode { TRANSIT, WALK }
 enum class DataStatus { LIVE_SCHEDULE, MOCK }
+enum class Discount { NONE, HALF_FARE }
 
 data class JourneyLeg(
     val mode: LegMode,
@@ -33,5 +34,7 @@ data class Journey(
 data class SearchRequest(
     val origin: String,
     val destination: String,
-    val earliestDeparture: OffsetDateTime
+    val earliestDeparture: OffsetDateTime,
+    val fareClass: Int = 2,
+    val discount: Discount = Discount.NONE
 )

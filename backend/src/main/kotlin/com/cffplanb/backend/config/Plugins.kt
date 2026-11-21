@@ -4,11 +4,19 @@ import com.cffplanb.backend.api.ErrorDetailDto
 import com.cffplanb.backend.api.ErrorResponseDto
 import com.cffplanb.backend.api.configureRoutes
 import com.cffplanb.backend.provider.DemoScenarioTransportProvider
+import com.cffplanb.backend.gtfs.GtfsRealtimeSource
+import kotlinx.coroutines.launch
+import com.cffplanb.backend.provider.MockFareProvider
 import com.cffplanb.backend.provider.MockTransportProvider
+import com.cffplanb.backend.provider.NovaFareProvider
 import com.cffplanb.backend.provider.OjpTransportProvider
 import com.cffplanb.backend.service.JourneySearchService
 import com.cffplanb.backend.service.duration.DurationArtifactLoader
 import com.cffplanb.backend.service.impact.ReplayTimelineDisruptionSource
+import com.cffplanb.backend.provider.ResilientProvider
+import com.cffplanb.backend.service.*
+import java.nio.file.Files
+import java.nio.file.Path
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -78,10 +86,37 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         }
     }
 
-    val searchService = JourneySearchService(provider)
+    val fareUrl = config.fareBaseUrl.trim()
+    val fares = when (fareUrl) { "" -> null; "mock" -> FareCache(MockFareProvider); else -> FareCache(NovaFareProvider(fareUrl.trimEnd('/'))) }
+    log.info("Fare lookup {}", when (fareUrl) { "" -> "disabled"; "mock" -> "enabled (MOCK demo prices)"; else -> "enabled (NOVA via transport.opendata.ch)" })
+    val searchService = JourneySearchService(ResilientProvider(provider, cacheEnabled = config.cacheEnabled), fares)
+
+    val risk: RiskEstimator = if (config.riskSource.lowercase() == "none") NoRiskEstimator else {
+        // Explicit RISK_ARTIFACT_PATH (if it exists) wins; otherwise the bundled classpath resource, copied to a temp file.
+        val explicit = config.riskArtifactPath?.takeIf { Files.exists(Path.of(it)) }?.let { Path.of(it) }
+        val path = explicit ?: ArtifactRiskEstimator::class.java.getResourceAsStream("/risk/predictions.json")?.use {
+            Files.createTempFile("predictions", ".json").also { f -> Files.copy(it, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING); f.toFile().deleteOnExit() }
+        } ?: Path.of(config.riskArtifactPath ?: "analytics/artifacts/predictions.json")
+        ArtifactRiskEstimator(path, clock)
+    }
+
+    val ri = risk.info()
+    log.info("Risk artifact status={} corridorsLoaded={} modelVersion={}", ri.status, ri.corridorsLoaded, ri.modelVersion)
+    val gtfs = if (config.gtfsRtEnabled && !config.gtfsRtApiKey.isNullOrBlank()) {
+        log.info("GTFS-RT enabled (1 fetch per 60 s)")
+        GtfsRealtimeSource(GtfsRealtimeSource.httpFetch(config.gtfsRtUrl, config.gtfsRtApiKey.trim())).also { src ->
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { src.current() } // warm up so the first search does not pay for the 4.8 MB fetch
+        }
+    } else { log.info("GTFS-RT disabled; using OJP stop events only"); null }
+    // Same precedence as the risk artifact; no bundled resource and no env file = delay model stays "missing".
+    val delayPath = config.delayArtifactPath?.takeIf { Files.exists(Path.of(it)) }?.let { Path.of(it) }
+        ?: RealtimeDelayModel::class.java.getResourceAsStream("/realtime/realtime_delays.json")?.use {
+            Files.createTempFile("realtime_delays", ".json").also { f -> Files.copy(it, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING); f.toFile().deleteOnExit() }
+        } ?: config.delayArtifactPath?.let { Path.of(it) }
+    val delay = RealtimeDelayModel(delayPath)
+    log.info("Delay artifact status={} modelVersion={}", delay.info().status, delay.info().modelVersion)
     val durationEstimator = DurationArtifactLoader.load(config.durationArtifactPath)
-
     val disruptionSource = ReplayTimelineDisruptionSource.load(config.disruptionTimelinesDir)
-
-    configureRoutes(searchService, clock, durationEstimator, disruptionSource)
+    configureRoutes(searchService, clock, risk, gtfs, delay,
+        durationEstimator = durationEstimator, disruptionSource = disruptionSource)
 }

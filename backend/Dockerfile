@@ -1,5 +1,5 @@
 # Build stage
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM docker.io/library/eclipse-temurin:21-jdk-alpine AS builder
 WORKDIR /app
 
 COPY gradle/ gradle/
@@ -12,7 +12,7 @@ COPY src/ src/
 RUN ./gradlew --no-daemon installDist
 
 # Runtime stage
-FROM eclipse-temurin:21-jre-alpine
+FROM docker.io/library/eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup

@@ -1,0 +1,15 @@
+{
+  "modelVersion": "fixture-delays-1", "generatedAt": "2026-11-21T14:00:00Z",
+  "window": {"from": "2026-11-14T00:00:00Z", "to": "2026-11-21T14:00:00Z", "samples": 1000},
+  "portions": [
+    {"station": "Lausanne", "hourBucket": 16, "samples": 120, "medianDelayMin": 0.3, "p90DelayMin": 1.1, "shareLate": 0.08, "cancelled": 0},
+    {"station": "Lausanne", "hourBucket": 17, "samples": 5, "medianDelayMin": 9.0, "p90DelayMin": 12.0, "shareLate": 0.5, "cancelled": 0},
+    {"station": "Zürich HB", "hourBucket": 16, "samples": 50, "medianDelayMin": -2.0, "p90DelayMin": 1.0, "shareLate": 0.0, "cancelled": 0},
+    {"station": "Bern", "hourBucket": 16, "samples": 50, "medianDelayMin": 50.0, "p90DelayMin": 60.0, "shareLate": 0.9, "cancelled": 0},
+    {"station": "Renens", "hourBucket": 16, "samples": 30, "medianDelayMin": 4.0, "p90DelayMin": 9.0, "shareLate": 0.3, "cancelled": 0}
+  ],
+  "lines": [
+    {"serviceLabel": "IR90", "station": "Lausanne", "hourBucket": 16, "samples": 40, "medianDelayMin": 7.0, "p90DelayMin": 12.0, "shareLate": 0.5},
+    {"serviceLabel": "IC5", "station": "Lausanne", "hourBucket": 16, "samples": 9, "medianDelayMin": 20.0, "p90DelayMin": 25.0, "shareLate": 0.9}
+  ]
+}

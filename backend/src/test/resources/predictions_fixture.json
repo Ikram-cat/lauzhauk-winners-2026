@@ -1,0 +1,11 @@
+{
+  "modelVersion": "v0.1",
+  "generatedAt": "2026-11-20T10:00:00Z",
+  "coverage": {"from": "2026-10-01", "to": "2026-10-31", "scope": "fixture"},
+  "byLineHour": [
+    {"key": "IC5", "hourBucket": 17, "lateProbability": 0.25, "expectedDelayMin": 3.4, "sampleSize": 120, "confidence": "high"},
+    {"key": "S1", "hourBucket": 17, "lateProbability": 0.9, "expectedDelayMin": 9, "sampleSize": 5, "confidence": "low"},
+    {"key": "RE9", "hourBucket": 17, "lateProbability": 1.7, "expectedDelayMin": 2, "sampleSize": 80, "confidence": "medium"}
+  ],
+  "notes": "fixture"
+}

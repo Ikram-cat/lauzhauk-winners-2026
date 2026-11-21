@@ -10,6 +10,16 @@ import java.time.temporal.ChronoUnit
 
 class MockTransportProvider : TransportProvider {
 
+    private val stops = listOf(
+        LocationSuggestion("mock:lausanne", "Lausanne", "stop", 6.62909, 46.51679),
+        LocationSuggestion("mock:geneve", "Genève", "stop", 6.14259, 46.21025),
+        LocationSuggestion("mock:bern", "Bern", "stop", 7.43911, 46.94883),
+        LocationSuggestion("mock:zurich", "Zürich HB", "stop", 8.54021, 47.37819)
+    )
+
+    override suspend fun searchLocations(query: String): LocationsResult =
+        LocationsResult.Success(stops.filter { it.name.contains(query.trim(), ignoreCase = true) })
+
     override suspend fun search(request: SearchRequest): ProviderResult {
         val base = request.earliestDeparture
 
@@ -99,4 +109,10 @@ class MockTransportProvider : TransportProvider {
 
         return ProviderResult.Success(listOf(j1, j2, j3))
     }
+}
+
+/** Demo fares (FARE_BASE_URL=mock): four distinct numbers so class/discount toggles visibly change; fareSource MOCK. */
+object MockFareProvider : FareProvider {
+    override suspend fun quote(origin: String, destination: String, departure: OffsetDateTime) =
+        FareQuote(42.0, 21.0, 72.0, "Streckenbillett", "MOCK", 36.0)
 }

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
+  <OJPResponse><siri:ServiceDelivery><OJPStopEventDelivery>
+    <StopEventResponseContext/>
+    <StopEventResult><StopEvent><ThisCall><CallAtStop>
+      <siri:StopPointRef>ch:1:sloid:7000:3:8</siri:StopPointRef>
+      <PlannedQuay><Text>8</Text></PlannedQuay>
+      <ServiceDeparture><TimetabledTime>2026-11-21T15:10:00Z</TimetabledTime></ServiceDeparture>
+    </CallAtStop></ThisCall>
+    <Service><OperatingDayRef>2026-11-21</OperatingDayRef><JourneyRef>ch:1:sjyid:100001:1</JourneyRef><siri:LineRef>ch:1:slnid:33</siri:LineRef>
+      <PublishedServiceName><Text>IC 1</Text></PublishedServiceName></Service></StopEvent></StopEventResult>
+    <StopEventResult><StopEvent><ThisCall><CallAtStop>
+      <PlannedQuay><Text>3</Text></PlannedQuay>
+      <ServiceDeparture><TimetabledTime>2026-11-21T15:13:00Z</TimetabledTime><EstimatedTime>2026-11-21T15:35:00Z</EstimatedTime></ServiceDeparture>
+    </CallAtStop></ThisCall>
+    <Service><siri:LineRef>ch:1:slnid:3302</siri:LineRef><PublishedServiceName><Text>RE33</Text></PublishedServiceName></Service></StopEvent></StopEventResult>
+    <StopEventResult><StopEvent><ThisCall><CallAtStop>
+      <ServiceDeparture><TimetabledTime>2026-11-21T15:20:00Z</TimetabledTime></ServiceDeparture>
+    </CallAtStop></ThisCall>
+    <Service><PublishedServiceName><Text>IC 5</Text></PublishedServiceName><Cancelled>true</Cancelled></Service></StopEvent></StopEventResult>
+    <StopEventResult><StopEvent><ThisCall><CallAtStop>
+      <ServiceDeparture><TimetabledTime>2026-11-21T15:40:00Z</TimetabledTime></ServiceDeparture>
+    </CallAtStop></ThisCall>
+    <Service><PublishedServiceName><Text>IR 15</Text></PublishedServiceName><Cancelled>false</Cancelled></Service></StopEvent></StopEventResult>
+  </OJPStopEventDelivery></siri:ServiceDelivery></OJPResponse>
+</OJP>

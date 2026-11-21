@@ -1,0 +1,147 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 54;
+	objects = {
+		10A000000000000000000001 /* PlanBApp.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 10A000000000000000000002 /* PlanBApp.swift */;
+		};
+		10A000000000000000000002 /* PlanBApp.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = PlanBApp.swift;
+			sourceTree = "<group>";
+		};
+		10A000000000000000000003 /* Info.plist */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = text.plist.xml;
+			path = Info.plist;
+			sourceTree = "<group>";
+		};
+		10A000000000000000000004 /* PlanB.app */ = {
+			isa = PBXFileReference;
+			explicitFileType = wrapper.application;
+			includeInIndex = 0;
+			path = PlanB.app;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		10A000000000000000000005 /* Compile Kotlin framework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "Compile Kotlin framework";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nif [ \"${OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED:-NO}\" = YES ]; then exit 0; fi\ncd \"$SRCROOT/..\"\nexec ./gradlew :embedAndSignAppleFrameworkForXcode\n";
+		};
+		10A000000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (10A000000000000000000001 /* PlanBApp.swift in Sources */,);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		10A000000000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		10A000000000000000000008 /* Products */ = {
+			isa = PBXGroup;
+			children = (10A000000000000000000004 /* PlanB.app */,);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		10A000000000000000000009 /* Main group */ = {
+			isa = PBXGroup;
+			children = (
+				10A000000000000000000002 /* PlanBApp.swift */,
+				10A000000000000000000003 /* Info.plist */,
+				10A000000000000000000018 /* PlanB.xcconfig */,
+				10A000000000000000000008 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		10A000000000000000000010 /* PlanB */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 10A000000000000000000012 /* Target settings */;
+			buildPhases = (
+				10A000000000000000000005 /* Compile Kotlin framework */,
+				10A000000000000000000006 /* Sources */,
+				10A000000000000000000007 /* Frameworks */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = PlanB;
+			productName = PlanB;
+			productReference = 10A000000000000000000004 /* PlanB.app */;
+			productType = "com.apple.product-type.application";
+		};
+		10A000000000000000000011 /* Project object */ = {
+			isa = PBXProject;
+			attributes = { LastUpgradeCheck = 1600; };
+			buildConfigurationList = 10A000000000000000000013 /* Project settings */;
+			compatibilityVersion = "Xcode 12.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, fr, Base,);
+			mainGroup = 10A000000000000000000009 /* Main group */;
+			productRefGroup = 10A000000000000000000008 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (10A000000000000000000010 /* PlanB */,);
+		};
+		10A000000000000000000012 /* Target settings */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				10A000000000000000000014 /* Debug */,
+				10A000000000000000000015 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		10A000000000000000000013 /* Project settings */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				10A000000000000000000016 /* Debug */,
+				10A000000000000000000017 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		10A000000000000000000014 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = { SWIFT_OPTIMIZATION_LEVEL = "-Onone"; };
+			name = Debug;
+		};
+		10A000000000000000000015 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = { SWIFT_COMPILATION_MODE = wholemodule; };
+			name = Release;
+		};
+		10A000000000000000000016 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 10A000000000000000000018 /* PlanB.xcconfig */;
+			buildSettings = { ONLY_ACTIVE_ARCH = YES; };
+			name = Debug;
+		};
+		10A000000000000000000017 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 10A000000000000000000018 /* PlanB.xcconfig */;
+			buildSettings = {};
+			name = Release;
+		};
+		10A000000000000000000018 /* PlanB.xcconfig */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = text.xcconfig;
+			path = PlanB.xcconfig;
+			sourceTree = "<group>";
+		};
+	};
+	rootObject = 10A000000000000000000011 /* Project object */;
+}

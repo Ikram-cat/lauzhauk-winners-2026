@@ -77,7 +77,6 @@ Testing/
 .gradle/
 .kotlin/
 .idea/
-.github/
 node_modules/
 
 # Python local environments, caches and raw incident data
@@ -91,3 +90,4 @@ __pycache__/
 /analytics/data/
 /analytics/output/
 analytics/Daten/
+model/
