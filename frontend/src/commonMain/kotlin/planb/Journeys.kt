@@ -61,6 +61,7 @@ internal data class Service(
 internal val services = listOf(
     Service("Genève", 8, "3", 39, "IR 90"),
     Service("Bern", 17, "7", 68, "IC 1", 5),
+    Service("Bern", 17, "7", 68, "IC 1", 5),
     Service("Zürich HB", 31, "1", 132, "IC 5")
 )
 
