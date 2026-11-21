@@ -72,6 +72,12 @@ class ResilientProvider(
             else delegate.searchLocations(query).also { record(it !is LocationsResult.Success) }
         }, { it is LocationsResult.Success })
 
+    // Cached per (stop, window start minute) for searchTtlMs. Failures never trip the breaker: detection is best-effort and must not take /api/journeys down.
+    override suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime): StopEventsResult =
+        cached(Triple("ev", stop.trim().lowercase(), from.toEpochSecond() / 60), searchTtlMs, {
+            if (isOpen()) StopEventsResult.Failure(BREAKER_MESSAGE) else delegate.stopEvents(stop, from)
+        }, { it is StopEventsResult.Success })
+
     // Bad user input (unresolvable stop) is not an upstream health signal.
     private fun ProviderResult.isFailure() = this !is ProviderResult.Success && this !is ProviderResult.LocationResolutionError
 

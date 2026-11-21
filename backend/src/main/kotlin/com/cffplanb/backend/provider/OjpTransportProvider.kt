@@ -190,6 +190,67 @@ class OjpTransportProvider(
             }
         } ?: throw OjpTimeoutException()
 
+    // ---- Stop events (realtime departures) ----
+    private val stopEventTimeoutMs = 4_000L
+
+    override suspend fun stopEvents(stop: String, from: OffsetDateTime): StopEventsResult = try {
+        val id = resolveStopId(stop)
+        StopEventsResult.Success(parseStopEvents(postLocationRequest(buildStopEventRequest(id, stop, from, nowTs()), stopEventTimeoutMs)))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        StopEventsResult.Failure("Stop events failed: ${e.javaClass.simpleName}")
+    }
+
+    internal fun buildStopEventRequest(stopId: String, name: String, from: OffsetDateTime, ts: String): String {
+        val fromTs = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(from.withOffsetSameInstant(ZoneOffset.UTC))
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
+  <OJPRequest>
+    <siri:ServiceRequest>
+      <siri:RequestTimestamp>$ts</siri:RequestTimestamp>
+      <siri:RequestorRef>cff-plan-b</siri:RequestorRef>
+      <OJPStopEventRequest>
+        <siri:RequestTimestamp>$ts</siri:RequestTimestamp>
+        <siri:MessageIdentifier>se-1</siri:MessageIdentifier>
+        <Location>
+          <PlaceRef><siri:StopPointRef>${escapeXml(stopId)}</siri:StopPointRef><Name><Text>${escapeXml(name)}</Text></Name></PlaceRef>
+          <DepArrTime>$fromTs</DepArrTime>
+        </Location>
+        <Params>
+          <NumberOfResults>30</NumberOfResults>
+          <StopEventType>departure</StopEventType>
+          <IncludePreviousCalls>false</IncludePreviousCalls>
+          <IncludeOnwardCalls>false</IncludeOnwardCalls>
+          <UseRealtimeData>full</UseRealtimeData>
+        </Params>
+      </OJPStopEventRequest>
+    </siri:ServiceRequest>
+  </OJPRequest>
+</OJP>"""
+    }
+
+    /** A missing <Cancelled> element means "not cancelled". Events without a parseable timetabled departure are dropped. */
+    internal fun parseStopEvents(xml: String): List<StopEvent> {
+        val doc = newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
+        val evs = doc.getElementsByTagNameNS("*", "StopEvent")
+        return (0 until evs.length).mapNotNull { i ->
+            val ev = evs.item(i) as? Element ?: return@mapNotNull null
+            val call = firstChildElement(ev, "CallAtStop") ?: return@mapNotNull null
+            val dep = firstChildElement(call, "ServiceDeparture") ?: return@mapNotNull null
+            val sched = textContent(dep, "TimetabledTime")?.let { parseDateTimeOrNull(it) } ?: return@mapNotNull null
+            val svc = firstChildElement(ev, "Service")
+            StopEvent(
+                label = svc?.let { textIn(it, "PublishedServiceName") ?: textIn(it, "PublicCode") },
+                lineRef = svc?.let { textContent(it, "LineRef") },
+                scheduled = sched,
+                estimated = textContent(dep, "EstimatedTime")?.let { parseDateTimeOrNull(it) },
+                cancelled = (svc?.let { textContent(it, "Cancelled") } ?: textContent(ev, "Cancelled")).equals("true", ignoreCase = true),
+                platform = textIn(call, "PlannedQuay") ?: textIn(call, "EstimatedQuay")
+            )
+        }
+    }
+
     // ---- Autocomplete ----
     private val suggestCache = ConcurrentHashMap<String, Pair<Instant, List<LocationSuggestion>>>()
 

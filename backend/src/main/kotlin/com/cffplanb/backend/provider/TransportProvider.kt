@@ -16,6 +16,20 @@ interface TransportProvider {
     suspend fun search(request: SearchRequest): ProviderResult
 
     suspend fun searchLocations(query: String): LocationsResult = LocationsResult.Success(emptyList())
+
+    /** Realtime departures at [stop] (free-text name) starting at [from]. Providers without realtime data report Failure. */
+    suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime): StopEventsResult = StopEventsResult.Failure("stop events not supported")
+}
+
+data class StopEvent(
+    val label: String?, val lineRef: String?,
+    val scheduled: java.time.OffsetDateTime, val estimated: java.time.OffsetDateTime?,
+    val cancelled: Boolean, val platform: String?
+)
+
+sealed class StopEventsResult {
+    data class Success(val events: List<StopEvent>) : StopEventsResult()
+    data class Failure(val message: String) : StopEventsResult()
 }
 
 data class LocationSuggestion(val id: String, val name: String, val kind: String, val x: Double?, val y: Double?)

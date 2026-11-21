@@ -19,10 +19,11 @@ import java.time.format.DateTimeParseException
 
 private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount")
 private val ALT_PARAMS = setOf("from", "to", "notBefore", "arrivalDeadline")
-private val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
+internal val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
 fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator) {
     routing {
+        redirectRoute(searchService, clock, risk)
         get("/health") {
             call.respond(HttpStatusCode.OK, HealthResponseDto("ok"))
         }
@@ -315,7 +316,7 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
 }
 
 /** Shared by /api/journeys and /api/alternatives: DTOs with reasons, latestFeasibleDeparture, advice. */
-private fun rescue(journeys: List<Journey>, deadline: OffsetDateTime?, risk: RiskEstimator, fares: Map<String, FareQuote>?,
+internal fun rescue(journeys: List<Journey>, deadline: OffsetDateTime?, risk: RiskEstimator, fares: Map<String, FareQuote>?,
                    price: (FareQuote) -> Double? = { it.full2nd }): Triple<List<JourneyDto>, String?, String> {
     val risks = journeys.map { risk.estimate(it) }
     val latest = deadline?.let { d -> journeys.filter { !it.arrival.toInstant().isAfter(d.toInstant()) }.maxByOrNull { it.departure.toInstant() } }

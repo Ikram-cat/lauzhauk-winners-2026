@@ -106,3 +106,35 @@ data class LocationDto(val id: String, val name: String, val kind: String, val x
 
 @Serializable
 data class LocationsResponseDto(val locations: List<LocationDto>)
+
+@Serializable
+data class DisruptionDto(
+    val legIndex: Int,
+    val serviceLabel: String?,
+    val from: String,
+    val to: String,
+    val scheduledDeparture: String,
+    val estimatedDeparture: String?,
+    val delayMinutes: Int,
+    val cancelled: Boolean,
+    val basis: String,
+    val confidence: String,
+    val cause: String?
+)
+
+/** [recommendation] is a JourneyDto plus "why"; it is null only when nothing could be found. */
+@Serializable
+data class RedirectResponseDto(
+    val request: SearchRequestDto,
+    val situation: String,
+    val disruption: DisruptionDto?,
+    val recommendation: kotlinx.serialization.json.JsonObject?,
+    val alternatives: List<JourneyDto>,
+    val message: String,
+    val latestFeasibleDeparture: String? = null,
+    val noFeasibleRoute: Boolean? = null,
+    val advice: String? = null,
+    val recommendations: RecommendationsDto? = null,
+    val computedAt: String,
+    val modelVersion: String?
+)
