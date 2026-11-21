@@ -26,7 +26,8 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
 
         get("/api/model") {
             val i = risk.info()
-            call.respond(HttpStatusCode.OK, ModelInfoDto(i.modelVersion, i.generatedAt, i.coverage, "artifact", i.keysLoaded, i.status))
+            call.respond(HttpStatusCode.OK, ModelInfoDto(i.modelVersion, i.generatedAt, i.coverage, "artifact", i.keysLoaded, i.status,
+                i.corridorsLoaded, i.baselineLoaded, i.byLineHourCells, i.corridorSample))
         }
 
         get("/api/locations") {
@@ -252,7 +253,10 @@ private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?): JourneyDto = Jo
     lateArrivalProbability = r?.lateArrivalProbability,
     estimatedFareChf = null,
     feasible = feasible,
-    dataStatus = dataStatus.name
+    dataStatus = dataStatus.name,
+    riskSource = r?.source,
+    riskConfidence = r?.confidence,
+    riskLabel = r?.label
 )
 
 private fun JourneyLeg.toDto(): JourneyLegDto = JourneyLegDto(

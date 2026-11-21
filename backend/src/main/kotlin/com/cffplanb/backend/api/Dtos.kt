@@ -44,7 +44,10 @@ data class JourneyDto(
     val lateArrivalProbability: Double? = null,
     val estimatedFareChf: Double? = null,
     val feasible: Boolean? = null,
-    val dataStatus: String
+    val dataStatus: String,
+    val riskSource: String? = null,
+    val riskConfidence: String? = null,
+    val riskLabel: String? = null
 )
 
 @Serializable
@@ -61,7 +64,11 @@ data class ModelInfoDto(
     val coverage: kotlinx.serialization.json.JsonElement?,
     val source: String,
     val keysLoaded: Int,
-    val status: String
+    val status: String,
+    val corridorsLoaded: Int = 0,
+    val baselineLoaded: Int = 0,
+    val byLineHourCells: Int = 0,
+    val corridorKeysSample: List<String> = emptyList()
 )
 
 @Serializable
