@@ -240,7 +240,8 @@ class OjpTransportProvider(
 
     override suspend fun stopEvents(stop: String, from: OffsetDateTime, realtime: Boolean): StopEventsResult = try {
         val id = resolveStopId(stop)
-        StopEventsResult.Success(parseStopEvents(postLocationRequest(buildStopEventRequest(id, stop, from, nowTs(), realtime), stopEventTimeoutMs)))
+        val xml = postLocationRequest(buildStopEventRequest(id, stop, from, nowTs(), realtime), stopEventTimeoutMs)
+        StopEventsResult.Success(parseStopEvents(xml), parseSituations(xml))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -302,6 +303,33 @@ class OjpTransportProvider(
                 }
             )
         }
+    }
+
+    /** SIRI PtSituation blocks from an OJP response; tolerant: absent or malformed blocks are skipped and never fail the events. */
+    internal fun parseSituations(xml: String): List<PtSituation> = try {
+        val doc = newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
+        val els = doc.getElementsByTagNameNS("*", "PtSituation")
+        (0 until els.length).mapNotNull { i ->
+            val e = els.item(i) as? Element ?: return@mapNotNull null
+            val causeEl = e.getElementsByTagNameNS("*", "Cause").item(0) as? Element
+            PtSituation(
+                number = textContent(e, "SituationNumber") ?: "s-$i",
+                cause = causeEl?.let { textContent(it, "CauseCode") ?: textContent(it, "CauseDescription") } ?: textContent(e, "CauseCode"),
+                severity = textContent(e, "Severity")?.uppercase(),
+                summary = textIn(e, "Summary"),
+                lineRefs = e.getElementsByTagNameNS("*", "AffectedVehicleJourney").let { nl ->
+                    (0 until nl.length).mapNotNull { j -> (nl.item(j) as? Element)?.let { el -> textContent(el, "LineRef") } }
+                },
+                stopRefs = e.getElementsByTagNameNS("*", "AffectedStopPoint").let { nl ->
+                    (0 until nl.length).mapNotNull { j -> (nl.item(j) as? Element)?.let { el -> textContent(el, "StopPointRef") } }
+                },
+                validFrom = textContent(e, "StartTime")?.let { parseDateTimeOrNull(it) },
+                validUntil = textContent(e, "EndTime")?.let { parseDateTimeOrNull(it) }
+            )
+        }
+    } catch (e: Exception) {
+        log.error("OJP situation parse error: {}", e.javaClass.simpleName)
+        emptyList()
     }
 
     // ---- Autocomplete ----

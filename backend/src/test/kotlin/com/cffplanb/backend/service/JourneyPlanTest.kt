@@ -144,10 +144,11 @@ class JourneyPlanTest {
 
     // ---- end to end through /api/journeys -------------------------------------------
 
-    private class Fake(val journeys: (SearchRequest) -> List<Journey>, val plan: List<StopEvent>, val live: List<StopEvent>) : TransportProvider {
+    private class Fake(val journeys: (SearchRequest) -> List<Journey>, val plan: List<StopEvent>, val live: List<StopEvent>, val situations: List<PtSituation> = emptyList()) : TransportProvider {
         val searches = mutableListOf<SearchRequest>()
         override suspend fun search(request: SearchRequest): ProviderResult { searches += request; return ProviderResult.Success(journeys(request)) }
-        override suspend fun stopEvents(stop: String, from: OffsetDateTime, realtime: Boolean) = StopEventsResult.Success(if (realtime) live else plan)
+        override suspend fun stopEvents(stop: String, from: OffsetDateTime, realtime: Boolean) =
+            StopEventsResult.Success(if (realtime) live else plan, if (realtime) situations else emptyList())
     }
     private class Down(val journeys: (SearchRequest) -> List<Journey>, val boom: Boolean = false) : TransportProvider {
         override suspend fun search(request: SearchRequest): ProviderResult = ProviderResult.Success(journeys(request))
@@ -161,10 +162,10 @@ class JourneyPlanTest {
     private val all = listOf(re33, ic5, slow, ir)
     private fun search(r: SearchRequest) = all.filter { !it.departure.isBefore(r.earliestDeparture) }
 
-    private fun api(f: TransportProvider, qs: String = "", block: (JsonObject) -> Unit) = testApplication {
+    private fun api(f: TransportProvider, qs: String = "", delay: RealtimeDelayModel = RealtimeDelayModel.NONE, block: (JsonObject) -> Unit) = testApplication {
         application {
             install(ContentNegotiation) { json(Json { encodeDefaults = true }) }
-            configureRoutes(JourneySearchService(f), clock)
+            configureRoutes(JourneySearchService(f), clock, delay = delay)
         }
         val r = client.get("/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve$qs")
         assertEquals(HttpStatusCode.OK, r.status, r.bodyAsText())
@@ -178,7 +179,7 @@ class JourneyPlanTest {
     private fun JsonObject.altIds() = get("alternatives")!!.jsonArray.map { it.jsonObject.str("id") }
 
     private val others = arrayOf(ev("IC 5", "15:30"), ev("S1", "15:20"), ev("IR 15", "16:00"))
-    private fun fake(re33Live: StopEvent?) = Fake(::search, plan(ev("RE33", "15:10"), *others), listOfNotNull(re33Live) + others.map { it.copy(estimated = it.scheduled) })
+    private fun fake(re33Live: StopEvent?, situations: List<PtSituation> = emptyList()) = Fake(::search, plan(ev("RE33", "15:10"), *others), listOfNotNull(re33Live) + others.map { it.copy(estimated = it.scheduled) }, situations)
     private fun onTime() = fake(ev("RE33", "15:10", "15:10"))
     private fun cancelled() = fake(null) // OJP omits cancelled trips from the live board
     private fun late(min: Int) = fake(ev("RE33", "15:10", "15:${10 + min}"))
@@ -362,5 +363,76 @@ class JourneyPlanTest {
         assertEquals(0.0412, r["corridorIncidentRate"]!!.jsonPrimitive.double); assertEquals(145, r.int("typicalIncidentDurationMinutes"))
         assertEquals("CORRIDOR", r.str("source")); assertEquals("HIGH", r.str("confidence")); assertEquals("MEDIUM", r.str("level"))
         assertEquals("DAY_WINDOW", r.str("basis")) // no coverage window in this stub
+    }
+
+    // ---- SIRI situations, verification depth, expected-faster ----------------------
+
+    @Test fun `parseSituations reads refs cause severity and window, empty container parses empty`() {
+        val xml = """<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri"><Siri><Situations><PtSituation>
+            <SituationNumber>CH:1:SITUATION:1</SituationNumber><Severity>severe</Severity>
+            <Summary><SummaryContent><Text>Delays on the Lausanne line</Text></SummaryContent></Summary>
+            <PublicationWindow><StartTime>2026-11-21T13:00:00Z</StartTime><EndTime>2026-11-21T18:00:00Z</EndTime></PublicationWindow>
+            <Affects><VehicleJourneys><AffectedVehicleJourney><LineRef>RE33</LineRef></AffectedVehicleJourney></VehicleJourneys>
+              <StopPoints><AffectedStopPoint><StopPointRef>ch:1:sloid:123</StopPointRef></AffectedStopPoint></StopPoints></Affects>
+            <Cause><CauseCode>WORKS</CauseCode></Cause>
+        </PtSituation></Situations></Siri></OJP>"""
+        val s = OjpTransportProvider("k").parseSituations(xml)
+        assertEquals(1, s.size)
+        assertEquals("CH:1:SITUATION:1", s[0].number); assertEquals("WORKS", s[0].cause); assertEquals("SEVERE", s[0].severity)
+        assertEquals(listOf("RE33"), s[0].lineRefs); assertEquals(listOf("ch:1:sloid:123"), s[0].stopRefs)
+        assertEquals(t("13:00"), s[0].validFrom); assertEquals(t("18:00"), s[0].validUntil)
+        assertEquals(0, OjpTransportProvider("k").parseSituations("""<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri"><Siri><Situations /></Siri></OJP>""").size)
+    }
+
+    @Test fun `a SIRI situation for the disrupted line fills cause and severity`() =
+        api(fake(ev("RE33", "15:10", "15:15"), listOf(PtSituation("s1", "WORKS", "severe", "prose", lineRefs = listOf("RE33"), validFrom = t("14:00"), validUntil = t("17:00"))))) { j ->
+            assertEquals("DISRUPTION_DETECTED", j.str("status"))
+            assertEquals("WORKS", j.obj("disruption").str("cause")); assertEquals("SEVERE", j.obj("disruption").str("severity"))
+        }
+
+    @Test fun `situations for another line or outside their window do not tag`() =
+        api(fake(ev("RE33", "15:10", "15:15"), listOf(
+            PtSituation("s2", "OTHER", "SEVERE", null, lineRefs = listOf("IC 5")),
+            PtSituation("s3", "EXPIRED", "SEVERE", null, lineRefs = listOf("RE33"), validUntil = t("12:00"))))) { j ->
+            assertEquals(JsonNull, j.obj("disruption")["cause"]); assertEquals(JsonNull, j.obj("disruption")["severity"])
+        }
+
+    @Test fun `a stop-point situation tags the disruption at that stop`() {
+        val planned = StopEvent("RE33", null, t("15:10"), null, false, null, stopRef = "ch:1:sloid:79254")
+        val rest = listOf(ev("IC 5", "15:30"), ev("S1", "15:20"), ev("IR 15", "16:00"))
+        val f = Fake(::search, rest + planned, (rest + planned.copy(estimated = t("15:15"))),
+            listOf(PtSituation("s4", "CROWDING", "normal", null, stopRefs = listOf("ch:1:sloid:79254"))))
+        api(f) { j -> assertEquals("CROWDING", j.obj("disruption").str("cause")) }
+    }
+
+    @Test fun `the top four journeys are verified, deeper candidates are marked unverified`() {
+        val five = listOf(*all.toTypedArray(), journey("LAST", leg("L 5", "Lausanne", "Genève", "16:10", "17:30")))
+        api(Fake({ five }, plan(), listOf()), "&limit=10") { j ->
+            val shown = (listOfNotNull(j.obj("primaryJourney"), j.obj("recommendedJourney")) + j.get("alternatives")!!.jsonArray.map { it.jsonObject })
+                .associate { it.str("id") to it["verified"]!!.jsonPrimitive.boolean }
+            assertEquals(5, shown.size)
+            assertEquals(mapOf("RE" to true, "IC" to true, "SLOW" to true, "IR" to true, "LAST" to false), shown)
+        }
+    }
+
+    @Test fun `with no live data the measured delay model recommends the candidate expected to be faster`() {
+        val artifact = java.nio.file.Files.createTempFile("delays", ".json").also { p ->
+            java.nio.file.Files.writeString(p, """{"modelVersion":"t","portions":[],"lines":[
+              {"station":"Lausanne","hourBucket":16,"serviceLabel":"RE33","samples":40,"medianDelayMin":15},
+              {"station":"Lausanne","hourBucket":16,"serviceLabel":"IC5","samples":40,"medianDelayMin":0}]}""")
+            p.toFile().deleteOnExit()
+        }
+        val ic = journey("IC", leg("IC 5", "Lausanne", "Genève", "15:30", "16:10", "8"))
+        api(Down({ listOf(re33, ic) }), "&limit=10", RealtimeDelayModel(artifact)) { j ->
+            assertEquals("UNKNOWN", j.str("status")); assertEquals("STAY", j.str("action"))
+            assertEquals("RE", j.obj("primaryJourney").str("id")); assertEquals("IC", j.obj("recommendedJourney").str("id"))
+            assertEquals("EXPECTED_FASTER", j.codes()[1]); assertEquals(5, j.reason("EXPECTED_FASTER").int("savedMinutes"))
+            assertFalse("STAY_FASTEST" in j.codes())
+            assertEquals("DELAY_MODEL", j.obj("primaryJourney").obj("realtime").str("source"))
+            assertEquals(15, j.obj("primaryJourney").obj("realtime").int("arrivalDelayMinutes"))
+            assertEquals("2026-11-21T16:15:00Z", j.obj("primaryJourney").obj("realtime").str("expectedArrival"))
+            assertEquals("DELAY_MODEL", j.obj("recommendedJourney").obj("realtime").str("source"))
+            assertEquals(40, j.obj("recommendedJourney").obj("realtime").int("sampleCount"))
+        }
     }
 }

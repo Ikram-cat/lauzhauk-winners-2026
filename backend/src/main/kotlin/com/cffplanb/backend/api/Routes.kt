@@ -189,7 +189,7 @@ private fun buildResponse(
     })
     val price = { q: FareQuote -> q.price(fareClass, discount) }
     fun fareOf(j: Journey) = plan.fares?.get(j.id)?.let(price)
-    fun dto(j: Journey?) = j?.let { journeyDto(it, plan, deadline, fareClass, discount, risk.estimate(it), windowDays) }
+    fun dto(j: Journey?) = j?.let { journeyDto(it, plan, deadline, fareClass, discount, risk.estimate(it), windowDays, j.id in plan.checked) }
 
     val alternatives = plan.alternatives.take(limit)
     val shown = (listOfNotNull(plan.primary, plan.recommended) + alternatives).distinctBy { it.id }
@@ -212,14 +212,14 @@ private fun buildResponse(
         }),
         disruption = plan.disruption?.let { x ->
             DisruptionDto(x.legIndex, x.leg.serviceLabel, x.leg.origin, x.leg.destination, RFC3339_FORMATTER.format(x.leg.departure),
-                x.estimatedDeparture?.let { RFC3339_FORMATTER.format(it) }, x.delayMinutes, x.cancelled, x.basis.name, x.confidence.uppercase(), x.cause)
+                x.estimatedDeparture?.let { RFC3339_FORMATTER.format(it) }, x.delayMinutes, x.cancelled, x.basis.name, x.confidence.uppercase(), x.cause, x.severity)
         },
         primaryJourney = dto(plan.primary), recommendedJourney = dto(plan.recommended), alternatives = alternatives.map { dto(it)!! },
         highlights = highlights, deadlineSummary = summary,
         meta = MetaDto(RFC3339_FORMATTER.format(OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS)), info.modelVersion))
 }
 
-private fun journeyDto(j: Journey, plan: JourneyPlan, deadline: OffsetDateTime?, fareClass: Int, discount: Discount, r: RiskEstimate?, windowDays: Int?): JourneyDto {
+private fun journeyDto(j: Journey, plan: JourneyPlan, deadline: OffsetDateTime?, fareClass: Int, discount: Discount, r: RiskEstimate?, windowDays: Int?, verified: Boolean): JourneyDto {
     val rt = plan.realtime.getValue(j.id)
     fun f(t: OffsetDateTime?) = t?.let { RFC3339_FORMATTER.format(it) }
     val fare = plan.fares?.get(j.id)
@@ -235,7 +235,7 @@ private fun journeyDto(j: Journey, plan: JourneyPlan, deadline: OffsetDateTime?,
     val occupancy = j.legs.filter { it.mode == LegMode.TRANSIT }.mapNotNull { if (fareClass == 1) it.occupancyFirst else it.occupancySecond }.maxByOrNull { rank.indexOf(it) }
     val rate = r?.lateArrivalProbability
     return JourneyDto(
-        id = j.id, dataStatus = j.dataStatus.name,
+        id = j.id, dataStatus = j.dataStatus.name, verified = verified,
         feasible = deadline?.let { !(rt.expectedArrival ?: j.arrival).toInstant().isAfter(it.toInstant()) },
         maxOccupancy = occupancy,
         schedule = ScheduleDto(RFC3339_FORMATTER.format(j.departure), RFC3339_FORMATTER.format(j.arrival), j.durationMinutes, j.transfers),

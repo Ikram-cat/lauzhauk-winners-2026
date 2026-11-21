@@ -66,7 +66,7 @@ data class RequestDto(
 data class DisruptionDto(
     val legIndex: Int, val serviceLabel: String?, val from: String, val to: String,
     val scheduledDeparture: String, val estimatedDeparture: String?, val delayMinutes: Int?, val cancelled: Boolean,
-    val basis: String, val confidence: String, val cause: String?
+    val basis: String, val confidence: String, val cause: String?, val severity: String? = null
 )
 
 @Serializable
@@ -102,7 +102,7 @@ data class LegDto(
 
 @Serializable
 data class JourneyDto(
-    val id: String, val dataStatus: String, val feasible: Boolean?, val maxOccupancy: String?,
+    val id: String, val dataStatus: String, val verified: Boolean, val feasible: Boolean?, val maxOccupancy: String?,
     val schedule: ScheduleDto, val realtime: RealtimeDto, val risk: RiskDto, val fares: FaresDto, val legs: List<LegDto>
 )
 

@@ -17,7 +17,7 @@ export JAVA_HOME=~/.local/jdk/jdk-21.0.13.1+2      # JDK 21 (no system javac on 
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd backend
-./gradlew test                                     # 165 tests, no network needed
+./gradlew test                                     # 171 tests, no network needed
 TRANSPORT_PROVIDER=mock PORT=8080 ./gradlew run     # offline demo data, no keys required
 ```
 
@@ -37,7 +37,7 @@ podman build -t planb-backend ./backend
 podman run --rm -p 8080:8080 -e PORT=8080 -e TRANSPORT_PROVIDER=mock planb-backend
 ```
 
-Deploy verification (17 checks, covering all four endpoints and the 400/404 paths, against any base URL):
+Deploy verification (18 checks, covering all four endpoints and the 400/404 paths, against any base URL):
 
 ```bash
 ./scripts/smoke.sh https://your-service.up.railway.app
@@ -197,13 +197,15 @@ Top-level fields:
 | `SUPPRESSED_STOP` | `serviceLabel` | The primary trip skips the boarding stop. |
 | `EARLIER_DEPARTURE_CANCELLED` | `serviceLabel` | The train the traveller wanted (not part of the primary journey) is cancelled; the primary journey is already a replacement. |
 | `EARLIER_ARRIVAL` | `savedMinutes` | The replacement arrives that many minutes before the primary's expected arrival. |
+| `EXPECTED_FASTER` | `savedMinutes` | On `STAY` with `preference=FASTEST`: nothing is broken, but another candidate is expected (live estimate or measured chronic delay) to arrive that many minutes earlier; it becomes `recommendedJourney`. |
 | `FEWER_TRANSFERS` | `savedTransfers` | The replacement has fewer changes. |
 | `CHEAPER` | `savedChf` | The replacement is cheaper for the requested class and discount. |
 | `DEADLINE_MET` / `DEADLINE_MISSED` | `marginMinutes` | The recommended journey's expected arrival is that many minutes before / after the deadline. |
 | `REALTIME_UNAVAILABLE` | — | Status is `UNKNOWN`. |
 | `STAY_FASTEST` | — | On `STAY`, no candidate is expected to arrive earlier. |
 
-Detection runs on `primaryJourney`:
+Detection runs on the top four candidates by `preference` (the primary plus the next three), so a broken
+alternative is caught before it can be recommended; deeper candidates carry `verified: false`:
 
 1. A cancelled GTFS-RT trip → `CANCELLED_FLAG`; a skipped boarding stop → `SUPPRESSED_STOP`; a
    measured boarding delay of **3 min or more** → `REALTIME_ESTIMATE`.
@@ -213,13 +215,15 @@ Detection runs on `primaryJourney`:
 
 `action` rules: `REROUTE` when the primary has a cancelled leg or a skipped stop, or when a replacement
 arrives at least **5 min** earlier than `primaryJourney.realtime.expectedArrival`. Otherwise `STAY`,
-with `recommendedJourney` equal to `primaryJourney`. `NONE` when no route exists. If realtime
+with `recommendedJourney` equal to `primaryJourney` (under `preference=FASTEST` a candidate expected
+to arrive 5+ min earlier may take the recommendation, with reason `EXPECTED_FASTER`). `NONE` when no route exists. If realtime
 detection fails or times out, `status` is `UNKNOWN`, `action` is `STAY`, the scheduled journeys are
 returned and every `realtime` value is `null`.
 
 `disruption` fields: `basis` is `CANCELLED_FLAG` \| `SUPPRESSED_STOP` \| `REALTIME_ESTIMATE` \|
 `MISSING_FROM_REALTIME`; `confidence` is `HIGH` \| `MEDIUM` \| `LOW`; `delayMinutes` and
-`estimatedDeparture` are `null` for a cancellation; `cause` is always `null` (no provider supplies one).
+`estimatedDeparture` are `null` for a cancellation; `cause` and `severity` come from a SIRI PtSituation
+affecting the same line or boarding stop (structured tokens, no prose), `null` when the feed has none.
 
 #### Journey object
 
@@ -229,6 +233,7 @@ Used by `primaryJourney`, `recommendedJourney` and every `alternatives[]` entry.
 {
   "id": "ID-9910A",
   "dataStatus": "LIVE_SCHEDULE",
+  "verified": true,
   "feasible": false,
   "maxOccupancy": "MEDIUM",
   "schedule": { "departure": "2026-11-21T20:15:00Z", "arrival": "2026-11-21T21:13:00Z", "durationMinutes": 58, "transfers": 1 },
@@ -254,6 +259,7 @@ Used by `primaryJourney`, `recommendedJourney` and every `alternatives[]` entry.
 | --- | --- |
 | `id` | Opaque identifier, unique within one response. |
 | `dataStatus` | `LIVE_SCHEDULE` or `MOCK`; label `MOCK` as demo data in any UI. |
+| `verified` | Whether the detector checked this journey against live data; `false` means its realtime values are expectations, not a live verdict. |
 | `feasible` | `null` without `arrivalDeadline`; else whether the expected arrival (scheduled if unknown) meets it. |
 | `maxOccupancy` | Highest `LOW` < `MEDIUM` < `HIGH` over the transit legs for the requested `fareClass`; `null` when no leg reports one. |
 | `schedule` | Scheduled values. **Never mutated** by realtime. |

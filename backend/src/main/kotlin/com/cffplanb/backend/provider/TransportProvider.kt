@@ -42,9 +42,16 @@ data class StopEvent(
 )
 
 sealed class StopEventsResult {
-    data class Success(val events: List<StopEvent>) : StopEventsResult()
+    data class Success(val events: List<StopEvent>, val situations: List<PtSituation> = emptyList()) : StopEventsResult()
     data class Failure(val message: String) : StopEventsResult()
 }
+
+/** A SIRI PtSituation carried by a provider response: [lineRefs]/[stopRefs] name what it affects; [cause]/[severity] are structured tokens, never prose. */
+data class PtSituation(
+    val number: String, val cause: String?, val severity: String?, val summary: String?,
+    val lineRefs: List<String> = emptyList(), val stopRefs: List<String> = emptyList(),
+    val validFrom: java.time.OffsetDateTime? = null, val validUntil: java.time.OffsetDateTime? = null
+)
 
 /** [query] is what to pass to [TransportProvider.search]; [id]/[name] are null when the provider cannot say (coordinates, mock). */
 data class ResolvedPlace(val input: String, val id: String?, val name: String?, val query: String)

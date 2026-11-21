@@ -39,6 +39,7 @@ check j-status      200 "$BASE/api/journeys?origin=Lausanne&destination=Gen%C3%A
 check j-deadline    200 "$BASE/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&arrivalDeadline=$(later_iso 180)" '"deadlineSummary":{"feasible"'
 check j-limit       200 "$BASE/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&limit=1" '"primaryJourney"'
 check j-unknown-arg 200 "$BASE/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&foo=bar" '"recommendedJourney"'
+check j-verified     200 "$BASE/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve" '"verified":true'
 check model         200 "$BASE/api/model" '"riskModel":{.*"delayModel":{'
 check bad-request   400 "$BASE/api/journeys?origin=Lausanne" '"field":"destination"'
 check bad-limit     400 "$BASE/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&limit=11" '"field":"limit"'
