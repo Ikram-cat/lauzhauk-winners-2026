@@ -10,7 +10,7 @@ import pandas as pd
 from .duration_model import TZ
 from .line_hour import confidence, line_key
 
-MIN_CORRIDOR_N = 3  # corridors below this are dropped
+MIN_CORRIDOR_N = 2  # corridors below this (i.e. n == 1) are dropped
 MIN_CELL_N = 8      # byLineHour cells below this are dropped
 
 # Variants NOT observed in the CSVs (checked 2026-11-21), added for OJP/user-typed names.
@@ -48,7 +48,8 @@ def parse_corridor(desc_en, desc_de):
             return stops, "line"
     for rx, s in ((_BETWEEN_EN, desc_en), (_BETWEEN_DE, desc_de)):
         if isinstance(s, str) and (m := rx.search(s)):
-            return [tidy(m.group(1)), tidy(m.group(2))], "segment"
+            # "between Olten and Zürich HB will travel via X": cut the trailing clause off the stop name
+            return [tidy(m.group(1)), tidy(re.split(r" (?:will|wird|müssen|must)\b", m.group(2))[0])], "segment"
     return None, None
 
 
@@ -102,22 +103,26 @@ def corridors(inc: pd.DataFrame, window_days: int) -> tuple[list[dict], dict]:
     inc = inc[inc.stops.notna()]
     pools: dict = {}
     for iid, r in inc.iterrows():
-        a, b = r.stops[0], r.stops[-1]
-        if a == b:
-            continue
-        p = pools.setdefault(tuple(sorted((a, b))), {"ori": Counter(), "via": Counter(), "src": Counter(),
-                                                      "days": set(), "dur": {}})
-        p["ori"][(a, b)] += 1
-        p["via"][tuple(r.stops[1:-1])] += 1
-        p["src"][r.csource] += 1
-        p["days"] |= _days(r)
-        p["dur"][iid] = r.duration_min
-    rows, dropped = [], 0
+        s = r.stops
+        # whole text first, then (for >2 stops) each adjacent 2-stop segment, pooled as source "segment"
+        for a, b, via, src in [(s[0], s[-1], tuple(s[1:-1]), r.csource)] + \
+                [(s[i], s[i + 1], (), "segment") for i in range(len(s) - 1) if len(s) > 2]:
+            if a == b:
+                continue
+            p = pools.setdefault(tuple(sorted((a, b))), {"ori": Counter(), "via": Counter(), "src": Counter(),
+                                                          "days": set(), "dur": {}})
+            p["ori"][(a, b)] += 1
+            p["via"][via] += 1
+            p["src"][src] += 1
+            p["days"] |= _days(r)
+            p["dur"][iid] = r.duration_min
+    rows, dropped, covered = [], 0, set()
     for p in pools.values():
         n = len(p["dur"])
         if n < MIN_CORRIDOR_N:
             dropped += 1
             continue
+        covered |= set(p["dur"])
         a, b = p["ori"].most_common(1)[0][0]
         row = {"from": a, "to": b, "corridor": f"{a} - {b}", "disruptionDays": len(p["days"]),
                "windowDays": window_days,
@@ -129,7 +134,7 @@ def corridors(inc: pd.DataFrame, window_days: int) -> tuple[list[dict], dict]:
             row["via"] = via
         rows.append(row)
     rows.sort(key=lambda r: (-r["sampleSize"], r["corridor"]))
-    return rows, {"poolsTotal": len(pools), "droppedSampleLt3": dropped}
+    return rows, {"poolsTotal": len(pools), "dropped": dropped, "coveredIds": covered}
 
 
 def hour_baseline(inc: pd.DataFrame, window_days: int) -> list[dict]:

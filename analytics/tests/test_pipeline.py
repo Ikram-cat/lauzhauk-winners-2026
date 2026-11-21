@@ -117,7 +117,7 @@ def test_corridor_pooling_math():
                 ("3", "2026-01-07 08:00", "2026-01-07 11:00", ["A", "X", "B"]),
                 ("4", "2026-01-05 08:00", "2026-01-05 09:00", ["C", "D"])])
     rows, st = cor.corridors(inc, window_days=10)
-    assert st == {"poolsTotal": 2, "droppedSampleLt3": 1} and len(rows) == 1
+    assert st == {"poolsTotal": 4, "dropped": 3, "coveredIds": {"1", "2", "3"}} and len(rows) == 1
     r = rows[0]
     assert (r["from"], r["to"], r["sampleSize"], r["disruptionDays"]) == ("A", "B", 3, 2)
     assert r["disruptionProbabilityPerDay"] == 0.2 and r["expectedDelayMin"] == 120.0  # median(60,120,180)
@@ -137,6 +137,37 @@ def test_artifact_drops_noise_and_is_joinable():
     v = dm.add_start_end(versions())
     pred = build_predictions(v, dm.build_snapshots(v), "2026-01-01T00:00:00Z")
     assert pred["byLineHour"] == [] and pred["stats"]["byLineHourCellsDropped"] == 2  # n=1 cells < 8
-    assert pred["corridors"] == [] and pred["stats"]["corridorsDroppedSampleLt3"] == 1  # n=1 < 3
+    assert pred["corridors"] == [] and pred["stats"]["corridorsDropped"] == 1  # n=1
     assert len(pred["hourBaseline"]) == 24 and {"joinHints", "stationAliases"} <= pred.keys()
     json.dumps(pred, ensure_ascii=False)
+
+
+def test_corridor_keeps_n2_and_pools_segments():
+    inc = _inc([("1", "2026-01-05 08:00", "2026-01-05 09:00", ["A", "X", "B"]),
+                ("2", "2026-01-06 08:00", "2026-01-06 09:00", ["X", "B"]),
+                ("3", "2026-01-07 08:00", "2026-01-07 09:00", ["C", "D"])])
+    rows, st = cor.corridors(inc, window_days=10)
+    by = {r["corridor"]: r for r in rows}
+    assert by["X - B"]["sampleSize"] == 2 and by["X - B"]["confidence"] == "low"
+    assert st["dropped"] == 3 and st["coveredIds"] == {"1", "2"}  # A-B, A-X, C-D are n=1
+
+
+def test_ojp_places_parse_and_score():
+    from analytics import ojp_validate as o
+    xml = (b'<O xmlns="http://www.vdv.de/ojp"><Place><StopPlace><StopPlaceRef>ch:1:sloid:1008</StopPlaceRef>'
+           b'<StopPlaceName><Text>Gen\xc3\xa8ve</Text></StopPlaceName></StopPlace></Place></O>')
+    assert o.parse_places(xml) == [("Genève", "ch:1:sloid:1008")]
+    assert o.score("Geneve", "Genève") == 1.0 and o.score("Zürich", "Zürich HB") == 0.9 and o.score("Bern", "Chur") < 0.8
+
+
+import os  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.skipif(not __import__("analytics.ojp_validate", fromlist=["x"]).load_key(), reason="OJP_API_KEY absent")
+def test_ojp_validate_live_five_stations():
+    from analytics import ojp_validate as o
+    key = o.load_key()
+    got = {n: o.validate(n, key) for n in ["Genève", "Zürich HB", "Biel/Bienne", "Lausanne", "Bern"]}
+    assert all(v["matched"] and v["sloid"].startswith("ch:1:sloid:") for v in got.values()), got

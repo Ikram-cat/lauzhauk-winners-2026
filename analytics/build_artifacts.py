@@ -14,13 +14,24 @@ import joblib
 
 from . import duration_model as dm
 from . import corridors as cor
+from . import ojp_validate as ojp
 from .line_hour import by_line_hour, incidents_table
 
 DEFAULT_DATA = "analytics/Daten/Daten/extern-liveticker"
 VERSION = "2026-11-duration-v1"
 
 
-def build_predictions(vend, snap, generated_at) -> dict:
+def top_stations(crows, n=40) -> list[str]:
+    """Endpoints of the best-sampled corridors, first n distinct."""
+    seen: dict = {}
+    for c in crows:
+        seen.setdefault(c["from"], 1)
+        seen.setdefault(c["to"], 1)
+    return list(seen)[:n]
+
+
+def build_predictions(vend, snap, generated_at, validate=None) -> dict:
+    """validate: optional callable name -> {csvName, ojpName, sloid, matched, score} (OJP lookup)."""
     start, end = vend.start.min(), vend.end.max()
     window_days = max(1, (end.normalize() - start.normalize()).days + 1)
     inc = incidents_table(vend)
@@ -30,9 +41,12 @@ def build_predictions(vend, snap, generated_at) -> dict:
     canon, aliases = cor.build_station_table(n for p in parsed if p for n in p)
     inc2 = cor.add_corridors(inc, canon)
     crows, cstats = cor.corridors(inc2, window_days)
-    covered_ids = {r.name for _, r in inc2[inc2.stops.notna()].iterrows()}
-    kept_pairs = {tuple(sorted((c["from"], c["to"]))) for c in crows}
-    in_kept = sum(tuple(sorted((s[0], s[-1]))) in kept_pairs for s in inc2.stops.dropna())
+    with_corridor = int(inc2.stops.notna().sum())
+    in_kept = len(cstats["coveredIds"])
+    sv = [validate(n) for n in top_stations(crows)] if validate else []
+    for v in sv:  # OJP name differs from the CSV name -> alias csv -> ojp, so the backend can resolve both ways
+        if v["matched"] and v["ojpName"] != v["csvName"]:
+            aliases[v["csvName"]] = v["ojpName"]
     return {
         "modelVersion": VERSION, "generatedAt": generated_at,
         "coverage": {"from": start.isoformat(), "to": end.isoformat(),
@@ -48,21 +62,24 @@ def build_predictions(vend, snap, generated_at) -> dict:
             "an upper bound on passenger delay, not a measured delay.",
             "sampleSize = distinct incidents in the bucket; confidence: <8 low, 8-19 medium, >=20 high.",
             "corridors: pooled over hours and both directions (A-B + B-A); see stats, joinHints, "
-            "hourBaseline (nationwide, 24 rows) and stationAliases. Corridors with <3 incidents are dropped; "
+            "hourBaseline (nationwide, 24 rows) and stationAliases. Corridors with a single incident are dropped; "
             "byLineHour cells with <8 incidents are dropped.",
             f"{inc.key.isna().sum()} of {len(inc)} incidents had no parsable line corridor and are excluded.",
         ],
         "byLineHour": rows,
         "corridors": crows,
         "hourBaseline": cor.hour_baseline(inc, window_days),
-        "stationAliases": aliases,
+        "stationAliases": dict(sorted(aliases.items())),
+        "stationValidation": sv,
         "joinHints": cor.JOIN_HINTS,
         "stats": {
-            "incidents": len(inc), "incidentsWithCorridor": len(covered_ids),
+            "incidents": len(inc), "incidentsWithCorridor": with_corridor,
             "incidentsInKeptCorridors": in_kept,
             "shareInKeptCorridors": round(in_kept / len(inc), 4),
+            "coverageShare": round(in_kept / len(inc), 4),  # ENDED incidents (<24h) in a kept corridor
             "corridorsKept": len(crows), "corridorsKeptSampleGe20": sum(c["sampleSize"] >= 20 for c in crows),
-            "corridorsDroppedSampleLt3": cstats["droppedSampleLt3"],
+            "corridorsDropped": cstats["dropped"], "corridorsDroppedSampleEq1": cstats["dropped"],
+            "stationsValidated": sum(v["matched"] for v in sv), "stationsUnmatched": sum(not v["matched"] for v in sv),
             "byLineHourCellsKept": len(rows), "byLineHourCellsDropped": len(all_rows) - len(rows),
             "byLineHourMinSampleSize": cor.MIN_CELL_N, "windowDays": window_days,
         },
@@ -73,6 +90,7 @@ def main(argv=None) -> dict:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", default=os.environ.get("LIVETICKER_DATA", DEFAULT_DATA))
     ap.add_argument("--out", default="analytics/artifacts")
+    ap.add_argument("--no-ojp", action="store_true", help="skip OJP station validation (offline)")
     a = ap.parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -104,10 +122,12 @@ def main(argv=None) -> dict:
         "metrics": metrics,
         "note": "Metrics come from a chronological split; the shipped joblib is refit on all snapshots.",
     }, indent=2))
-    pred = build_predictions(v, snap, now)
+    key = None if a.no_ojp else ojp.load_key()
+    pred = build_predictions(v, snap, now, (lambda n: ojp.validate(n, key)) if key else None)
     (out / "predictions.json").write_text(json.dumps(pred, indent=1, ensure_ascii=False))
     n20 = sum(r["sampleSize"] >= 20 for r in pred["byLineHour"])
     print(f"stats: {json.dumps(pred['stats'])}")
+    print("stationValidation:", [(v["csvName"], v["ojpName"]) for v in pred["stationValidation"] if not v["matched"]], "unmatched")
     print("hourBaseline sampleSize:", [r["sampleSize"] for r in pred["hourBaseline"]])
     return {"metrics": metrics, "n_keys": len(pred["byLineHour"]), "n_keys_ge20": n20}
 
