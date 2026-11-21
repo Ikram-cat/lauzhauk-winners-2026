@@ -72,6 +72,8 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
     var searchedRoute by remember { mutableStateOf<Pair<String, String>?>(null) }
     var loading by remember { mutableStateOf(false) }
     var journeys by remember { mutableStateOf(emptyList<Journey>()) }
+    var recommendations by remember { mutableStateOf<Recommendations?>(null) }
+    var preference by remember { mutableStateOf(Preference.FASTEST) }
     var selected by remember { mutableStateOf<String?>(null) }
     var request by remember { mutableStateOf<Job?>(null) }
     var railRun by remember { mutableStateOf(0) }
@@ -84,7 +86,9 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
         val to = destination.trim()
         val day = date
         val departure = hour
+        val mode = preference
         journeys = emptyList()
+        recommendations = null
         status = Copy.Searching
         searchedRoute = null
         loading = true
@@ -93,7 +97,9 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                 if (from.isEmpty() || to.isEmpty() || from.equals(to, ignoreCase = true)) {
                     throw SearchInputException(Copy.DistinctStations)
                 }
-                journeys = source.search(from, to, swissDeparture(day, departure))
+                val response = source.search(from, to, swissDeparture(day, departure), mode)
+                journeys = response.journeys
+                recommendations = response.recommendations
                 selected = journeys.firstOrNull()?.id
                 status = if (journeys.isEmpty()) {
                     if (source.demo) Copy.EmptyDemo else Copy.EmptyJourney
@@ -185,6 +191,13 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                         }
                         if (feedback != null) {
                             Text(copy(Copy.Journeys), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            SingleChoiceSegmentedButtonRow(Modifier.semantics { contentDescription = copy(Copy.SortBy) }) {
+                                for ((index, mode) in Preference.entries.withIndex()) SegmentedButton(
+                                    selected = preference == mode,
+                                    onClick = { if (preference != mode) { preference = mode; search() } },
+                                    shape = SegmentedButtonDefaults.itemShape(index, Preference.entries.size)
+                                ) { Text(copy(mode.label)) }
+                            }
                             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                             Text(feedback, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.onSurfaceVariant)
                             for (journey in journeys) {
@@ -196,7 +209,17 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                                         val crossesDay = start.toLocalDateTime(Zurich).date != end.toLocalDateTime(Zurich).date
                                         fun label(instant: Instant) = time(instant) +
                                             if (crossesDay) " · ${instant.toLocalDateTime(Zurich).date}" else ""
-                                        Text("${label(start)} → ${label(end)}", fontWeight = FontWeight.Bold)
+                                        val badges = Preference.entries.filter { recommendations?.id(it) == journey.id }
+                                        if (badges.isNotEmpty()) Text(badges.joinToString(" · ") { copy(it.label) },
+                                            color = colors.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("${label(start)} → ${label(end)}", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                                            journey.fare?.let { Text(chf(it), fontWeight = FontWeight.Bold) }
+                                        }
+                                        journey.halfFare?.let {
+                                            Text("${chf(it)} ${copy(Copy.WithHalfFare)}", Modifier.align(Alignment.End),
+                                                color = colors.onSurfaceVariant, fontSize = 12.sp)
+                                        }
                                         val provenance = when (journey.dataStatus) {
                                             "MOCK" -> Copy.Demo
                                             "LIVE_SCHEDULE" -> Copy.ProviderSchedule

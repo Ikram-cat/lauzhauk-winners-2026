@@ -62,5 +62,10 @@ internal enum class Copy(val french: String, val english: String) {
     DigitalClock("Afficher l’heure numérique", "Show digital clock"),
     In("Dans", "In"),
     DeparturePassed("Horaire prévu écoulé", "Scheduled departure has passed"),
-    NextDeparture("Prochain départ · Démo", "Next departure · Demo")
+    NextDeparture("Prochain départ · Démo", "Next departure · Demo"),
+    Fastest("Le plus rapide", "Fastest"),
+    Cheapest("Le moins cher", "Cheapest"),
+    Simplest("Le plus simple", "Simplest"),
+    SortBy("Trier les itinéraires", "Sort journeys"),
+    WithHalfFare("avec demi-tarif", "with Half-Fare")
 }
