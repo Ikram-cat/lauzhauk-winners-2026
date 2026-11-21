@@ -5,6 +5,7 @@ import com.cffplanb.backend.api.ErrorResponseDto
 import com.cffplanb.backend.api.configureRoutes
 import com.cffplanb.backend.provider.MockTransportProvider
 import com.cffplanb.backend.provider.OjpTransportProvider
+import com.cffplanb.backend.provider.ResilientProvider
 import com.cffplanb.backend.service.*
 import java.nio.file.Files
 import java.nio.file.Path
@@ -72,7 +73,7 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         }
     }
 
-    val searchService = JourneySearchService(provider)
+    val searchService = JourneySearchService(ResilientProvider(provider, cacheEnabled = config.cacheEnabled))
 
     val risk: RiskEstimator = if (config.riskSource.lowercase() == "none") NoRiskEstimator else {
         // Explicit RISK_ARTIFACT_PATH (if it exists) wins; otherwise the bundled classpath resource, copied to a temp file.
@@ -83,5 +84,7 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         ArtifactRiskEstimator(path, clock)
     }
 
+    val ri = risk.info()
+    log.info("Risk artifact status={} corridorsLoaded={} modelVersion={}", ri.status, ri.corridorsLoaded, ri.modelVersion)
     configureRoutes(searchService, clock, risk)
 }

@@ -31,6 +31,7 @@ class OjpLocationResolutionException(message: String) : RuntimeException(message
 class OjpAuthenticationException(message: String) : RuntimeException(message)
 class OjpRateLimitedException : RuntimeException("rate limited")
 class OjpTimeoutException : RuntimeException("timeout")
+class OjpUpstreamException(message: String) : RuntimeException(message)
 
 /**
  * OJP 2.0 transport provider.
@@ -67,6 +68,10 @@ class OjpTransportProvider(
             return ProviderResult.AuthError(e.message ?: "Provider authentication failed")
         } catch (e: OjpLocationResolutionException) {
             return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve origin stop")
+        } catch (e: OjpRateLimitedException) {
+            return ProviderResult.RateLimited("OJP rate limit reached")
+        } catch (e: OjpTimeoutException) {
+            return ProviderResult.Timeout("OJP did not respond within ${timeoutMs}ms")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -80,6 +85,10 @@ class OjpTransportProvider(
             return ProviderResult.AuthError(e.message ?: "Provider authentication failed")
         } catch (e: OjpLocationResolutionException) {
             return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve destination stop")
+        } catch (e: OjpRateLimitedException) {
+            return ProviderResult.RateLimited("OJP rate limit reached")
+        } catch (e: OjpTimeoutException) {
+            return ProviderResult.Timeout("OJP did not respond within ${timeoutMs}ms")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -166,9 +175,7 @@ class OjpTransportProvider(
                         "Transport provider authentication failed. Check OJP_API_KEY configuration."
                     )
                     429 -> throw OjpRateLimitedException()
-                    else -> throw OjpLocationResolutionException(
-                        "OJP location request failed with HTTP ${response.status.value}"
-                    )
+                    else -> throw OjpUpstreamException("OJP location request failed with HTTP ${response.status.value}")
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -176,10 +183,10 @@ class OjpTransportProvider(
                 throw e
             } catch (e: OjpRateLimitedException) {
                 throw e
-            } catch (e: OjpLocationResolutionException) {
+            } catch (e: OjpUpstreamException) {
                 throw e
             } catch (e: Exception) {
-                throw OjpLocationResolutionException("OJP location call failed: ${e.javaClass.simpleName}")
+                throw OjpUpstreamException("OJP location call failed: ${e.javaClass.simpleName}")
             }
         } ?: throw OjpTimeoutException()
 
@@ -202,6 +209,8 @@ class OjpTransportProvider(
         } catch (e: OjpAuthenticationException) {
             LocationsResult.Failure(e.message ?: "Transport provider authentication failed")
         } catch (e: OjpLocationResolutionException) {
+            LocationsResult.Failure("Location lookup failed")
+        } catch (e: OjpUpstreamException) {
             LocationsResult.Failure("Location lookup failed")
         }
     }

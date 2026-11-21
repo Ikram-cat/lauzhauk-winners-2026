@@ -10,7 +10,8 @@ data class AppConfig(
     val transportProvider: String = System.getenv("TRANSPORT_PROVIDER") ?: "mock",
     val ojpApiKey: String? = System.getenv("OJP_API_KEY"),
     val riskSource: String = System.getenv("RISK_SOURCE") ?: "artifact",
-    val riskArtifactPath: String? = System.getenv("RISK_ARTIFACT_PATH")
+    val riskArtifactPath: String? = System.getenv("RISK_ARTIFACT_PATH"),
+    val cacheEnabled: Boolean = !System.getenv("CACHE_ENABLED").equals("false", ignoreCase = true)
 ) {
     companion object {
         fun fromEnv(): AppConfig = AppConfig()
