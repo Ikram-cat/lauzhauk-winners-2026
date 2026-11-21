@@ -1,9 +1,17 @@
 package com.cffplanb.backend.api
 
+import com.cffplanb.backend.config.AppConfig
 import com.cffplanb.backend.config.configureApp
+import com.cffplanb.backend.domain.SearchRequest
+import com.cffplanb.backend.provider.ProviderResult
+import com.cffplanb.backend.provider.TransportProvider
+import com.cffplanb.backend.service.JourneySearchService
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
+import io.ktor.server.application.*
+import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
 import java.time.Clock
@@ -11,6 +19,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -29,6 +38,19 @@ class RouteTest {
         block()
     }
 
+    private fun customProviderTest(
+        mockProvider: TransportProvider,
+        block: suspend ApplicationTestBuilder.() -> Unit
+    ) = testApplication {
+        application {
+            install(ContentNegotiation) {
+                json(Json { encodeDefaults = true })
+            }
+            configureRoutes(JourneySearchService(mockProvider), fixedClock)
+        }
+        block()
+    }
+
     // --- Health ---
 
     @Test
@@ -41,7 +63,6 @@ class RouteTest {
 
     @Test
     fun `GET health does not call provider`() = appTest {
-        // Just verify it returns quickly and correctly with no side effects
         repeat(3) {
             val r = client.get("/health")
             assertEquals(HttpStatusCode.OK, r.status)
@@ -75,7 +96,6 @@ class RouteTest {
         assertEquals(HttpStatusCode.OK, response.status)
         val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         val req = json["request"]!!.jsonObject
-        // earliestDeparture should contain the clock instant
         assertTrue(req["earliestDeparture"]!!.jsonPrimitive.content.contains("2026-11-21"))
     }
 
@@ -86,8 +106,6 @@ class RouteTest {
         val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         val journeys = json["journeys"]!!.jsonArray
 
-        // Validate sorted order: mock-direct-1 arrives at base+60min, mock-transfer-2 at base+80min
-        // mock-direct-1 should come before mock-transfer-2
         if (journeys.size >= 2) {
             val first = journeys[0].jsonObject
             val second = journeys[1].jsonObject
@@ -105,7 +123,6 @@ class RouteTest {
         val journeys = json["journeys"]!!.jsonArray
         assertTrue(journeys.isNotEmpty())
         val j = journeys[0].jsonObject
-        // These are null in v1 but should be present
         assertTrue(j.containsKey("predictedDelayMinutes"))
         assertTrue(j.containsKey("lateArrivalProbability"))
         assertTrue(j.containsKey("estimatedFareChf"))
@@ -153,7 +170,6 @@ class RouteTest {
 
     @Test
     fun `departure without offset returns 400`() = appTest {
-        // Local time without offset is invalid per contract
         val response = client.get("/api/journeys?origin=Lausanne&destination=Bern&departure=2026-01-01T12:00:00")
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertErrorCode(response, "INVALID_REQUEST")
@@ -198,6 +214,70 @@ class RouteTest {
     fun `GET journeys content type is JSON`() = appTest {
         val response = client.get("/api/journeys?origin=Lausanne&destination=Bern")
         assertEquals(ContentType.Application.Json.withCharset(Charsets.UTF_8), response.contentType())
+    }
+
+    // --- Provider failure mappings ---
+
+    @Test
+    fun `startup with ojp provider but missing api key fails fast`() {
+        val config = AppConfig(transportProvider = "ojp", ojpApiKey = null)
+        assertFailsWith<IllegalStateException> {
+            testApplication {
+                application {
+                    configureApp(fixedClock, config)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `provider auth error maps to 502 UPSTREAM_ERROR with credential-free message`() = customProviderTest(
+        mockProvider = object : TransportProvider {
+            override suspend fun search(request: SearchRequest): ProviderResult =
+                ProviderResult.AuthError("Transport provider authentication failed. Check OJP_API_KEY configuration.")
+        }
+    ) {
+        val response = client.get("/api/journeys?origin=Lausanne&destination=Bern")
+        assertEquals(HttpStatusCode.BadGateway, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("UPSTREAM_ERROR", json["error"]!!.jsonObject["code"]!!.jsonPrimitive.content)
+        assertTrue(json["error"]!!.jsonObject["message"]!!.jsonPrimitive.content.contains("authentication failed"))
+    }
+
+    @Test
+    fun `provider timeout maps to 504 UPSTREAM_TIMEOUT`() = customProviderTest(
+        mockProvider = object : TransportProvider {
+            override suspend fun search(request: SearchRequest): ProviderResult =
+                ProviderResult.Timeout("OJP did not respond within 8000ms")
+        }
+    ) {
+        val response = client.get("/api/journeys?origin=Lausanne&destination=Bern")
+        assertEquals(HttpStatusCode.GatewayTimeout, response.status)
+        assertErrorCode(response, "UPSTREAM_TIMEOUT")
+    }
+
+    @Test
+    fun `provider rate limit maps to 503 UPSTREAM_RATE_LIMITED`() = customProviderTest(
+        mockProvider = object : TransportProvider {
+            override suspend fun search(request: SearchRequest): ProviderResult =
+                ProviderResult.RateLimited("OJP rate limit reached")
+        }
+    ) {
+        val response = client.get("/api/journeys?origin=Lausanne&destination=Bern")
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertErrorCode(response, "UPSTREAM_RATE_LIMITED")
+    }
+
+    @Test
+    fun `provider location resolution error maps to 502 UPSTREAM_ERROR`() = customProviderTest(
+        mockProvider = object : TransportProvider {
+            override suspend fun search(request: SearchRequest): ProviderResult =
+                ProviderResult.LocationResolutionError("Could not resolve stop 'UnknownStation' via OJP LocationInformationRequest")
+        }
+    ) {
+        val response = client.get("/api/journeys?origin=UnknownStation&destination=Bern")
+        assertEquals(HttpStatusCode.BadGateway, response.status)
+        assertErrorCode(response, "UPSTREAM_ERROR")
     }
 
     private suspend fun assertErrorCode(response: io.ktor.client.statement.HttpResponse, code: String) {

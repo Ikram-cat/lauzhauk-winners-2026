@@ -165,6 +165,18 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
                         ErrorResponseDto(ErrorDetailDto("UPSTREAM_RATE_LIMITED", result.message))
                     )
                 }
+                is SearchResult.AuthError -> {
+                    call.respond(
+                        HttpStatusCode.BadGateway,
+                        ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", result.message))
+                    )
+                }
+                is SearchResult.LocationResolutionError -> {
+                    call.respond(
+                        HttpStatusCode.BadGateway,
+                        ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", result.message))
+                    )
+                }
                 is SearchResult.Failure -> {
                     call.respond(
                         HttpStatusCode.BadGateway,

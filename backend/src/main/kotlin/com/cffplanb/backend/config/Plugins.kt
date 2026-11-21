@@ -59,10 +59,10 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     // Build provider
     val provider = when (config.transportProvider.lowercase()) {
         "ojp" -> {
-            val apiKey = config.ojpApiKey
-                ?: error("OJP_API_KEY must be set when TRANSPORT_PROVIDER=ojp")
+            val apiKey = config.ojpApiKey?.trim().takeUnless { it.isNullOrEmpty() }
+                ?: error("OJP_API_KEY environment variable is required when TRANSPORT_PROVIDER=ojp")
             log.info("Using OJP transport provider")
-            OjpTransportProvider(apiKey)
+            OjpTransportProvider(apiKey = apiKey, clock = clock)
         }
         else -> {
             log.info("Using Mock transport provider")

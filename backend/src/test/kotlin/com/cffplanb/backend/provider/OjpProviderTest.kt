@@ -3,12 +3,17 @@ package com.cffplanb.backend.provider
 import com.cffplanb.backend.domain.DataStatus
 import com.cffplanb.backend.domain.LegMode
 import com.cffplanb.backend.domain.SearchRequest
+import java.io.File
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class OjpProviderTest {
 
@@ -16,7 +21,7 @@ class OjpProviderTest {
     private val baseRequest = SearchRequest(
         origin = "Lausanne",
         destination = "Genève",
-        earliestDeparture = OffsetDateTime.of(2026, 11, 21, 15, 0, 0, 0, ZoneOffset.ofHours(1))
+        earliestDeparture = OffsetDateTime.of(2026, 11, 21, 14, 0, 0, 0, ZoneOffset.UTC)
     )
 
     private fun loadFixture(): String {
@@ -27,17 +32,19 @@ class OjpProviderTest {
     }
 
     @Test
-    fun `parses two trips from fixture`() {
+    fun `parses three valid trips from fixture (cancelled leg is skipped)`() {
         val xml = loadFixture()
-        val result = provider.parseOjpResponse(xml, baseRequest)
+        val result = provider.parseTripResponse(xml)
         assertIs<ProviderResult.Success>(result)
-        assertEquals(2, result.journeys.size)
+        // Trip 1 (direct), Trip 2 (transfer), Trip 4 (optional fields missing)
+        // Trip 3 (cancelled/no departure) has no valid legs and is skipped
+        assertEquals(3, result.journeys.size)
     }
 
     @Test
-    fun `first trip is direct IC 702 Lausanne to Genève`() {
+    fun `first trip is direct IC702 Lausanne to Genève`() {
         val xml = loadFixture()
-        val result = provider.parseOjpResponse(xml, baseRequest) as ProviderResult.Success
+        val result = provider.parseTripResponse(xml) as ProviderResult.Success
         val trip1 = result.journeys.first { it.id == "TRIP-001-DIRECT" }
 
         assertEquals("TRIP-001-DIRECT", trip1.id)
@@ -49,14 +56,14 @@ class OjpProviderTest {
         assertEquals(LegMode.TRANSIT, leg.mode)
         assertEquals("Lausanne", leg.origin)
         assertEquals("Genève", leg.destination)
-        assertEquals("IC 702", leg.serviceLabel)
+        assertEquals("IC702", leg.serviceLabel)
         assertEquals("3A", leg.departurePlatform)
     }
 
     @Test
     fun `second trip has three legs including walk transfer`() {
         val xml = loadFixture()
-        val result = provider.parseOjpResponse(xml, baseRequest) as ProviderResult.Success
+        val result = provider.parseTripResponse(xml) as ProviderResult.Success
         val trip2 = result.journeys.first { it.id == "TRIP-002-TRANSFER" }
 
         assertEquals(3, trip2.legs.size)
@@ -64,29 +71,58 @@ class OjpProviderTest {
         assertEquals(LegMode.WALK, trip2.legs[1].mode)
         assertEquals(LegMode.TRANSIT, trip2.legs[2].mode)
 
-        // 2 transit legs → 1 transfer
+        // 2 transit legs -> 1 transfer
         assertEquals(1, trip2.transfers)
     }
 
     @Test
-    fun `trip timestamps are offset-aware`() {
+    fun `trip with optional fields missing parses successfully with nulls`() {
         val xml = loadFixture()
-        val result = provider.parseOjpResponse(xml, baseRequest) as ProviderResult.Success
+        val result = provider.parseTripResponse(xml) as ProviderResult.Success
+        val trip4 = result.journeys.first { it.id == "TRIP-004-OPTIONAL-MISSING" }
+
+        assertEquals(1, trip4.legs.size)
+        val leg = trip4.legs[0]
+        assertEquals("Lausanne", leg.origin)
+        assertEquals("Genève", leg.destination)
+        assertNull(leg.serviceLabel)
+        assertNull(leg.departurePlatform)
+        assertNull(leg.arrivalPlatform)
+    }
+
+    @Test
+    fun `trip timestamps are UTC offset-aware`() {
+        val xml = loadFixture()
+        val result = provider.parseTripResponse(xml) as ProviderResult.Success
         val trip = result.journeys.first { it.id == "TRIP-001-DIRECT" }
 
-        // departure at 16:10+01:00
-        assertEquals(16, trip.departure.hour)
-        assertEquals(10, trip.departure.minute)
-        assertEquals(ZoneOffset.ofHours(1), trip.departure.offset)
+        // departure at 15:10 UTC
+        assertEquals(15, trip.departure.withOffsetSameInstant(ZoneOffset.UTC).hour)
+        assertEquals(10, trip.departure.withOffsetSameInstant(ZoneOffset.UTC).minute)
 
-        // arrival at 17:00+01:00
-        assertEquals(17, trip.arrival.hour)
-        assertEquals(0, trip.arrival.minute)
+        // arrival at 16:00 UTC
+        assertEquals(16, trip.arrival.withOffsetSameInstant(ZoneOffset.UTC).hour)
+        assertEquals(0, trip.arrival.withOffsetSameInstant(ZoneOffset.UTC).minute)
+    }
+
+    @Test
+    fun `can parse real OJP response from tmp if available`() {
+        val realFile = File("/tmp/ojp_ok.xml")
+        if (realFile.exists()) {
+            val xml = realFile.readText()
+            val result = provider.parseTripResponse(xml)
+            assertIs<ProviderResult.Success>(result)
+            assertTrue(result.journeys.isNotEmpty())
+            result.journeys.forEach { j ->
+                assertEquals(DataStatus.LIVE_SCHEDULE, j.dataStatus)
+                assertTrue(j.legs.isNotEmpty())
+            }
+        }
     }
 
     @Test
     fun `returns failure on malformed xml`() {
-        val result = provider.parseOjpResponse("<not valid xml<<<", baseRequest)
+        val result = provider.parseTripResponse("<not valid xml<<<")
         assertIs<ProviderResult.Failure>(result)
     }
 
@@ -96,19 +132,104 @@ class OjpProviderTest {
 <OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
   <OJPResponse>
     <siri:ServiceDelivery>
-      <ojp:OJPTripDelivery xmlns:ojp="http://www.vdv.de/ojp">
+      <OJPTripDelivery>
         <siri:Status>true</siri:Status>
-      </ojp:OJPTripDelivery>
+      </OJPTripDelivery>
     </siri:ServiceDelivery>
   </OJPResponse>
 </OJP>"""
-        val result = provider.parseOjpResponse(emptyXml, baseRequest)
+        val result = provider.parseTripResponse(emptyXml)
         assertIs<ProviderResult.Success>(result)
         assertEquals(0, result.journeys.size)
     }
 
     @Test
-    fun `mock provider returns three journeys with MOCK status`() = kotlinx.coroutines.test.runTest {
+    fun `cancelled leg with missing ServiceDeparture yields no legs and trip is skipped`() {
+        val xml = """<?xml version="1.0" encoding="UTF-8"?>
+<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
+  <OJPResponse>
+    <siri:ServiceDelivery>
+      <OJPTripDelivery>
+        <TripResult>
+          <Id>R1</Id>
+          <Trip>
+            <Id>TRIP-NO-DEP</Id>
+            <Leg>
+              <Id>1</Id>
+              <TimedLeg>
+                <LegBoard>
+                  <siri:StopPointRef>ch:1:sloid:7000031</siri:StopPointRef>
+                  <StopPointName><Text>Lausanne</Text></StopPointName>
+                  <!-- no ServiceDeparture -->
+                </LegBoard>
+                <LegAlight>
+                  <siri:StopPointRef>ch:1:sloid:7000008</siri:StopPointRef>
+                  <StopPointName><Text>Genève</Text></StopPointName>
+                  <ServiceArrival>
+                    <TimetabledTime>2026-11-21T16:00:00Z</TimetabledTime>
+                  </ServiceArrival>
+                </LegAlight>
+              </TimedLeg>
+            </Leg>
+          </Trip>
+        </TripResult>
+      </OJPTripDelivery>
+    </siri:ServiceDelivery>
+  </OJPResponse>
+</OJP>"""
+        val result = provider.parseTripResponse(xml)
+        assertIs<ProviderResult.Success>(result)
+        assertEquals(0, result.journeys.size)
+    }
+
+    @Test
+    fun `location response parser extracts sloid from StopPlaceRef`() {
+        val locXml = """<?xml version="1.0" encoding="UTF-8"?>
+<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
+  <OJPResponse>
+    <siri:ServiceDelivery>
+      <OJPLocationInformationDelivery>
+        <PlaceResult>
+          <Place>
+            <StopPlace>
+              <StopPlaceRef>ch:1:sloid:1120</StopPlaceRef>
+              <StopPlaceName><Text xml:lang="de">Lausanne</Text></StopPlaceName>
+            </StopPlace>
+          </Place>
+        </PlaceResult>
+      </OJPLocationInformationDelivery>
+    </siri:ServiceDelivery>
+  </OJPResponse>
+</OJP>"""
+        val result = provider.parseLocationResponse(locXml)
+        assertEquals("ch:1:sloid:1120", result)
+    }
+
+    @Test
+    fun `location response parser returns null when no sloid present`() {
+        val locXml = """<?xml version="1.0" encoding="UTF-8"?>
+<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
+  <OJPResponse>
+    <siri:ServiceDelivery>
+      <OJPLocationInformationDelivery/>
+    </siri:ServiceDelivery>
+  </OJPResponse>
+</OJP>"""
+        val result = provider.parseLocationResponse(locXml)
+        assertNull(result)
+    }
+
+    @Test
+    fun `ISO-8601 duration parsing handles all formats`() {
+        assertEquals(java.time.Duration.ofMinutes(5), provider.parseIsoDuration("PT5M"))
+        assertEquals(java.time.Duration.ofMinutes(54).plusSeconds(54), provider.parseIsoDuration("PT54M54S"))
+        assertEquals(java.time.Duration.ofHours(1).plusMinutes(17), provider.parseIsoDuration("PT1H17M"))
+        // Fallback for invalid input
+        assertEquals(java.time.Duration.ofMinutes(2), provider.parseIsoDuration("INVALID"))
+    }
+
+    @Test
+    fun `mock provider returns three journeys with MOCK status`() = runTest {
         val mock = MockTransportProvider()
         val request = SearchRequest(
             origin = "Lausanne",
@@ -120,21 +241,56 @@ class OjpProviderTest {
         assertEquals(3, result.journeys.size)
         result.journeys.forEach { j ->
             assertEquals(DataStatus.MOCK, j.dataStatus)
-            assert(j.legs.isNotEmpty())
+            assertTrue(j.legs.isNotEmpty())
         }
     }
 
     @Test
-    fun `mock provider departure times are relative to request time`() = kotlinx.coroutines.test.runTest {
+    fun `mock provider departure times are relative to request time`() = runTest {
         val mock = MockTransportProvider()
         val base = OffsetDateTime.of(2026, 6, 15, 10, 0, 0, 0, ZoneOffset.ofHours(2))
         val request = SearchRequest("A", "B", base)
         val result = mock.search(request) as ProviderResult.Success
 
         result.journeys.forEach { j ->
-            assert(!j.departure.toInstant().isBefore(base.toInstant())) {
+            assertTrue(
+                !j.departure.toInstant().isBefore(base.toInstant()),
                 "Journey ${j.id} departs before earliestDeparture"
-            }
+            )
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Live integration test — skipped when OJP_API_KEY is absent
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun `LIVE - search Lausanne to Geneve returns at least one journey`() {
+        val key = System.getenv("OJP_API_KEY")?.trim()
+        if (key.isNullOrEmpty()) {
+            println("[SKIP] OJP_API_KEY not set — skipping live integration test")
+            return
+        }
+
+        val liveProvider = OjpTransportProvider(apiKey = key)
+        val request = SearchRequest(
+            origin = "Lausanne",
+            destination = "Genève",
+            earliestDeparture = OffsetDateTime.now(ZoneOffset.UTC)
+        )
+
+        val result = runBlocking {
+            liveProvider.search(request)
+        }
+
+        assertIs<ProviderResult.Success>(result)
+        assertTrue(result.journeys.isNotEmpty(), "Expected at least one live journey")
+        result.journeys.forEach { j ->
+            assertEquals(DataStatus.LIVE_SCHEDULE, j.dataStatus)
+            assertTrue(j.legs.isNotEmpty(), "Journey ${j.id} has no legs")
+            assertTrue(j.legs.first().origin.contains("Lausanne", ignoreCase = true))
+            assertTrue(j.legs.last().destination.contains("Genève", ignoreCase = true) ||
+                    j.legs.last().destination.contains("Geneve", ignoreCase = true))
         }
     }
 }

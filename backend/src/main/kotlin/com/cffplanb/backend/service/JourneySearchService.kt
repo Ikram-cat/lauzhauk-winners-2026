@@ -9,6 +9,8 @@ sealed class SearchResult {
     data class Success(val journeys: List<Journey>) : SearchResult()
     data class Timeout(val message: String) : SearchResult()
     data class RateLimited(val message: String) : SearchResult()
+    data class AuthError(val message: String) : SearchResult()
+    data class LocationResolutionError(val message: String) : SearchResult()
     data class Failure(val message: String) : SearchResult()
 }
 
@@ -22,6 +24,8 @@ class JourneySearchService(private val provider: TransportProvider) {
             }
             is ProviderResult.Timeout -> SearchResult.Timeout(providerResult.message)
             is ProviderResult.RateLimited -> SearchResult.RateLimited(providerResult.message)
+            is ProviderResult.AuthError -> SearchResult.AuthError(providerResult.message)
+            is ProviderResult.LocationResolutionError -> SearchResult.LocationResolutionError(providerResult.message)
             is ProviderResult.Failure -> SearchResult.Failure(providerResult.message)
         }
     }
