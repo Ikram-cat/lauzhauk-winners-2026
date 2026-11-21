@@ -14,6 +14,7 @@ DATA_DIR = Path(os.environ.get("SBB_DATA_DIR", ANALYTICS_DIR / "Daten" / "Daten"
 OUTPUT_DIR = Path(os.environ.get("SBB_OUTPUT_DIR", ANALYTICS_DIR / "output"))
 
 INCIDENT_FILE = "incident_202610121914.csv"
+REASON_FILE = "reason_202610121034.csv"
 AUDIT_FILE = "incident_audit_202610121914.csv"
 
 COLUMNS = ["id", "duration_type", "duration_to", "reason_id_fk",
@@ -39,3 +40,9 @@ def file_checksums(data_dir: Path = DATA_DIR) -> dict:
     """SHA-256 of the input files, recorded as dataset provenance."""
     return {name: hashlib.sha256((Path(data_dir) / name).read_bytes()).hexdigest()
             for name in (INCIDENT_FILE, AUDIT_FILE)}
+
+
+def load_reason_labels(data_dir: Path = DATA_DIR) -> dict:
+    """reason id -> English label."""
+    reasons = pd.read_csv(Path(data_dir) / REASON_FILE)
+    return dict(zip(reasons.id, reasons.reason_en))

@@ -116,7 +116,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     versions, snap, train, test, cutoff = prepare(args.data_dir)
-    test_metrics = evaluate(fit(train), train, test)
+    evaluation_models = fit(train)  # never saw the test period; used for metrics and the replay demo
+    test_metrics = evaluate(evaluation_models, train, test)
     models = fit(snap)  # final models: all snapshots, train + test
     encoder = models["p50"]._preprocessor.named_transformers_["encoder"]
     categories = {c: [str(x) for x in cats] for c, cats in zip(CATEGORICAL, encoder.categories_)}
@@ -145,7 +146,8 @@ def main(argv=None):
     }
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"models": models, "features": FEATURES, "categories": categories, "metrics": metrics},
+    joblib.dump({"models": models, "evaluation_models": evaluation_models, "features": FEATURES,
+                 "categories": categories, "metrics": metrics},
                 args.output_dir / BUNDLE_FILE)
     (args.output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print(json.dumps(metrics["evaluation"], indent=2))
