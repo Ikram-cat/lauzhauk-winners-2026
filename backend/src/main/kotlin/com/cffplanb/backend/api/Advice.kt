@@ -19,7 +19,7 @@ fun reasonsFor(j: Journey, all: List<Journey>, r: RiskEstimate?, deadline: Offse
         val m = java.time.Duration.between(j.arrival, deadline).toMinutes()
         out += if (m == 0L) "arrives exactly at your deadline" else "arrives $m min before your deadline"
     }
-    if (r != null && r.source == "corridor") out += "corridor risk ${pct(r.lateArrivalProbability)}" + (r.confidence?.let { " ($it confidence)" } ?: "")
+    if (r != null && r.source == "corridor") out += "corridor risk ${pct(r.lateArrivalProbability)}" + (r.confidence?.let { " (${it.replace('_', ' ')} confidence)" } ?: "")
     if (j.transfers == all.minOf { it.transfers }) out += "fewest transfers"
     return out.take(3)
 }
@@ -39,7 +39,7 @@ fun adviceFor(journeys: List<Journey>, risks: List<RiskEstimate?>, deadline: Off
         val bits = listOfNotNull(
             "${pct(worst.lateArrivalProbability)} $what",
             worst.disruptionDurationMin?.let { "typically $it min" },
-            worst.confidence?.let { "$it confidence" }
+            worst.confidence?.let { "${it.replace('_', ' ')} confidence" }
         ).joinToString(", ")
         val where = if (worst.source == "corridor" && worst.label != null) "corridor ${worst.label}" else "${worst.source ?: "estimated"} estimate"
         "highest risk is on $where ($bits)"
