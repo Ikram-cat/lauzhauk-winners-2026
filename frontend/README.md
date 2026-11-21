@@ -2,7 +2,16 @@
 
 Role A owns the browser application on `feature/frontend-mvp`. The frontend takes station names and an optional earliest departure, calls the Ktor API, and displays itinerary options in the order returned by the API. The release target is a static site on Vercel.
 
-**Current state.** This directory contains documentation. The Gradle project, browser app, and deployment are planned. Kotlin/Wasm viability is unverified.
+**Current state.** The Swiss Station browser preview runs as static HTML, CSS, and JavaScript. The Gradle scaffold, Kotlin/Wasm gate and public deployment are pending.
+
+## Run the Swiss Station preview
+
+From the repository root, run `python -m http.server 8765 --bind 127.0.0.1 --directory frontend` and open `http://127.0.0.1:8765/`. There are no package or build dependencies.
+
+- `index.html` and `styles.css` define the search form, Zurich clock, departure board, route rail, and responsive cards. Click the clock to switch between analog and digital. Train and loading animations honor the system reduced-motion setting.
+- `app.js` connects the controls, clock, countdown and result states. `journeys.js` owns Swiss time conversion and the separate demo and Ktor adapters.
+- The default view uses synthetic departures and supports demo searches between Lausanne and Genève, Bern, or Zürich HB. The board remains a labeled demo because v1 has no departures endpoint.
+- To use Ktor, set the `api-base-url` meta tag in `index.html` to the public backend origin and allow the preview origin in its CORS configuration. The preview uses the v1 search API and displays API errors without substituting demo results.
 
 ## Implementation order
 
