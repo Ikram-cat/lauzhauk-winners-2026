@@ -10,7 +10,9 @@ import pandas as pd
 from .duration_model import TZ
 from .line_hour import confidence, line_key
 
-MIN_CORRIDOR_N = 2  # corridors below this (i.e. n == 1) are dropped
+UNMATCHED_CAP = 20
+
+MIN_CORRIDOR_N = 1  # every corridor with >=1 ended incident is kept; n == 1 is labelled very_low
 MIN_CELL_N = 8      # byLineHour cells below this are dropped
 
 # Variants NOT observed in the CSVs (checked 2026-11-21), added for OJP/user-typed names.
@@ -27,6 +29,10 @@ STATIC_ALIASES = {
 
 _BETWEEN_EN = re.compile(r"\bbetween (.+?) and (.+?)(?= are\b| is\b|\s*\.|,| as well)")
 _BETWEEN_DE = re.compile(r"\bzwischen (.+?) und (.+?)(?= ist\b| sind\b|\s*\.|,| sowie)")
+
+
+def corridor_confidence(n: int) -> str:
+    return "very_low" if n < 2 else confidence(n)
 
 
 def tidy(s: str) -> str:
@@ -105,7 +111,7 @@ def corridors(inc: pd.DataFrame, window_days: int) -> tuple[list[dict], dict]:
     for iid, r in inc.iterrows():
         s = r.stops
         # whole text first, then (for >2 stops) each adjacent 2-stop segment, pooled as source "segment"
-        for a, b, via, src in [(s[0], s[-1], tuple(s[1:-1]), r.csource)] + \
+        for a, b, via, src in [(s[0], s[-1], tuple(s[1:-1]), "full" if r.csource == "line" else "segment")] + \
                 [(s[i], s[i + 1], (), "segment") for i in range(len(s) - 1) if len(s) > 2]:
             if a == b:
                 continue
@@ -128,13 +134,23 @@ def corridors(inc: pd.DataFrame, window_days: int) -> tuple[list[dict], dict]:
                "windowDays": window_days,
                "disruptionProbabilityPerDay": round(min(1.0, len(p["days"]) / window_days), 4),
                "expectedDelayMin": round(float(_median(p["dur"].values())), 1),
-               "sampleSize": n, "confidence": confidence(n),
-               "source": "line" if p["src"]["line"] else "segment"}
+               "sampleSize": n, "confidence": corridor_confidence(n),
+               "source": "full" if p["src"]["full"] else "segment"}
         if via := list(p["via"].most_common(1)[0][0]):
             row["via"] = via
         rows.append(row)
     rows.sort(key=lambda r: (-r["sampleSize"], r["corridor"]))
     return rows, {"poolsTotal": len(pools), "dropped": dropped, "coveredIds": covered}
+
+
+def unmatched_samples(inc: pd.DataFrame, cap: int = UNMATCHED_CAP) -> list[dict]:
+    """Up to `cap` distinct first lines of incident texts that yielded no station pair (failure shape for the backend)."""
+    seen: dict = {}
+    for r in inc[inc.stops.isna()].itertuples():
+        t = r.desc_en if isinstance(r.desc_en, str) else r.desc_de
+        head = tidy(t.split("\n")[0]) if isinstance(t, str) else "(no description)"
+        seen.setdefault(head, "single station / no A-B pair" if re.search(r"station|service at|Bahnhof", head) else "unparsable text")
+    return [{"text": k, "reason": v} for k, v in list(seen.items())[:cap]]
 
 
 def hour_baseline(inc: pd.DataFrame, window_days: int) -> list[dict]:

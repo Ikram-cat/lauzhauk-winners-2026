@@ -111,14 +111,14 @@ def test_station_normalisation_and_aliases():
 
 
 def test_corridor_pooling_math():
-    # 3 incidents over A-B/B-A: two on the same local day (UTC 08-09 & 10-11 Jan 5), one Jan 7; 1 on C-D (dropped)
+    # 4 incidents over A-B/B-A: two on the same local day (UTC 08-09 & 10-11 Jan 5), one Jan 7; 1 on C-D (kept, very_low)
     inc = _inc([("1", "2026-01-05 08:00", "2026-01-05 09:00", ["A", "B"]),
                 ("2", "2026-01-05 10:00", "2026-01-05 12:00", ["B", "A"]),
                 ("3", "2026-01-07 08:00", "2026-01-07 11:00", ["A", "X", "B"]),
                 ("4", "2026-01-05 08:00", "2026-01-05 09:00", ["C", "D"])])
     rows, st = cor.corridors(inc, window_days=10)
-    assert st == {"poolsTotal": 4, "dropped": 3, "coveredIds": {"1", "2", "3"}} and len(rows) == 1
-    r = rows[0]
+    assert st == {"poolsTotal": 4, "dropped": 0, "coveredIds": {"1", "2", "3", "4"}} and len(rows) == 4
+    r = next(r for r in rows if r["corridor"] == "A - B")
     assert (r["from"], r["to"], r["sampleSize"], r["disruptionDays"]) == ("A", "B", 3, 2)
     assert r["disruptionProbabilityPerDay"] == 0.2 and r["expectedDelayMin"] == 120.0  # median(60,120,180)
     assert r["confidence"] == "low" and "via" not in r  # modal via is empty
@@ -137,19 +137,43 @@ def test_artifact_drops_noise_and_is_joinable():
     v = dm.add_start_end(versions())
     pred = build_predictions(v, dm.build_snapshots(v), "2026-01-01T00:00:00Z")
     assert pred["byLineHour"] == [] and pred["stats"]["byLineHourCellsDropped"] == 2  # n=1 cells < 8
-    assert pred["corridors"] == [] and pred["stats"]["corridorsDropped"] == 1  # n=1
+    assert len(pred["corridors"]) == 1 and pred["corridors"][0]["confidence"] == "very_low"  # n=1 kept
+    assert pred["stats"]["coverageShare"] == 1.0 and pred["unmatchedSamples"] == []
     assert len(pred["hourBaseline"]) == 24 and {"joinHints", "stationAliases"} <= pred.keys()
     json.dumps(pred, ensure_ascii=False)
 
 
-def test_corridor_keeps_n2_and_pools_segments():
+def test_segments_full_and_very_low():
     inc = _inc([("1", "2026-01-05 08:00", "2026-01-05 09:00", ["A", "X", "B"]),
                 ("2", "2026-01-06 08:00", "2026-01-06 09:00", ["X", "B"]),
                 ("3", "2026-01-07 08:00", "2026-01-07 09:00", ["C", "D"])])
     rows, st = cor.corridors(inc, window_days=10)
     by = {r["corridor"]: r for r in rows}
-    assert by["X - B"]["sampleSize"] == 2 and by["X - B"]["confidence"] == "low"
-    assert st["dropped"] == 3 and st["coveredIds"] == {"1", "2"}  # A-B, A-X, C-D are n=1
+    assert by["X - B"]["sampleSize"] == 2 and by["X - B"]["confidence"] == "low" and by["X - B"]["source"] == "full"
+    assert by["A - B"]["source"] == "full" and by["A - B"]["via"] == ["X"]
+    assert by["A - X"]["source"] == "segment" and by["A - X"]["confidence"] == "very_low"
+    assert by["C - D"]["confidence"] == "very_low" and by["C - D"]["sampleSize"] == 1
+    assert st["dropped"] == 0 and st["coveredIds"] == {"1", "2", "3"}
+
+
+def test_no_invented_pairs_and_coverage():
+    # A-X-B-Y: only adjacent pairs + the full A-Y; never A-B or X-Y
+    inc = _inc([("1", "2026-01-05 08:00", "2026-01-05 09:00", ["A", "X", "B", "Y"]),
+                ("2", "2026-01-06 08:00", "2026-01-06 09:00", None)])
+    rows, st = cor.corridors(inc, window_days=10)
+    assert {frozenset((r["from"], r["to"])) for r in rows} == {frozenset(p) for p in
+           [("A", "Y"), ("A", "X"), ("X", "B"), ("B", "Y")]}
+    assert len(st["coveredIds"]) / len(inc) == 0.5  # coverageShare: incident 2 has no stops
+
+
+def test_unmatched_samples_capped_and_distinct():
+    n = cor.UNMATCHED_CAP + 5
+    inc = pd.DataFrame({"stops": [None] * n + [["A", "B"]],
+                        "desc_en": [f"Train services at S{i} station are interrupted.\nx" for i in range(n)] + ["ok"],
+                        "desc_de": [None] * (n + 1)})
+    u = cor.unmatched_samples(inc)
+    assert len(u) == cor.UNMATCHED_CAP and u[0]["reason"] == "single station / no A-B pair"
+    assert len({x["text"] for x in u}) == len(u)
 
 
 def test_ojp_places_parse_and_score():

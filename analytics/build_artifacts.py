@@ -10,6 +10,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from collections import Counter
+
 import joblib
 
 from . import duration_model as dm
@@ -62,7 +64,7 @@ def build_predictions(vend, snap, generated_at, validate=None) -> dict:
             "an upper bound on passenger delay, not a measured delay.",
             "sampleSize = distinct incidents in the bucket; confidence: <8 low, 8-19 medium, >=20 high.",
             "corridors: pooled over hours and both directions (A-B + B-A); see stats, joinHints, "
-            "hourBaseline (nationwide, 24 rows) and stationAliases. Corridors with a single incident are dropped; "
+            "hourBaseline (nationwide, 24 rows) and stationAliases. Corridors with a single incident are kept with confidence 'very_low'; "
             "byLineHour cells with <8 incidents are dropped.",
             f"{inc.key.isna().sum()} of {len(inc)} incidents had no parsable line corridor and are excluded.",
         ],
@@ -71,6 +73,7 @@ def build_predictions(vend, snap, generated_at, validate=None) -> dict:
         "hourBaseline": cor.hour_baseline(inc, window_days),
         "stationAliases": dict(sorted(aliases.items())),
         "stationValidation": sv,
+        "unmatchedSamples": cor.unmatched_samples(inc2),
         "joinHints": cor.JOIN_HINTS,
         "stats": {
             "incidents": len(inc), "incidentsWithCorridor": with_corridor,
@@ -78,7 +81,9 @@ def build_predictions(vend, snap, generated_at, validate=None) -> dict:
             "shareInKeptCorridors": round(in_kept / len(inc), 4),
             "coverageShare": round(in_kept / len(inc), 4),  # ENDED incidents (<24h) in a kept corridor
             "corridorsKept": len(crows), "corridorsKeptSampleGe20": sum(c["sampleSize"] >= 20 for c in crows),
-            "corridorsDropped": cstats["dropped"], "corridorsDroppedSampleEq1": cstats["dropped"],
+            "corridorsDropped": cstats["dropped"],
+            "corridorsByConfidence": dict(Counter(c["confidence"] for c in crows)),
+            "incidentsUnmatched": len(inc2) - in_kept,
             "stationsValidated": sum(v["matched"] for v in sv), "stationsUnmatched": sum(not v["matched"] for v in sv),
             "byLineHourCellsKept": len(rows), "byLineHourCellsDropped": len(all_rows) - len(rows),
             "byLineHourMinSampleSize": cor.MIN_CELL_N, "windowDays": window_days,
