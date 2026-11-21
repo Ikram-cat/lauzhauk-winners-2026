@@ -6,6 +6,62 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-21 · C · Merge of main, comparison of the two duration models, GTFS
+
+**Branch and commits**
+`prediction`:
+- `c06fc4c`: merge of `origin/main` at `45912ec`;
+- the GTFS / documentation commit that contains this entry.
+
+Pushed to `origin/prediction`. `.env`, `Daten/`, `analytics/output/` and `analytics/data/` are not committed.
+
+**Merge**
+Every conflict kept both sides:
+- `configureRoutes`: main's positional parameters first, ours appended with defaults; main's `toDto(risk, …)` plus a no-argument overload for the impact route.
+- Configuration and wiring: union of both sides.
+- `.gitignore`: lines of both sides.
+- `requirements.txt`: union, one version per package (numpy 2.5.5 from main; pytest>=8).
+- READMEs: main's structure kept, with our sections added.
+
+`analytics/tests/conftest.py` makes `sbb_duration` importable when CI runs `python -m pytest analytics` from the root. That command is now the only Python test command: main's tests cannot run from `analytics/`.
+
+**Checks**
+- Kotlin: `./gradlew --no-daemon test` → 180 passed: main's tests, ours, and 2 new GTFS adapter tests.
+- Python: `python -m pytest analytics -q` → 38 passed, 3 skipped. The skipped ones are main's tests that need `OJP_API_KEY` or built artifacts.
+- `python analytics/scripts/run_demo.py`: backend up with both teams' artifacts. `/api/journeys/impact` (detour +100, `TAKE_DETOUR`), `/api/disruptions/outlook`, `/api/redirect` and `/api/model` answer.
+
+**Two remaining-duration models: comparison (nothing removed)**
+Both models predict how much longer a disruption already in the liveticker will last. They use the same data, snapshots and features, and the same gradient-boosted quantile models.
+
+| Measured on the same 104 test incidents / 639 moments (cutoff 2026-04-06) | main `analytics/duration_model.py` (seed 42) | `analytics/sbb_duration` |
+| --- | --- | --- |
+| P50 MAE, all moments | 100.15 min | 100.15 min |
+| P50 MAE, 626 moments with an announcement (official SBB: 112.7) | 97.9 min | 97.9 min |
+| Upper estimate covers the real end | 67.0% (P80, uncalibrated) | 83.1% (q 0.85 + split-conformal offset; 73.7% before calibration) |
+| Served to the backend | no; `predict_duration` CLI only | yes: JSON artifact evaluated in Kotlin (`/api/disruptions/outlook`, `/api/journeys/impact`) |
+| Extras | — | per-cause explanation, eval artifact for replays, three-source timelines, golden vectors |
+
+Notes:
+- Main's stricter rule (train incidents must also end before the cutoff) excludes no incident here, so both splits are identical.
+- Main's README reports 100.6 / 98.5; re-running its code today gives 100.15 / 97.9.
+- Main's other modules have different roles and do not overlap ours: `corridors.py`, `line_hour.py` and `build_artifacts.py` give the risk of disruption per corridor and hour (backend `RiskEstimator`, `predictions.json`); `realtime_sampler.py` gives measured OJP delays (`realtime_delays.json`); `ojp_validate.py` validates station names.
+
+Proposal, to be confirmed by the user before anything is applied:
+- **Option A, recommended.** Give the models separate roles: main's corridor risk answers "is my route often disrupted?" before the trip, and `sbb_duration` answers "how long will the current disruption last?" during it. Main's duration model and its CLI would become thin wrappers over `sbb_duration`, or be retired, with the colleague's agreement.
+- Option B: merge the calibration and the export into `duration_model.py`, and drop the package.
+- Option C: keep both as they are, at the cost of two models with diverging upper estimates and advice rules (main: "consider detour if P80 ≥ 60 min"; ours: detour compared with the P50 and the pessimistic estimate).
+
+**GTFS**
+- **Key:** `.env` is empty (0 bytes), so `GTFS_RT_API_KEY` is not available, and neither the real feed nor Service Alerts could be queried. `GTFS_RT_API_KEY=` is added to `.env.example`, without a value. `run_demo.py` passes the key on when `.env` has one.
+- **Stop ids:** GTFS-RT `stop_id` values are platform sloids (`ch:1:sloid:1026:2:4`, from the team's captured fixture). VIA UIC codes map to them through `ch:1:sloid:<UIC − 8500000>`, compared on the stop place (the team's `GtfsMatch.sameStop`). `GtfsDisruptionAdapter` uses this, without changing the team's code, to list the realtime trips that touch a disruption, intermediate stops included.
+- **Journey search:** none exists for GTFS. Journeys come from OJP or the mock, and the team's GTFS-RT matching itself uses OJP stop events. `detourExtraMinutes` cannot be computed "with GTFS"; the demo provider stays the default.
+- **Live mode:** not implemented. `la/gtfs-sa` exists (`401` without a key), but the team's decoder reads TripUpdates only. The mapping of cause, announced end and identifier is unverified (analytics README, Live mode).
+
+**Next actions**
+1. User: choose option A, B or C.
+2. User: save the key in `.env`, then a live check of `la/gtfs-sa` can be run.
+3. Team: decide whether a GTFS journey search is wanted. It would be new work (static GTFS plus routing) and a change of approach.
+
 ## 2026-11-21 · C · Explanation, calibration, journey impact, demo, pitch, final review
 
 **Branch and commits**

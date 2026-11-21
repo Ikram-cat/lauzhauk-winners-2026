@@ -188,7 +188,7 @@ Python 3.14, with dependencies pinned in `requirements.txt`. The liveticker CSVs
 python -m pip install -r requirements.txt   # or inside python -m venv .venv
 python -m sbb_duration.train                # metrics.json + duration_model.joblib
 python -m sbb_duration.export               # duration_model.v1.json + golden_vectors.json
-python -m pytest tests -p no:cacheprovider  # JSON evaluator == sklearn, advice thresholds, pessimistic >= p50
+cd .. && python -m pytest analytics -q       # from the repo root (as CI): our tests and main's pipeline tests
 python -m sbb_duration.replay [--detour 60] # 3 past incidents, terminal table + output/replay/replay-0N.json (MOCK)
 python -m sbb_duration.sources [--detour 60] # 3-source timelines -> output/timelines/timeline-<id>.json + index.json (MOCK)
 python scripts/run_demo.py [--offline]       # builds missing outputs, then starts the backend with the model (docs/DEMO.md)
@@ -211,24 +211,31 @@ Current results on the test period (104 incidents, 639 snapshots after 2026-04-0
 
 ## Live mode: not implemented
 
-There is no live mode, and the Renens replay remains the main demo. The reasons, checked on 2026-11-21:
+There is no live mode; the Renens replay remains the main demo. Checked on 2026-11-21, after merging `main`:
 
-1. **No API key in this checkout.** The repository root has no `.env`, so no opentransportdata.swiss token is available. The SIRI-SX endpoints (`siri-sx` and `siri-sx-unplanned`, the latter refreshed every 30 s; the planned feed is limited to 48 calls a day) and the GTFS-RT Service Alerts feed require an `Authorization: Bearer` token ([SIRI-SX cookbook](https://opentransportdata.swiss/en/cookbook/event-cookbook/siri-sx/)). Without a key, no real message could be inspected, so the mapping below could not be verified.
-2. **The mapping to our features is unproven.** The model is trained on the SBB public liveticker export. A live mode would need, for each situation:
+1. **No usable key in this checkout.** `.env` exists but is empty (0 bytes), so `GTFS_RT_API_KEY` (the variable used by the team's `backend/.../gtfs/GtfsRealtimeSource.kt`) is not set. Without a key nothing could be inspected:
+   - `https://api.opentransportdata.swiss/la/gtfs-rt` (TripUpdates, used by the team) answers `401` without a key;
+   - `https://api.opentransportdata.swiss/la/gtfs-sa` (Service Alerts) also answers `401`, so the endpoint exists. Whether the same key opens it is unverified.
+2. **The team's GTFS code reads TripUpdates only.** `GtfsDecoder` decodes `FeedEntity.trip_update` (field 3), not `alert` (field 5). Our model needs a cause, an announced end and the affected stations. TripUpdates carry none of the first two: delays, cancellations and skipped stops are effects, not causes or announced ends. A live mode needs the Service Alerts feed.
+3. **The mapping of a Service Alert to our features is unproven**, even with a key:
 
-   | Feature input | What the liveticker gives | What SIRI-SX / GTFS-SA would need to give (unverified) |
+   | Feature input | Liveticker (training data) | GTFS-RT Service Alert (to verify on real messages) |
    | --- | --- | --- |
-   | `reasonCode` | SBB cause code `EG_xxx` | A SIRI reason (VDV 736 `…Reason` elements) or a GTFS `cause` enum. No published mapping to `EG_xxx` exists, and an unmapped cause becomes a missing category. |
-   | `announcedEndAt`, `durationType` | `duration_to`, `duration_type` | `ValidityPeriod/EndTime` or `PublicationWindow` are validity windows, not necessarily the announced end of the disruption. GTFS-SA `active_period.end` has the same ambiguity. |
-   | `startedAt`, `updatesSoFar` | `created_at_source`, number of published versions | `CreationTime` and `Version` exist in SIRI, but the history of versions must be rebuilt by polling. |
-   | affected stations | VIA UIC codes → sloid | The cookbook marks `PtSituation/Affects` and `Consequences/Affects` as "not currently recommended" and documents only the normalised `PublishingAction` part. Stop references are therefore not reliable. |
-3. **No common identifier.** The 14 VIA incidents found in the public liveticker link through `alea_fall_id`. Nothing shows that a SIRI-SX `SituationNumber` carries the same id, so live predictions could not be checked against the training labels.
+   | `reasonCode` | SBB cause `EG_xxx` | `cause` is a 12-value enum (`ACCIDENT`, `TECHNICAL_PROBLEM`, …) with no published mapping to the 31 `EG_xxx` codes. An unmapped cause becomes a missing category. |
+   | `announcedEndAt` | `duration_to` | `active_period.end` is the validity window of the alert. That it equals the announced end of the disruption is unverified. |
+   | `startedAt`, `updatesSoFar` | `created_at_source`, number of published versions | `active_period.start`; the version history must be rebuilt by polling (5 requests per minute at most). |
+   | affected stations | VIA UIC → sloid | `informed_entity.stop_id`: GTFS-RT stop ids are platform sloids (`ch:1:sloid:1026:2:4` in the team's captured fixture), which the team's `GtfsMatch.sameStop` already matches to UIC/sloid. This part is reliable. |
+   | identifier | `alea_fall_id` | No evidence that the alert id carries the liveticker / VIA id, so live predictions cannot be checked against training labels. |
+4. **No GTFS journey search exists.** Journeys come from OJP or the mock. The team's GTFS-RT matching itself links a leg to a GTFS trip through OJP stop events (`lineRef`, timetabled origin departure). `detourExtraMinutes` therefore cannot be computed "with GTFS". The demo keeps `TRANSPORT_PROVIDER=demo`.
 
-To enable a live mode later:
-- add `OJP_API_KEY` (or a SIRI-SX token) to `.env`, which is ignored by Git;
-- record a day of `siri-sx-unplanned` messages for SBB;
-- verify the four rows above on incidents that also appear in the liveticker;
-- implement a `DisruptionSource` that reads SIRI-SX, next to `ReplayTimelineDisruptionSource` in `backend/.../service/impact/`, with responses labelled `LIVE`.
+What is implemented for GTFS: `backend/.../service/impact/GtfsDisruptionAdapter.kt`. It does not change the team's code. It finds, in a GTFS-RT TripUpdates snapshot, the trips whose stop updates (intermediate stops included) touch a VIA disruption, with the same rule as journey legs, and reports cancelled trips, skipped stops and delays at those stations. It is tested on the team's captured fixture (`GtfsDisruptionAdapterTest`).
+
+To enable a live mode:
+- put the key in `.env` (`GTFS_RT_API_KEY=…`, ignored by Git);
+- record a day of `la/gtfs-sa` alerts for SBB;
+- extend the decoder with `alert` (field 5: `active_period`, `informed_entity`, `cause`, `header_text`);
+- verify the rows above on alerts that also appear in the liveticker;
+- add a `DisruptionSource` that reads alerts, with responses labelled `LIVE`.
 
 ## Evaluation and reproducibility
 

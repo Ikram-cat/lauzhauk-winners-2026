@@ -84,6 +84,9 @@ def main(argv=None) -> None:
         if args.offline or not key:
             sys.exit("--provider ojp needs OJP_API_KEY (environment or .env) and no --offline")
         env["OJP_API_KEY"] = key
+    gtfs_key = env.get("GTFS_RT_API_KEY") or secrets.get("GTFS_RT_API_KEY")
+    if gtfs_key and not args.offline:
+        env["GTFS_RT_API_KEY"] = gtfs_key  # enables the team's GTFS-RT TripUpdates feed (never printed)
     artifact = OUTPUT / ("duration_model.v1.eval.json" if args.model == "eval" else "duration_model.v1.json")
     env.update(PORT=str(args.port), TRANSPORT_PROVIDER=provider, DURATION_ARTIFACT_PATH=str(artifact),
                DISRUPTION_TIMELINES_DIR=str(OUTPUT / "timelines"))
@@ -94,7 +97,8 @@ def main(argv=None) -> None:
     launcher = BACKEND / "build" / "install" / "cff-plan-b-backend" / "bin" / (
         "cff-plan-b-backend.bat" if windows else "cff-plan-b-backend")
     print(f"\nBackend on http://localhost:{args.port}  provider={provider}  model={artifact.name}  "
-          f"timelines={OUTPUT / 'timelines'}  (Ctrl+C to stop)\n", flush=True)
+          f"timelines={OUTPUT / 'timelines'}  gtfs-rt={'on' if env.get('GTFS_RT_API_KEY') else 'off'}  "
+          "(Ctrl+C to stop)\n", flush=True)
     try:
         subprocess.run([str(launcher)], cwd=BACKEND, env=env, check=True)
     except KeyboardInterrupt:
