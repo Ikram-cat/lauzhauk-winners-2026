@@ -1,0 +1,11 @@
+{
+  "modelVersion": "v0.2", "generatedAt": "2026-11-20T10:00:00Z",
+  "stationAliases": {"Genf": "Genève", "Zurich": "Zürich"},
+  "corridors": [
+    {"from": "Lausanne", "to": "Genève", "corridor": "Lausanne - Genève", "disruptionProbabilityPerDay": 0.05, "expectedDelayMin": 30, "sampleSize": 25, "confidence": "high"},
+    {"from": "Bern", "to": "Zürich HB", "corridor": "Bern - Zürich HB", "disruptionProbabilityPerDay": 0.2, "expectedDelayMin": 45, "sampleSize": 10, "confidence": "medium"},
+    {"from": "Lausanne", "to": "Brig", "via": ["Montreux", "Sion"], "corridor": "Lausanne - Brig", "disruptionProbabilityPerDay": 0.1, "expectedDelayMin": 60, "sampleSize": 3, "confidence": "low"}
+  ],
+  "hourBaseline": [{"hourBucket": 17, "disruptionProbabilityPerHour": 0.02, "expectedDelayMin": 20, "sampleSize": 50}],
+  "byLineHour": []
+}
