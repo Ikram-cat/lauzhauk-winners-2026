@@ -87,4 +87,20 @@ class FaresTest {
         assertTrue("preference=SIMPLEST" in url, url)
         assertTrue("destination=Gen%C3%A8ve" in url, url)
     }
+
+    @Test
+    fun passMenuUsesBackendQuotesForBothClassesWithoutApplyingTheStandardQuoteToHalfFare() {
+        val journey = parseJourneys(body(
+            ""","fareChf":42.0,"halfFareChf":21.0,"firstClassFareChf":72.0,"firstClassHalfFareChf":36.0,"fareStatus":"PRICED""""
+        )).journeys.single()
+        assertEquals(42.0, FareProfile().price(journey))
+        assertEquals(21.0, FareProfile(travelcard = Travelcard.HALF_FARE).price(journey))
+        assertEquals(72.0, FareProfile(firstClass = true).price(journey))
+        assertEquals(36.0, FareProfile(true, Travelcard.HALF_FARE).price(journey))
+        for (pass in Travelcard.entries.filterNot { it.canQuote }) {
+            assertNull(FareProfile(travelcard = pass).price(journey))
+        }
+        assertNull(FareProfile().price(journey.copy(dataStatus = "MOCK")))
+        assertNull(FareProfile().price(journey.copy(fareStatus = "UNAVAILABLE")))
+    }
 }

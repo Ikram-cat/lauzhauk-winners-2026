@@ -69,7 +69,7 @@ internal data class Journey(
     })?.takeIf { known }
 }
 
-internal enum class Preference(val label: Copy) { FASTEST(Copy.Fastest), CHEAPEST(Copy.Cheapest), SIMPLEST(Copy.Simplest) }
+internal enum class Preference { FASTEST, CHEAPEST, SIMPLEST }
 
 @Serializable
 internal data class Recommendations(val fastest: String? = null, val cheapest: String? = null, val simplest: String? = null) {

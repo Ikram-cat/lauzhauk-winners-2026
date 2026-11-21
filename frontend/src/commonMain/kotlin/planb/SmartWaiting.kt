@@ -110,7 +110,7 @@ internal fun SmartWaitingTime(journey: Journey, language: Language, modifier: Mo
                             enabled = margin > 3,
                             onClick = { margin-- },
                             modifier = Modifier.semantics { contentDescription = language.waiting(WaitingCopy.LowerMargin) }
-                        ) { Text("−") }
+                        ) { Text("-") }
                         Text("${language.waiting(WaitingCopy.Margin)} · $margin min", Modifier.weight(1f))
                         TextButton(
                             enabled = margin < 30,
