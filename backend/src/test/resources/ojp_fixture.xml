@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
+  <OJPResponse>
+    <siri:ServiceDelivery>
+      <siri:ResponseTimestamp>2026-11-21T16:00:00Z</siri:ResponseTimestamp>
+      <siri:ProducerRef>opentransportdata.swiss</siri:ProducerRef>
+      <OJPTripDelivery>
+        <siri:ResponseTimestamp>2026-11-21T16:00:00Z</siri:ResponseTimestamp>
+        <siri:Status>true</siri:Status>
+        <TripResponseContext>
+          <Places/>
+        </TripResponseContext>
+        <!-- Trip 1: direct IC Lausanne -> Genève -->
+        <TripResult>
+          <Id>RESULT-001</Id>
+          <Trip>
+            <Id>TRIP-001-DIRECT</Id>
+            <Duration>PT50M</Duration>
+            <StartTime>2026-11-21T15:10:00Z</StartTime>
+            <EndTime>2026-11-21T16:00:00Z</EndTime>
+            <Transfers>0</Transfers>
+            <Distance>62000</Distance>
+            <Leg>
+              <Id>1</Id>
+              <Duration>PT50M</Duration>
+              <TimedLeg>
+                <LegBoard>
+                  <siri:StopPointRef>ch:1:sloid:7000031</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Lausanne</Text>
+                  </StopPointName>
+                  <PlannedQuay>
+                    <Text xml:lang="fr">3A</Text>
+                  </PlannedQuay>
+                  <ServiceDeparture>
+                    <TimetabledTime>2026-11-21T15:10:00Z</TimetabledTime>
+                    <EstimatedTime>2026-11-21T15:10:00Z</EstimatedTime>
+                  </ServiceDeparture>
+                  <Order>1</Order>
+                </LegBoard>
+                <LegAlight>
+                  <siri:StopPointRef>ch:1:sloid:7000008</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Genève</Text>
+                  </StopPointName>
+                  <ServiceArrival>
+                    <TimetabledTime>2026-11-21T16:00:00Z</TimetabledTime>
+                    <EstimatedTime>2026-11-21T16:00:00Z</EstimatedTime>
+                  </ServiceArrival>
+                  <Order>8</Order>
+                </LegAlight>
+                <Service>
+                  <OperatingDayRef>2026-11-21</OperatingDayRef>
+                  <JourneyRef>ch:1:sjyid:100002:702-001</JourneyRef>
+                  <PublicCode>IC702</PublicCode>
+                  <siri:LineRef>ojp:91002:E</siri:LineRef>
+                  <Mode>
+                    <PtMode>rail</PtMode>
+                    <Name><Text xml:lang="fr">Train</Text></Name>
+                  </Mode>
+                  <PublishedServiceName>
+                    <Text xml:lang="fr">IC702</Text>
+                  </PublishedServiceName>
+                </Service>
+              </TimedLeg>
+            </Leg>
+          </Trip>
+        </TripResult>
+        <!-- Trip 2: transfer via Morges - two transit legs + one walk transfer -->
+        <TripResult>
+          <Id>RESULT-002</Id>
+          <Trip>
+            <Id>TRIP-002-TRANSFER</Id>
+            <Duration>PT75M</Duration>
+            <StartTime>2026-11-21T15:05:00Z</StartTime>
+            <EndTime>2026-11-21T16:20:00Z</EndTime>
+            <Transfers>1</Transfers>
+            <Distance>75000</Distance>
+            <Leg>
+              <Id>1</Id>
+              <Duration>PT30M</Duration>
+              <TimedLeg>
+                <LegBoard>
+                  <siri:StopPointRef>ch:1:sloid:7000031</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Lausanne</Text>
+                  </StopPointName>
+                  <PlannedQuay>
+                    <Text xml:lang="fr">1</Text>
+                  </PlannedQuay>
+                  <ServiceDeparture>
+                    <TimetabledTime>2026-11-21T15:05:00Z</TimetabledTime>
+                    <EstimatedTime>2026-11-21T15:05:00Z</EstimatedTime>
+                  </ServiceDeparture>
+                  <Order>1</Order>
+                </LegBoard>
+                <LegAlight>
+                  <siri:StopPointRef>ch:1:sloid:7000040</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Morges</Text>
+                  </StopPointName>
+                  <PlannedQuay>
+                    <Text xml:lang="fr">2</Text>
+                  </PlannedQuay>
+                  <ServiceArrival>
+                    <TimetabledTime>2026-11-21T15:35:00Z</TimetabledTime>
+                    <EstimatedTime>2026-11-21T15:35:00Z</EstimatedTime>
+                  </ServiceArrival>
+                  <Order>5</Order>
+                </LegAlight>
+                <Service>
+                  <OperatingDayRef>2026-11-21</OperatingDayRef>
+                  <JourneyRef>ch:1:sjyid:100002:re9-001</JourneyRef>
+                  <siri:LineRef>ojp:91002:F</siri:LineRef>
+                  <Mode>
+                    <PtMode>rail</PtMode>
+                  </Mode>
+                  <PublishedServiceName>
+                    <Text xml:lang="fr">RE 9</Text>
+                  </PublishedServiceName>
+                </Service>
+              </TimedLeg>
+            </Leg>
+            <Leg>
+              <Id>2</Id>
+              <Duration>PT5M</Duration>
+              <TransferLeg>
+                <TransferType>walk</TransferType>
+                <LegStart>
+                  <siri:StopPointRef>ch:1:sloid:7000040:1:2</siri:StopPointRef>
+                  <Name><Text xml:lang="fr">Morges</Text></Name>
+                </LegStart>
+                <LegEnd>
+                  <siri:StopPointRef>ch:1:sloid:7000040:1:3</siri:StopPointRef>
+                  <Name><Text xml:lang="fr">Morges</Text></Name>
+                </LegEnd>
+                <Duration>PT5M</Duration>
+              </TransferLeg>
+            </Leg>
+            <Leg>
+              <Id>3</Id>
+              <Duration>PT40M</Duration>
+              <TimedLeg>
+                <LegBoard>
+                  <siri:StopPointRef>ch:1:sloid:7000040</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Morges</Text>
+                  </StopPointName>
+                  <PlannedQuay>
+                    <Text xml:lang="fr">3</Text>
+                  </PlannedQuay>
+                  <ServiceDeparture>
+                    <TimetabledTime>2026-11-21T15:40:00Z</TimetabledTime>
+                    <EstimatedTime>2026-11-21T15:40:00Z</EstimatedTime>
+                  </ServiceDeparture>
+                  <Order>1</Order>
+                </LegBoard>
+                <LegAlight>
+                  <siri:StopPointRef>ch:1:sloid:7000008</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Genève</Text>
+                  </StopPointName>
+                  <ServiceArrival>
+                    <TimetabledTime>2026-11-21T16:20:00Z</TimetabledTime>
+                    <EstimatedTime>2026-11-21T16:20:00Z</EstimatedTime>
+                  </ServiceArrival>
+                  <Order>6</Order>
+                </LegAlight>
+                <Service>
+                  <OperatingDayRef>2026-11-21</OperatingDayRef>
+                  <JourneyRef>ch:1:sjyid:100002:ic706-001</JourneyRef>
+                  <siri:LineRef>ojp:91002:G</siri:LineRef>
+                  <Mode>
+                    <PtMode>rail</PtMode>
+                  </Mode>
+                  <PublishedServiceName>
+                    <Text xml:lang="fr">IC 706</Text>
+                  </PublishedServiceName>
+                </Service>
+              </TimedLeg>
+            </Leg>
+          </Trip>
+        </TripResult>
+        <!-- Trip 3: cancelled leg (missing ServiceDeparture) - should be skipped -->
+        <TripResult>
+          <Id>RESULT-003</Id>
+          <Trip>
+            <Id>TRIP-003-CANCELLED</Id>
+            <Duration>PT60M</Duration>
+            <StartTime>2026-11-21T15:00:00Z</StartTime>
+            <EndTime>2026-11-21T16:00:00Z</EndTime>
+            <Transfers>0</Transfers>
+            <Leg>
+              <Id>1</Id>
+              <TimedLeg>
+                <LegBoard>
+                  <siri:StopPointRef>ch:1:sloid:7000031</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Lausanne</Text>
+                  </StopPointName>
+                  <!-- ServiceDeparture intentionally omitted to simulate cancelled/incomplete leg -->
+                </LegBoard>
+                <LegAlight>
+                  <siri:StopPointRef>ch:1:sloid:7000008</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Genève</Text>
+                  </StopPointName>
+                  <ServiceArrival>
+                    <TimetabledTime>2026-11-21T16:00:00Z</TimetabledTime>
+                  </ServiceArrival>
+                </LegAlight>
+                <Service>
+                  <PublishedServiceName>
+                    <Text xml:lang="fr">IC 702</Text>
+                  </PublishedServiceName>
+                </Service>
+              </TimedLeg>
+            </Leg>
+          </Trip>
+        </TripResult>
+        <!-- Trip 4: optional fields missing (no quay, no serviceLabel) -->
+        <TripResult>
+          <Id>RESULT-004</Id>
+          <Trip>
+            <Id>TRIP-004-OPTIONAL-MISSING</Id>
+            <Duration>PT45M</Duration>
+            <StartTime>2026-11-21T17:00:00Z</StartTime>
+            <EndTime>2026-11-21T17:45:00Z</EndTime>
+            <Transfers>0</Transfers>
+            <Leg>
+              <Id>1</Id>
+              <TimedLeg>
+                <LegBoard>
+                  <siri:StopPointRef>ch:1:sloid:7000031</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Lausanne</Text>
+                  </StopPointName>
+                  <!-- No PlannedQuay / EstimatedQuay -->
+                  <ServiceDeparture>
+                    <TimetabledTime>2026-11-21T17:00:00Z</TimetabledTime>
+                  </ServiceDeparture>
+                </LegBoard>
+                <LegAlight>
+                  <siri:StopPointRef>ch:1:sloid:7000008</siri:StopPointRef>
+                  <StopPointName>
+                    <Text xml:lang="fr">Genève</Text>
+                  </StopPointName>
+                  <!-- No PlannedQuay / EstimatedQuay -->
+                  <ServiceArrival>
+                    <TimetabledTime>2026-11-21T17:45:00Z</TimetabledTime>
+                  </ServiceArrival>
+                </LegAlight>
+                <!-- No Service element -->
+              </TimedLeg>
+            </Leg>
+          </Trip>
+        </TripResult>
+      </OJPTripDelivery>
+    </siri:ServiceDelivery>
+  </OJPResponse>
+</OJP>
