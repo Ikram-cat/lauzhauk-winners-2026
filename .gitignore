@@ -76,6 +76,8 @@ Testing/
 # Kotlin and browser toolchains
 .gradle/
 .kotlin/
+.idea/
+.github/
 node_modules/
 
 # Python local environments, caches and raw incident data
