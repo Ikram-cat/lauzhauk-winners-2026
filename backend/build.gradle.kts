@@ -56,4 +56,5 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    environment("FARE_BASE_URL", "") // tests never call the live fare API
 }
