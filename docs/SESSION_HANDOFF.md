@@ -6,6 +6,33 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-21 · C · Notify hysteresis, real resumption, robustness metric
+
+**Branch and commit**
+`prediction`, in the commit that contains this entry (after `ee4c54e`).
+
+**Completed and files changed**
+
+- `analytics/sbb_duration/sources.py`:
+  - Notify hysteresis. An advice change notifies only when it is seen at two successive moments, or when the detour cost is more than 10 min from the prediction that was crossed.
+  - Rate limit: one notification per 15 min at most, except a replacement-bus announcement. Withheld codes are kept in `notify.withheld` and fire later if they still hold.
+  - Real end. `incident.publicEndAt` is the first public `ENDED` version, or the VIA global end when the public feed has none. `actualResumptionAt` is the internal resumption when it comes first, and then becomes `actualEndAt`. After it, the outlook is `UNAVAILABLE` with reason `SERVICE_RESUMED`.
+  - New `comparison` block: SBB announcement vs model P50, measured against the real end.
+  - `index.json` explains the demo choice in `demo.why`.
+- `analytics/sbb_duration/messages.py`: proposals, partial reopenings (one track, "avec mesures") and "en train de vérifier" no longer count as resumed service.
+- `analytics/sbb_duration/train.py`: `metrics.evaluation.robustness`, metrics without the incidents closed automatically (first `ENDED` 0–2 min after the last announced end).
+- `analytics/tests/test_sources.py`: tests for the hysteresis, the rate limit and the partial-resumption exclusions. `API_CONTRACT.md` and `analytics/README.md` are updated.
+
+**Verified results**
+
+- Robustness: 80 incidents look auto-closed, 7 of them in the original test period. Removing them and redoing the split gives a P50 error of 103.6 min against 120.1 for the announcement (88 test incidents). With the same split and only the test filtered: 98.6 against 114.4.
+- Primary demo incident (Renens VD – Morges):
+  - the four advice changes between 17:46 and 18:27 now give one notification, at 17:55 (detour 12 min from the P50; the advice then holds 35 min). 8 notifications in all, against 10 before;
+  - real resumption 21:04 (internal "Premiers trains …"), against a public end at 00:00. Against 21:04, the model's mean error is 83.3 min and the announcement's 95.8.
+- Other incidents: only Chavornay also gets an internal resumption, at 06:57 against 07:05. VIA's global end equals the public end in the 8 incidents where VIA has one; Renens and Stadelhofen have none.
+- Demo choice: Renens stays primary. Its story is still clear with the 21:04 resumption, it uses all three sources (VIA travel recommendation, 14 buses with stops at Renens and Morges, internal resumption), and the model beats the announcement. Stadelhofen stays the backup: its public end matches the end of operations, and the model's mean error is 63.2 min against 76.2.
+- `python -m pytest tests`: 15 passed.
+
 ## 2026-11-21 · C · Multi-source incident timelines
 
 **Branch and commit**

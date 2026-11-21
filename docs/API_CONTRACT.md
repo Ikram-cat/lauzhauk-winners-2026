@@ -253,7 +253,7 @@ The sources are linked as follows:
 - VIA `alea_fall_id` equals the public incident id.
 - An internal case matches a VIA event when they share the same cause code and were created within 30 minutes of each other. Matching is one-to-one, nearest first.
 
-On the September 2026 exports, 69 of 137 internal cases link to VIA, and 10 incidents are present in all three sources. `index.json` lists them and names the demo incidents: primary `2195005188970` (Renens VD – Morges, 2026-09-17) and backup `2195005195846` (Zürich Stadelhofen – Stettbach, 2026-09-25).
+On the September 2026 exports, 69 of 137 internal cases link to VIA, and 10 incidents are present in all three sources. `index.json` lists them and names the demo incidents and explains why (`demo.why`): primary `2195005188970` (Renens VD – Morges, 2026-09-17; real resumption 21:04 per the internal liveticker, public end auto-closed at 00:00) and backup `2195005195846` (Zürich Stadelhofen – Stettbach, 2026-09-25; public end at 20:30 matches the end of operations).
 
 Every file is `dataStatus: "MOCK"`, `kind: "HISTORICAL_MULTI_SOURCE_TIMELINE"`, `schemaVersion: 1`. It is a replay, not live data.
 
@@ -261,7 +261,11 @@ Every file is `dataStatus: "MOCK"`, `kind: "HISTORICAL_MULTI_SOURCE_TIMELINE"`, 
 
 | Field | Meaning |
 | --- | --- |
-| `incident` | `id`, `summaryEn` (last public summary), `reasonCode`, `reasonLabel`, `startedAt`, `actualEndAt` (first public `ENDED` version), `actualDurationMinutes`. |
+| `incident` | `id`, `summaryEn` (last public summary), `reasonCode`, `reasonLabel`, `startedAt`, and the end fields below. |
+| `incident.publicEndAt` | First public `ENDED` version, or VIA `zeitpunkt_globale_endmeldung` when the public feed has none. Where VIA has a global end (8 of the 10 incidents), it equals the public end. |
+| `incident.actualResumptionAt` | Real resumption reported by the internal liveticker (for example "Premiers trains …", "concept d'exploitation terminé") when it precedes `publicEndAt`. Otherwise null. Partial reopenings (one track, trains "with measures") and proposals do not count. |
+| `incident.actualEndAt`, `actualEndSource`, `actualDurationMinutes` | Real end: `actualResumptionAt` when set (`INTERNAL_RESUMPTION`), else `publicEndAt` (`PUBLIC_END`). Show it as the "real resumption" when the source is internal. |
+| `comparison` | Mean absolute error, against `actualEndAt`, of the SBB announcement and of the model P50, over the moments where both exist. |
 | `linkage` | How the VIA and internal records were joined, the creation-time delta, and the number of internal messages used and skipped. |
 | `detourExtraMinutes` | Hypothetical detour cost used for every `advice` (default 60). |
 | `model` | Provenance of the predictions: the evaluation models, trained before 2026-04-06, never saw these incidents. |
@@ -276,13 +280,13 @@ Fields of each `moments[]` entry:
 | `at` | Instant, RFC 3339 with the Swiss offset. |
 | `trigger` | `source` (`PUBLIC_LIVETICKER`, `VIA` or `INTERNAL_LIVETICKER`) and `event` (`PUBLIC_VERSION`, `PUBLIC_ENDED`, `VIA_UPDATE` or `INTERNAL_MESSAGE`). |
 | `public` | Latest public version, or null before the first one: `lifecycle`, `summaryEn`, `durationType`, `announcedEndAt`, `versionAt`, `officialRemainingMinutes`. |
-| `outlook` | The same fields as the [disruption outlook](#disruption-outlook-proposal) response: `status`, `remainingMinutes`, `expectedEndAt` and `advice`, computed at `at`. `status: "UNAVAILABLE"` comes with a `reason`: `NO_PUBLIC_ANNOUNCEMENT_YET` or `ENDED`. |
+| `outlook` | The same fields as the [disruption outlook](#disruption-outlook-proposal) response: `status`, `remainingMinutes`, `expectedEndAt` and `advice`, computed at `at`. `status: "UNAVAILABLE"` comes with a `reason`: `NO_PUBLIC_ANNOUNCEMENT_YET`, `SERVICE_RESUMED` (after `actualResumptionAt`) or `ENDED`. |
 | `affected` | Latest VIA state: `stations`, `sections`, `lines`. Null before the first VIA record. |
 | `via` | `travelRecommendationPublishedAt` and `replacementBusPublishedAt`, the first VIA publication times, or null. |
 | `internal` | Cumulative facts from the internal liveticker: `replacementBus` (`firstAt`, `busCount` = the most buses mentioned in one message), `stops[]` (station, `firstMentionedAt`, `times[]`), `resumptionForecast` (`known`, `at`, `messageAt`), `serviceResumedAt`. |
 | `message` | Only for `INTERNAL_MESSAGE`: `senderRole` (`TRAFFIC_CONTROL` or `STATION`), sanitized `text`, and the `facts` extracted from that message alone. |
-| `actualRemainingMinutes` | Hindsight, for the demo only. Never show it as a prediction. |
-| `notify` | `value` and `reasons[]` of `{code, detail}`. |
+| `actualRemainingMinutes` | Hindsight, for the demo only, measured to `incident.actualEndAt`. Never show it as a prediction. |
+| `notify` | `value` and `reasons[]` of `{code, detail}`. When the rate limit holds a notification back, `withheld` lists its codes. |
 
 A station object has these fields:
 - `uic`: integer UIC code, as in VIA;
@@ -300,11 +304,13 @@ A section is `{from, to}` in UIC codes. `lines` are VIA line numbers such as `IC
 | Code | Rule |
 | --- | --- |
 | `FIRST_DETECTION` | First moment of the incident, in any source. |
-| `ADVICE_CHANGED` | `outlook.advice.code` differs from the previous known code. `UNKNOWN` is ignored. |
+| `ADVICE_CHANGED` | `outlook.advice.code` differs from the last notified (or first known) code, **and** either the new code is seen at two successive moments, or the detour cost is more than 10 minutes from the prediction that was crossed (P50 between `TAKE_DETOUR` and `DETOUR_IF_DEADLINE`, pessimistic between `DETOUR_IF_DEADLINE` and `WAIT`). `UNKNOWN` is ignored. |
 | `ANNOUNCED_END_SHIFTED` | The public `announcedEndAt` moved by more than 15 minutes since the last value that triggered a notification. |
 | `REPLACEMENT_BUS_ANNOUNCED` | First moment with a replacement bus, from VIA or from an internal message. |
 
-When the detour cost is close to the P50, the advice can switch back and forth within minutes. On the primary demo incident it changes four times between 17:46 and 18:27. A client that pushes notifications should add a minimum interval or a margin.
+**Rate limit:** at most one notification every 15 minutes, except when it includes `REPLACEMENT_BUS_ANNOUNCED`. A withheld reason keeps its baseline, so it is notified at the next allowed moment if it still holds.
+
+These rules remove the flip-flops when the detour cost is close to the P50. On the primary demo incident, the four advice changes between 17:46 and 18:27 now produce one notification: at 17:55, where the detour is 12 minutes from the P50 and the advice then holds for 35 minutes. The timeline has 8 notifications in all.
 
 ### Checking a journey against an incident
 

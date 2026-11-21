@@ -109,6 +109,43 @@ def evaluate(models: dict, train: pd.DataFrame, test: pd.DataFrame) -> dict:
     }
 
 
+AUTO_CLOSE_TOLERANCE_MIN = 2
+
+
+def auto_closed_ids(versions: pd.DataFrame) -> set:
+    """Incidents whose first ENDED version comes 0-2 min after the last announced end.
+
+    They look closed automatically at the announced time rather than when service resumed,
+    so their "real end" is the announcement itself, which flatters the official estimate.
+    """
+    end = versions[versions.lifecycle == "ENDED"].groupby("id").updated_at_source.min()
+    info = versions[versions.lifecycle == "INFO"].join(end.rename("end"), on="id")
+    info = info[info.updated_at_source < info.end].sort_values(["id", "last_modified_date"])
+    gap = ((end - info.groupby("id").duration_to.last()).dt.total_seconds() / 60).dropna()
+    return set(gap[(gap >= 0) & (gap <= AUTO_CLOSE_TOLERANCE_MIN)].index)
+
+
+def robustness(versions: pd.DataFrame, snap: pd.DataFrame, train: pd.DataFrame, test: pd.DataFrame) -> dict:
+    """Metrics without auto-closed incidents: removed then re-split (main), and removed from the test only."""
+    auto = auto_closed_ids(versions)
+    kept = snap[~snap.id.isin(auto)]
+    r_train, r_test, r_cutoff = chronological_split(kept)
+    return {
+        "note": "incidents whose first ENDED version is 0-2 min after the last announced end are excluded",
+        "autoClosedIncidents": len(auto & set(snap.id)),
+        "excludedThenResplit": {
+            "cutoff": r_cutoff.isoformat(),
+            "train": {"incidents": int(r_train.id.nunique()), "snapshots": int(len(r_train))},
+            "test": {"incidents": int(r_test.id.nunique()), "snapshots": int(len(r_test))},
+            "testMetrics": evaluate(fit(r_train), r_train, r_test),
+        },
+        "sameSplitTestOnly": {
+            "autoClosedInTest": len(auto & set(test.id)),
+            "testMetrics": evaluate(fit(train), train, test[~test.id.isin(auto)]),
+        },
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
@@ -140,6 +177,7 @@ def main(argv=None):
                       "train": {"incidents": int(train.id.nunique()), "snapshots": int(len(train))},
                       "test": {"incidents": int(test.id.nunique()), "snapshots": int(len(test))}},
             "test": test_metrics,
+            "robustness": robustness(versions, snap, train, test),
         },
         "finalModel": {"trainedOn": "all snapshots (train + test)",
                        "incidents": int(snap.id.nunique()), "snapshots": int(len(snap))},

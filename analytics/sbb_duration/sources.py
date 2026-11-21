@@ -211,22 +211,57 @@ def _no_outlook(detour: int, reason: str) -> dict:
             "advice": {"code": Advice.UNKNOWN.value, "detourExtraMinutes": detour}}
 
 
+ADVICE_ORDER = [Advice.TAKE_DETOUR.value, Advice.DETOUR_IF_DEADLINE.value, Advice.WAIT.value]
+ADVICE_MARGIN_MIN = 10
+NOTIFY_MIN_INTERVAL = pd.Timedelta(minutes=15)
+
+
+def _advice_margin(old: str, new: str, outlook: dict) -> float | None:
+    """Minutes between the detour cost and the prediction(s) separating `old` from `new`.
+
+    Boundaries: TAKE_DETOUR | p50 | DETOUR_IF_DEADLINE | pessimistic | WAIT.
+    """
+    remaining, detour = outlook["remainingMinutes"], outlook["advice"]["detourExtraMinutes"]
+    if remaining is None or detour is None or old not in ADVICE_ORDER or new not in ADVICE_ORDER:
+        return None
+    boundaries = [remaining["p50"], remaining["pessimistic"]]
+    lo, hi = sorted((ADVICE_ORDER.index(old), ADVICE_ORDER.index(new)))
+    return min(abs(detour - b) for b in boundaries[lo:hi])
+
+
 def add_notifications(moments: list[dict]) -> None:
     """notify = first detection, advice change, announced end shifted > 15 min, replacement bus announced.
 
-    The shift rule applies to the SBB announced end only: the predicted end moves at every moment, and
-    the changes that matter to the traveller already show up as ADVICE_CHANGED.
+    Hysteresis: an advice change notifies only when it is seen at two successive updates, or when
+    the detour cost is more than 10 min from the prediction that was crossed. Rate limit: at most one
+    notification per 15 min, except a replacement-bus announcement. A withheld reason is not lost:
+    its baseline is unchanged, so it fires at the next allowed update if it still holds.
+    The shift rule applies to the SBB announced end only; the predicted end moves at every moment.
     """
-    last_code, announced_base, bus_seen = None, None, False
+    confirmed, pending, announced_base, bus_seen, last_sent = None, None, None, False, None
     for i, m in enumerate(moments):
-        reasons = []
+        at = pd.Timestamp(m["at"])
+        reasons, commit = [], []
         if i == 0:
             reasons.append({"code": "FIRST_DETECTION", "detail": f"first seen in {m['trigger']['source']}"})
         code = m["outlook"]["advice"]["code"]
         if code != Advice.UNKNOWN.value:
-            if last_code is not None and code != last_code:
-                reasons.append({"code": "ADVICE_CHANGED", "detail": f"{last_code} -> {code}"})
-            last_code = code
+            if confirmed is None:
+                confirmed = code  # first known advice: baseline, no change to announce
+            elif code == confirmed:
+                pending = None
+            else:
+                margin = _advice_margin(confirmed, code, m["outlook"])
+                if margin is not None and margin > ADVICE_MARGIN_MIN:
+                    detail = f"{confirmed} -> {code} (detour {margin:.0f} min from the prediction)"
+                elif pending == code:
+                    detail = f"{confirmed} -> {code} (confirmed by two successive updates)"
+                else:
+                    detail = None
+                pending = code
+                if detail:
+                    reasons.append({"code": "ADVICE_CHANGED", "detail": detail})
+                    commit.append(("advice", code))
         announced = m["public"]["announcedEndAt"] if m["public"] else None
         if announced:
             if announced_base is None:
@@ -235,12 +270,27 @@ def add_notifications(moments: list[dict]) -> None:
                 shift = (pd.Timestamp(announced) - pd.Timestamp(announced_base)).total_seconds() / 60
                 if abs(shift) > SHIFT_THRESHOLD_MIN:
                     reasons.append({"code": "ANNOUNCED_END_SHIFTED", "detail": f"{shift:+.0f} min vs last notified"})
-                    announced_base = announced
+                    commit.append(("announced", announced))
         bus = bool(m["via"]["replacementBusPublishedAt"] or m["internal"]["replacementBus"])
         if bus and not bus_seen:
             reasons.append({"code": "REPLACEMENT_BUS_ANNOUNCED", "detail": m["trigger"]["source"]})
-            bus_seen = True
-        m["notify"] = {"value": bool(reasons), "reasons": reasons}
+            commit.append(("bus", True))
+
+        is_bus = any(r["code"] == "REPLACEMENT_BUS_ANNOUNCED" for r in reasons)
+        allowed = last_sent is None or at - last_sent >= NOTIFY_MIN_INTERVAL or is_bus
+        if reasons and allowed:
+            for kind, value in commit:
+                if kind == "advice":
+                    confirmed, pending = value, None
+                elif kind == "announced":
+                    announced_base = value
+                else:
+                    bus_seen = True
+            last_sent = at
+            m["notify"] = {"value": True, "reasons": reasons}
+        else:
+            m["notify"] = {"value": False, "reasons": [],
+                           **({"withheld": [r["code"] for r in reasons]} if reasons else {})}
 
 
 def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame, versions: pd.DataFrame,
@@ -252,7 +302,24 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
     start = p_all.created_at_source.min()
     ended = public[public.lifecycle == "ENDED"]
     end_at = ended.observed.min() if len(ended) else None
+    via_end = v_rows.zeitpunkt_globale_endmeldung.dropna()
+    via_end_at = via_end.min() if len(via_end) else None
+    if end_at is None:  # no public ENDED version: fall back on the VIA global end message
+        end_at = via_end_at
     msgs = messages[messages.ereignisfall_id == internal_case_id].sort_values(["timestamp", "id"])
+    kept = msgs[msgs.sender.isin(list(SENDER_ROLES))]
+    skipped_staff = int(len(msgs) - len(kept))
+    parsed = {}
+    for r in kept.itertuples():
+        text = sanitize(r.message)
+        parsed[r.id] = (text, extract(text, r.timestamp.to_pydatetime(), gazetteer))
+    resumed = [r.timestamp for r in kept.itertuples() if parsed[r.id][1].get("serviceResumed")]
+    resumption_at = min(resumed) if resumed else None
+    # Real end: internal resumption when it comes before the public end, else the public end.
+    if resumption_at is not None and (end_at is None or resumption_at < end_at):
+        actual_end, actual_source = resumption_at, "INTERNAL_RESUMPTION"
+    else:
+        actual_end, actual_source = end_at, None if end_at is None else "PUBLIC_END"
 
     # Trigger events from the three sources.
     events = []
@@ -267,11 +334,7 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
             previous = key
     for r in public.itertuples():
         events.append((r.observed, 1, "PUBLIC_LIVETICKER", "PUBLIC_ENDED" if r.lifecycle == "ENDED" else "PUBLIC_VERSION", r))
-    skipped_staff = 0
-    for r in msgs.itertuples():
-        if r.sender not in SENDER_ROLES:
-            skipped_staff += 1
-            continue
+    for r in kept.itertuples():
         events.append((r.timestamp, 2, "INTERNAL_LIVETICKER", "INTERNAL_MESSAGE", r))
     events.sort(key=lambda e: (e[0], e[1]))
     if end_at is not None:
@@ -291,8 +354,7 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
             if not state["ended"]:
                 state["info_index"] = int(np.flatnonzero(info_versions.observed == row.observed)[0])
         else:
-            text = sanitize(row.message)
-            facts = extract(text, at.to_pydatetime(), gazetteer)
+            text, facts = parsed[row.id]
             message = {"senderRole": SENDER_ROLES[row.sender], "text": text, "facts": facts}
             internal = state["internal"]
             if "replacementBus" in facts:
@@ -318,6 +380,8 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
             _round(max((pub.duration_to - at).total_seconds() / 60, 0))}
         if state["ended"]:
             outlook = _no_outlook(detour, "ENDED")
+        elif actual_source == "INTERNAL_RESUMPTION" and at >= actual_end:
+            outlook = _no_outlook(detour, "SERVICE_RESUMED")
         elif pub is None:
             outlook = _no_outlook(detour, "NO_PUBLIC_ANNOUNCEMENT_YET")
         else:
@@ -335,7 +399,8 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
                     _iso(via_row.zeitpunkt_erstpublikation_bahnersatz)},
             "internal": json.loads(json.dumps(state["internal"])),
             "message": message,
-            "actualRemainingMinutes": None if end_at is None else _round(max((end_at - at).total_seconds() / 60, 0)),
+            "actualRemainingMinutes": None if actual_end is None else
+            _round(max((actual_end - at).total_seconds() / 60, 0)),
         })
     add_notifications(moments)
 
@@ -358,19 +423,26 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
         "note": "Past incident rebuilt from the public SBB liveticker, VIA event messages and the internal "
                 "liveticker. Not live data. The detour cost is hypothetical. Predictions come from models trained "
                 "only on incidents before the test cutoff, which never saw this incident. actualRemainingMinutes "
-                "is hindsight.",
+                "is hindsight, measured to actualEndAt: the real resumption reported by the internal liveticker "
+                "when it precedes the public end, else the public end.",
         "incident": {
             "id": alea_id,
             "summaryEn": public.summary_en.dropna().iloc[-1] if public.summary_en.notna().any() else None,
             "reasonCode": reason, "reasonLabel": reasons.get(reason),
-            "startedAt": _iso(start), "actualEndAt": _iso(end_at),
-            "actualDurationMinutes": None if end_at is None else _round((end_at - start).total_seconds() / 60),
+            "startedAt": _iso(start),
+            "publicEndAt": _iso(end_at),
+            "viaGlobalEndAt": _iso(via_end_at),
+            "actualResumptionAt": _iso(resumption_at) if actual_source == "INTERNAL_RESUMPTION" else None,
+            "actualEndAt": _iso(actual_end),
+            "actualEndSource": actual_source,
+            "actualDurationMinutes": None if actual_end is None else _round((actual_end - start).total_seconds() / 60),
         },
+        "comparison": _comparison(moments),
         "linkage": {
             "via": {"rule": "alea_fall_id == public incident id", "events": int(len(v_rows))},
             "internal": {"rule": "same cause code and creation time within 30 min (one-to-one, nearest)",
                          "creationDeltaMinutes": round(delta.total_seconds() / 60, 1),
-                         "messagesUsed": int(len(msgs) - skipped_staff), "staffMessagesSkipped": skipped_staff},
+                         "messagesUsed": int(len(kept)), "staffMessagesSkipped": skipped_staff},
         },
         "detourExtraMinutes": detour,
         "model": {"kind": "ESTIMATED", "modelVersion": "duration-v1 (evaluation split)",
@@ -382,11 +454,24 @@ def build_timeline(alea_id: str, internal_case_id: int, delta, via: pd.DataFrame
     }
 
 
+def _comparison(moments: list[dict]) -> dict:
+    """Mean absolute error to the real end, over moments with both an announcement and a prediction."""
+    pairs = [(m["public"]["officialRemainingMinutes"], m["outlook"]["remainingMinutes"]["p50"],
+              m["actualRemainingMinutes"]) for m in moments
+             if m["public"] and m["public"]["officialRemainingMinutes"] is not None
+             and m["outlook"]["remainingMinutes"] and m["actualRemainingMinutes"] is not None]
+    if not pairs:
+        return {"moments": 0, "meanAbsErrorMinutes": None}
+    mae = lambda k: round(float(np.mean([abs(p[k] - p[2]) for p in pairs])), 1)
+    return {"moments": len(pairs), "meanAbsErrorMinutes": {"officialSbb": mae(0), "modelP50": mae(1)}}
+
+
 def print_timeline(t: dict) -> None:
     inc = t["incident"]
     print(f"\n=== [MOCK] {inc['summaryEn']} ({inc['id']}) | {inc['reasonLabel']} | "
-          f"{inc['startedAt'][:16]} -> {(inc['actualEndAt'] or '?')[:16]} | {len(t['moments'])} moments, "
-          f"{t['notifications']} notifications")
+          f"{inc['startedAt'][:16]} -> real end {(inc['actualEndAt'] or '?')[:16]} ({inc['actualEndSource']}; "
+          f"public {(inc['publicEndAt'] or '?')[11:16]}, VIA {(inc['viaGlobalEndAt'] or '?')[11:16]}) | "
+          f"{len(t['moments'])} moments, {t['notifications']} notifications | MAE {t['comparison']}")
     print("    stations: " + ", ".join(f"{s['name'] or '?'} ({s['uic']}, {s['sloid']})" for s in t["affected"]["stations"]))
     for m in t["moments"]:
         if not m["notify"]["value"]:
@@ -436,7 +521,10 @@ def main(argv=None):
     via_ids = set(via.alea_fall_id)
     summary = {
         "dataStatus": "MOCK",
-        "demo": {"primary": DEMO_PRIMARY, "backup": DEMO_BACKUP},
+        "demo": {"primary": DEMO_PRIMARY, "backup": DEMO_BACKUP,
+                 "why": "Primary uses all three sources (VIA travel recommendation, 14 replacement buses with stops, "
+                        "internal resumption at 21:04, 3 h before the auto-closed public end) and the model beats the "
+                        "announcement against the real resumption. Backup: public end matches the end of operations."},
         "linkage": {"viaEvents": len(via_ids), "viaInPublic": len(via_ids & public_ids),
                     "internalCases": int(cases.id.nunique()), "internalLinkedToVia": int(len(links)),
                     "inAllThreeSources": int(len(common))},

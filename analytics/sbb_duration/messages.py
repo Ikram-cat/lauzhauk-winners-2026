@@ -47,7 +47,10 @@ _FORECAST = re.compile(r"(?i)(?:prognose|pronostic|pr.vision|previsione|voraussi
                        r"|jusqu.{0,2}.|fin de perturbation|wiederaufnahme|reprise)[^.\d]{0,30}?"
                        r"\b(?:[01]?\d|2[0-3])\s?(?:[:.]\s?[0-5]\d|h)")
 _NOT_YET = re.compile(r"(?i)(?:en train de v.rifier|en cours de|pas encore|wird gepr.ft|noch nicht|in vorbereitung"
-                      r"|non ancora)")
+                      r"|non ancora|proposition|vorschlag|proposta)")
+# Partial reopening (one track, trains running "with measures") is not the end of the disruption.
+_PARTIAL = re.compile(r"(?i)(?:\b(?:1|ein|un|une|uno)\s+(?:gleis|voie|binario)\b|\bgleis\s*\d|\bvoie\s*\d"
+                      r"|\bbinario\s*\d|avec mesures|mit massnahmen|con misure|einspurig|voie unique)")
 _RESUMED = re.compile(r"(?i)(?:premiers trains|erste[n]? z.ge|circulent . nouveau|reprise du trafic"
                       r"|wieder (?:fahrbar|befahrbar|verkehren)|k.nnen (?:alle |wieder )?[^.]{0,20}verkehren"
                       r"|strecke (?:ist )?(?:wieder )?frei|concept d.exploitation est termin|konzept (?:ist )?beendet"
@@ -108,6 +111,6 @@ def extract(text: str, sent_at: datetime, gazetteer: StationGazetteer | None = N
         at = _clock_after(text[m.start():], sent_at) if m else None
         if at is not None:
             facts["resumptionForecast"] = {"known": True, "at": at.isoformat()}
-    if _RESUMED.search(text) and not _NOT_YET.search(text):
+    if _RESUMED.search(text) and not _NOT_YET.search(text) and not _PARTIAL.search(text):
         facts["serviceResumed"] = True
     return facts
