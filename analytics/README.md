@@ -44,6 +44,21 @@ Round 2 adds (all backward compatible; `byLineHour` keeps its schema):
 
 `hourBucket` is the local Europe/Zurich hour 0-23. `confidence`: sampleSize <8 low, 8-19 medium, >=20 high.
 
+## Realtime sampler
+
+`realtime_sampler.py` polls the OJP stop-event API (needs `OJP_API_KEY`, never logged) for 12 corridor stations (`--stations-file` takes `name,stop_ref` lines instead). Each station's SLOID is checked against the returned `StopPlaceName`; a mismatch is logged and skipped. One CSV row per departure goes to `analytics/data/realtime_samples.csv` (gitignored): timetabled and estimated time, `delay_min` (empty without an estimate), `cancelled` (the `<Cancelled>` element, or `<NotServicedStop>` at the departure call), `unplanned`, `deviation`, quay and the Europe/Zurich hour of the timetabled time.
+
+```bash
+set -a; . ~/lauzhack-ojp.env; set +a
+~/code/venv-analytics/bin/python -m analytics.realtime_sampler --once
+~/code/venv-analytics/bin/python -m analytics.realtime_sampler --loop --interval 60 --duration 3600   # a failed run is logged, never fatal
+~/code/venv-analytics/bin/python -m analytics.realtime_sampler --summarize   # -> artifacts/realtime_delays.json
+```
+
+The summary keeps the last observation of each departure (so repeated polls are not double counted) and groups by station and local hour. A `portions` row is emitted only with **at least 10** departures that have a delay estimate and are not cancelled. It gives `medianDelayMin`, `p90DelayMin`, `shareLate` (fraction of departures with delay **> 2 minutes**) and the `cancelled` count in that bucket. `cancellations` is the raw evidence list (max 100).
+
+Caveat: this measures **today's conditions** over the sampled window, not a historical average. A bucket seen on one evening says nothing about other days; collect several days before treating it as chronic lateness.
+
 ## Data and measured results (build of 2026-11-21)
 
 Coverage 2024-03-04 to 2026-10-11. 550 incidents, 5,305 versions, 520 with a known end, 3,063 snapshots.
