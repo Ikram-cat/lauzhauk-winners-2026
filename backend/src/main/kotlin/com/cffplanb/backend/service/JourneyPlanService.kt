@@ -34,7 +34,9 @@ data class JourneyPlan(
     val primary: Journey?, val recommended: Journey?, val alternatives: List<Journey>,
     val fares: Map<String, FareQuote>?, val realtime: Map<String, JourneyRealtime>,
     /** Latest scheduled departure among candidates that arrive by the deadline; null without a deadline or when none does. */
-    val latestFeasibleDeparture: OffsetDateTime?
+    val latestFeasibleDeparture: OffsetDateTime?,
+    /** Ids the detector actually verified against live data; the rest are ranked on expectations. */
+    val checked: Set<String> = emptySet()
 )
 
 private fun mins(a: OffsetDateTime, b: OffsetDateTime) = Duration.between(a, b).toMinutes().toInt()
@@ -58,7 +60,7 @@ class JourneyPlanService(
         val ordered = ranked.filter { meetsAt(it, it.arrival) } + ranked.filterNot { meetsAt(it, it.arrival) }
         val primary = ordered[0]
 
-        val checkList = ordered.take(2)
+        val checkList = ordered.take(4)
         val checks = detector.detect(checkList, req.earliestDeparture)
         val checkOf = if (checks == null) emptyMap() else checkList.map { it.id }.zip(checks).toMap()
         val disruption = checkOf[primary.id]?.worst
@@ -119,10 +121,15 @@ class JourneyPlanService(
             }
             else -> {
                 if (disruption != null) reasons += Reason("EARLIER_DEPARTURE_CANCELLED", serviceLabel = disruption.leg.serviceLabel)
-                recommended = primary; action = Action.STAY
+                // Nothing live is broken; only when the traveller asked for FASTEST can a candidate that is expected
+                // (live estimate or measured chronic delay) to arrive 5+ min earlier take the recommendation.
+                val expectedPrimary = arrivalOf(primary)
+                val robust = if (pref == Preference.FASTEST) sorted(unique.filter { it.id != primary.id && mins(arrivalOf(it), expectedPrimary) >= MIN_REROUTE_GAIN_MIN }).firstOrNull() else null
+                recommended = robust ?: primary; action = Action.STAY
+                if (robust != null) reasons += Reason("EXPECTED_FASTER", savedMinutes = mins(arrivalOf(robust), expectedPrimary))
             }
         }
-        if (recommended != null && action == Action.REROUTE) {
+        if (recommended != null && recommended.id != primary.id) {
             if (recommended.transfers < primary.transfers) reasons += Reason("FEWER_TRANSFERS", savedTransfers = primary.transfers - recommended.transfers)
             val a = fareOf(recommended); val b = fareOf(primary)
             if (a != null && b != null && a < b) reasons += Reason("CHEAPER", savedChf = Math.round((b - a) * 100) / 100.0)
@@ -136,7 +143,7 @@ class JourneyPlanService(
         val alternatives = unique.filter { it.id != recommended?.id }.sortedWith(cmp)
         val latest = deadline?.let { unique.filter { meetsAt(it, arrivalOf(it)) }.maxByOrNull { it.departure.toInstant() }?.departure }
         (unique + listOfNotNull(primary)).forEach { realtimeOf(it) }
-        return JourneyPlan(status, action, reasons, disruption, primary, recommended, alternatives, fares, rt, latest)
+        return JourneyPlan(status, action, reasons, disruption, primary, recommended, alternatives, fares, rt, latest, checkOf.keys)
     }
 
     /**

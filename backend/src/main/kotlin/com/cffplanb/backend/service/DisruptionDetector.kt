@@ -5,6 +5,7 @@ import com.cffplanb.backend.gtfs.GtfsMatch
 import com.cffplanb.backend.gtfs.GtfsSnapshot
 import com.cffplanb.backend.domain.JourneyLeg
 import com.cffplanb.backend.domain.LegMode
+import com.cffplanb.backend.provider.PtSituation
 import com.cffplanb.backend.provider.StopEvent
 import com.cffplanb.backend.provider.StopEventsResult
 import kotlinx.coroutines.Deferred
@@ -21,7 +22,7 @@ enum class DisruptionBasis { REALTIME_ESTIMATE, CANCELLED_FLAG, MISSING_FROM_REA
 /** [legIndex] indexes the checked journey's legs; [leg] is that leg as scheduled. */
 data class Disruption(
     val legIndex: Int, val leg: JourneyLeg, val delayMinutes: Int?, val cancelled: Boolean,
-    val basis: DisruptionBasis, val confidence: String, val estimatedDeparture: OffsetDateTime?, val cause: String? = null,
+    val basis: DisruptionBasis, val confidence: String,    val estimatedDeparture: OffsetDateTime?, val cause: String? = null, val severity: String? = null,
     /** True when the verdict came from the GTFS-RT feed rather than OJP stop events. */
     val fromGtfs: Boolean = false,
     /** False for a cancelled train that is not part of the checked journey (the planner already dropped it) but would have served the same hop. */
@@ -97,13 +98,26 @@ fun cancelledEarlier(legIndex: Int, leg: JourneyLeg, floor: OffsetDateTime, plan
     return Disruption(legIndex, leg.copy(serviceLabel = gone.label, departure = gone.scheduled, destination = if (dest in gone.onward) leg.destination else finalDestination), null, true, DisruptionBasis.CANCELLED_FLAG, "high", null, affectsJourney = false)
 }
 
+/** Attaches the first SIRI PtSituation that affects this leg: same line (or boarding stop) within its validity window. Pure. */
+fun enrichWithSituations(d: Disruption, situations: List<PtSituation>, stopRef: String?): Disruption {
+    if (situations.isEmpty()) return d
+    val label = norm(d.leg.serviceLabel)
+    val time = d.leg.departure
+    val s = situations.firstOrNull { s ->
+        val line = label.isNotEmpty() && s.lineRefs.any { norm(it) == label }
+        val stop = stopRef != null && s.stopRefs.any { it == stopRef }
+        (line || stop) && (s.validFrom == null || !time.isBefore(s.validFrom.minusHours(2))) && (s.validUntil == null || !time.isAfter(s.validUntil.plusHours(2)))
+    } ?: return d
+    return d.copy(cause = d.cause ?: s.cause, severity = s.severity?.uppercase())
+}
+
 /** Cancelled beats delay, a larger delay beats a smaller one, an unknown delay ranks last. */
 private val severity = compareBy<Disruption>({ if (it.affectsJourney) 1 else 0 }, { if (it.cancelled) 2 else if (it.basis == DisruptionBasis.REALTIME_ESTIMATE) 1 else 0 }, { it.delayMinutes ?: 0 }, { -it.legIndex })
 
 class DisruptionDetector(
     private val fetch: suspend (String, OffsetDateTime, Boolean) -> StopEventsResult,
     private val deadlineMs: Long = 6_000,
-    private val maxQueries: Int = 12,
+    private val maxQueries: Int = 24,
     private val gtfs: (suspend () -> GtfsSnapshot?)? = null
 ) {
     private val log = LoggerFactory.getLogger(DisruptionDetector::class.java)
@@ -140,11 +154,16 @@ class DisruptionDetector(
                 val snap = snapJob?.await()
                 if (plan is StopEventsResult.Success) {
                     val liveEvents = (live as? StopEventsResult.Success)?.events.orEmpty()
+                    val situations = plan.situations + (live as? StopEventsResult.Success)?.situations.orEmpty()
                     fun gtfsCancelled(p: StopEvent) = snap != null && GtfsMatch.find(snap, p.lineRef, p.originDeparture?.toInstant())?.cancelled == true
-                    extra += listOfNotNull(cancelledEarlier(i, l, if (i == 0) floor else journeys[ji].legs[i - 1].arrival, plan.events, liveEvents, ::gtfsCancelled, journeys[ji].legs.last().destination))
                     val planned = plannedFor(l, plan.events)
-                    (if (snap != null && planned != null) classifyLegGtfs(i, l, planned, snap) else null)
-                        ?: if (live is StopEventsResult.Success) classifyLeg(i, l, plan.events, liveEvents) else LegCheck.Unknown
+                    extra += listOfNotNull(cancelledEarlier(i, l, if (i == 0) floor else journeys[ji].legs[i - 1].arrival, plan.events, liveEvents, ::gtfsCancelled, journeys[ji].legs.last().destination))
+                        .map { enrichWithSituations(it, situations, planned?.stopRef) }
+                    when (val c = (if (snap != null && planned != null) classifyLegGtfs(i, l, planned, snap) else null)
+                        ?: if (live is StopEventsResult.Success) classifyLeg(i, l, plan.events, liveEvents) else LegCheck.Unknown) {
+                        is LegCheck.Hit -> LegCheck.Hit(enrichWithSituations(c.disruption, situations, planned?.stopRef))
+                        else -> c
+                    }
                 } else LegCheck.Unknown
             }
             val hits = checks.filterIsInstance<LegCheck.Hit>().map { it.disruption } + extra

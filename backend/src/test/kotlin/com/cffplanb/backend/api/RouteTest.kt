@@ -82,7 +82,7 @@ class RouteTest {
     @Test
     fun `journey object carries every documented field`() = appTest {
         val j = parse(client.get("/api/journeys?origin=A&destination=B").bodyAsText()).o("primaryJourney")
-        assertEquals(setOf("id", "dataStatus", "feasible", "maxOccupancy", "schedule", "realtime", "risk", "fares", "legs"), j.keys)
+        assertEquals(setOf("id", "dataStatus", "verified", "feasible", "maxOccupancy", "schedule", "realtime", "risk", "fares", "legs"), j.keys)
         assertEquals(setOf("departure", "arrival", "durationMinutes", "transfers"), j.o("schedule").keys)
         assertEquals(setOf("expectedDeparture", "departureDelayMinutes", "expectedArrival", "arrivalDelayMinutes", "source", "sampleCount"), j.o("realtime").keys)
         assertEquals(setOf("corridorIncidentRate", "typicalIncidentDurationMinutes", "source", "basis", "confidence", "level"), j.o("risk").keys)
