@@ -18,10 +18,11 @@ import pandas as pd
 from .artifact import SCHEMA_VERSION, finalize, load_artifact, predict_raw as artifact_predict_raw
 from .data import DATA_DIR, OUTPUT_DIR
 from .features import CATEGORICAL, FEATURES, LOCAL_TZ, MISSING_CATEGORY, TEXT_FLAGS
-from .predict import load_bundle, predict_raw
+from .predict import evaluation_bundle, load_bundle, predict_raw
 from .train import prepare
 
 ARTIFACT_FILE = f"duration_model.v{SCHEMA_VERSION}.json"
+EVAL_ARTIFACT_FILE = f"duration_model.v{SCHEMA_VERSION}.eval.json"  # split models, for historical replays
 GOLDEN_FILE = "golden_vectors.json"
 N_GOLDEN = 100
 MODEL_VERSION = "duration-v1"
@@ -73,13 +74,20 @@ def export_model(model, n_categories: list) -> dict:
             "trees": [export_tree(trees[0], n_categories) for trees in model._predictors]}
 
 
-def build_artifact(bundle: dict) -> dict:
-    categories = bundle["categories"]
+def _encoder_categories(model) -> dict:
+    """Categories in the model's own encoder order: tree category codes index into these lists."""
+    encoder = model._preprocessor.named_transformers_["encoder"]
+    return {c: [str(x) for x in cats] for c, cats in zip(CATEGORICAL, encoder.categories_)}
+
+
+def build_artifact(bundle: dict, model_version: str = MODEL_VERSION) -> dict:
+    categories = _encoder_categories(bundle["models"]["p50"])
+    assert categories == _encoder_categories(bundle["models"]["pessimistic"])
     n_categories = [len(categories[f]) if f in categories else 0 for f in FEATURES]
     metrics = bundle["metrics"]
     return {
         "schemaVersion": SCHEMA_VERSION,
-        "modelVersion": MODEL_VERSION,
+        "modelVersion": model_version,
         "kind": "ESTIMATED",
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "trainedAt": metrics["generatedAt"],
@@ -171,6 +179,13 @@ def main(argv=None):
     bundle = load_bundle(args.output_dir / "duration_model.joblib")
     artifact_path = args.output_dir / ARTIFACT_FILE
     artifact_path.write_text(json.dumps(build_artifact(bundle), separators=(",", ":"), allow_nan=False), encoding="utf-8")
+    # Evaluation artifact: models fitted before the test cutoff, for replays of past incidents.
+    eval_bundle = {**evaluation_bundle(bundle), "explanations": bundle["evaluation_explanations"]}
+    eval_artifact = build_artifact(eval_bundle, MODEL_VERSION + "-eval")
+    eval_artifact["training"]["note"] = ("evaluation models: fitted on incidents before the test cutoff only; "
+                                         "use for replays of past incidents, not for live use")
+    (args.output_dir / EVAL_ARTIFACT_FILE).write_text(
+        json.dumps(eval_artifact, separators=(",", ":"), allow_nan=False), encoding="utf-8")
     _, _, _, test, _ = prepare(args.data_dir)
     golden = build_golden(test, bundle)
     (args.output_dir / GOLDEN_FILE).write_text(json.dumps(golden, indent=1, ensure_ascii=False, allow_nan=False), encoding="utf-8")
@@ -183,6 +198,12 @@ def main(argv=None):
         worst = max(worst, abs(raw[0] - case["expected"]["rawP50"]), abs(raw[1] - case["expected"]["rawPessimistic"]))
     print(f"{artifact_path} ({artifact_path.stat().st_size / 1e6:.2f} MB), {len(golden['cases'])} golden cases, "
           f"max |JSON - sklearn| on log scale = {worst:.2e}")
+    eval_loaded = load_artifact(args.output_dir / EVAL_ARTIFACT_FILE)
+    rows = [c["features"] for c in golden["cases"]]
+    sk = predict_raw(rows, eval_bundle)
+    worst_eval = max(max(abs(a - b) for a, b in zip(artifact_predict_raw(eval_loaded, f), s_))
+                     for f, s_ in zip(rows, sk))
+    print(f"{args.output_dir / EVAL_ARTIFACT_FILE}: max |JSON - sklearn| on the same cases = {worst_eval:.2e}")
 
 
 if __name__ == "__main__":

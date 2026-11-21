@@ -24,6 +24,7 @@ python -m sbb_duration.export               # duration_model.v1.json + golden_ve
 python -m pytest tests -p no:cacheprovider  # JSON evaluator == sklearn, advice thresholds, pessimistic >= p50
 python -m sbb_duration.replay [--detour 60] # 3 past incidents, terminal table + output/replay/replay-0N.json (MOCK)
 python -m sbb_duration.sources [--detour 60] # 3-source timelines -> output/timelines/timeline-<id>.json + index.json (MOCK)
+python scripts/run_demo.py [--offline]       # builds missing outputs, then starts the backend with the model (docs/DEMO.md)
 ```
 
 | Module | Role |
@@ -32,7 +33,8 @@ python -m sbb_duration.sources [--detour 60] # 3-source timelines -> output/time
 | `features.py` | `build_features`, shared by training, prediction and export; the Kotlin port mirrors it. |
 | `train.py` | Snapshots of ongoing versions, chronological 80/20 split by incident start, P50 and pessimistic (0.85) quantile models. Metrics are measured on the split; the exported model is refitted on all snapshots. |
 | `predict.py`, `advice.py` | sklearn prediction; advice codes `TAKE_DETOUR`, `DETOUR_IF_DEADLINE`, `WAIT`, `UNKNOWN`. |
-| `artifact.py`, `export.py` | JSON artifact (trees, categories, regexes, provenance, metrics, limitations) and its dependency-free reference evaluator. |
+| `artifact.py`, `export.py` | JSON artifact (trees, categories, regexes, provenance, metrics, explanations, limitations) and its dependency-free reference evaluator. `export` also writes `duration_model.v1.eval.json`, the split models that never saw the test period, used for replays of past incidents. |
+| `explain.py` | Per-cause values from the training data: past incidents, median duration, median gap between real and announced end. |
 | `replay.py` | Version-by-version replay of three test-period incidents, chosen by rule, using the split models that never saw them. |
 | `sources.py` | Joins the public liveticker, VIA (`Daten/Daten/Ereignismeldungen/`) and the internal liveticker (`Daten/Daten/intern-liveticker/`). Builds one timeline per incident present in all three sources, with stations (UIC + sloid), lines, outlook, advice and `notify`. It downloads the opentransportdata.swiss service-points export to the ignored `analytics/data/service_points/` when missing; `--no-fetch` disables the download. |
 | `messages.py` | Sanitizes internal messages (HTML, phone numbers, e-mails, names, user ids) and extracts replacement bus, stops, resumption forecast and resumed service with keyword rules. |
