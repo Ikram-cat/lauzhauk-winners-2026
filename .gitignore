@@ -66,3 +66,25 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Local environment and hosting state
+.env
+.env.*
+!.env.example
+.vercel/
+
+# Kotlin and browser toolchains
+.gradle/
+.kotlin/
+node_modules/
+
+# Python local environments, caches and raw incident data
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+/analytics/data/
+/analytics/output/
