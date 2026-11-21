@@ -17,6 +17,8 @@ class MockTransportProvider : TransportProvider {
         LocationSuggestion("mock:zurich", "Zürich HB", "stop", 8.54021, 47.37819)
     )
 
+    override fun feedStatus() = "DISABLED"
+
     override suspend fun searchLocations(query: String): LocationsResult =
         LocationsResult.Success(stops.filter { it.name.contains(query.trim(), ignoreCase = true) })
 

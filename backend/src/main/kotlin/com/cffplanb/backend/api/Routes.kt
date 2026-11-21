@@ -1,393 +1,220 @@
 package com.cffplanb.backend.api
 
-import com.cffplanb.backend.gtfs.GtfsRealtimeSource
 import com.cffplanb.backend.domain.Discount
 import com.cffplanb.backend.domain.Journey
-import com.cffplanb.backend.domain.JourneyLeg
+import com.cffplanb.backend.domain.LegMode
 import com.cffplanb.backend.domain.SearchRequest
+import com.cffplanb.backend.gtfs.GtfsRealtimeSource
 import com.cffplanb.backend.provider.FareQuote
 import com.cffplanb.backend.provider.LocationsResult
+import com.cffplanb.backend.provider.PlaceResult
+import com.cffplanb.backend.provider.ResolvedPlace
 import com.cffplanb.backend.service.*
-import com.cffplanb.backend.service.SearchResult
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.*
 import java.time.Clock
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoUnit
 
-private val KNOWN_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount", "limit", "includeText")
-private val ALT_PARAMS = setOf("from", "to", "notBefore", "arrivalDeadline")
 internal val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
+private val JOURNEY_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount", "limit")
+private val LOCATION_PARAMS = setOf("query", "limit")
+
+/** A 400: [field] is the offending query parameter. */
+private class ParamError(val field: String, message: String) : Exception(message)
+
+private suspend fun ApplicationCall.fail(status: HttpStatusCode, code: String, message: String, field: String? = null) =
+    respond(status, ErrorResponseDto(ErrorDetailDto(code, message, field)))
+
+/** Unknown parameters are ignored, but a repeated known parameter is ambiguous. */
+private fun ApplicationCall.rejectDuplicates(known: Set<String>) {
+    val keys = request.local.uri.substringAfter("?", "").split("&").filter { it.isNotEmpty() }
+        .map { java.net.URLDecoder.decode(it.substringBefore("="), "UTF-8") }
+    keys.firstOrNull { it in known && keys.count { k -> k == it } > 1 }?.let { throw ParamError(it, "Duplicate parameter: $it") }
+}
+
+private fun Parameters.text(name: String): String {
+    val v = this[name]?.trim() ?: throw ParamError(name, "Missing required parameter: $name")
+    if (v.isEmpty()) throw ParamError(name, "Parameter '$name' must not be blank")
+    if (v.codePointCount(0, v.length) > 120) throw ParamError(name, "Parameter '$name' exceeds 120 code points")
+    return v
+}
+
+private fun Parameters.timestamp(name: String): OffsetDateTime? = this[name]?.let {
+    try { OffsetDateTime.parse(it, RFC3339_FORMATTER) } catch (e: DateTimeParseException) {
+        throw ParamError(name, "Invalid $name timestamp. Must be RFC 3339 with Z or numeric UTC offset.")
+    }
+}
+
+private fun Parameters.limit(max: Int, default: Int): Int =
+    this["limit"]?.let { v -> v.trim().toIntOrNull()?.takeIf { it in 1..max } ?: throw ParamError("limit", "Parameter 'limit' must be an integer from 1 to $max") } ?: default
+
+private fun Parameters.ranked(): Preference = this["preference"]?.let { v ->
+    Preference.entries.firstOrNull { it.name.equals(v.trim(), ignoreCase = true) } ?: throw ParamError("preference", "Parameter 'preference' must be one of FASTEST, CHEAPEST, SIMPLEST")
+} ?: Preference.FASTEST
 
 fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator, gtfs: GtfsRealtimeSource? = null, delay: RealtimeDelayModel = RealtimeDelayModel.NONE) {
+    val snap: (suspend () -> com.cffplanb.backend.gtfs.GtfsSnapshot?)? = gtfs?.let { g -> { g.current() } }
+    val planner = JourneyPlanService(searchService, DisruptionDetector(searchService::stopEvents, gtfs = snap), clock, delay)
+
     routing {
-        redirectRoute(searchService, clock, risk, gtfs, delay)
         get("/health") {
-            call.respond(HttpStatusCode.OK, HealthResponseDto("ok"))
+            val g = gtfs?.peek()
+            val rt = GtfsRtHealthDto(gtfs != null, gtfs?.health() ?: "DISABLED", gtfs?.ageSeconds(), g?.trips?.size, g?.cancelled)
+            val feeds = FeedsDto(searchService.ojpStatus(), searchService.novaStatus(), rt)
+            val ok = listOf(feeds.ojp, feeds.nova, rt.status).all { it == "OK" || it == "DEGRADED" || it == "DISABLED" }
+            call.respond(HttpStatusCode.OK, HealthResponseDto(if (ok) "OK" else "DEGRADED", feeds))
         }
 
         get("/api/model") {
-            val i = risk.info()
-            call.respond(HttpStatusCode.OK, ModelInfoDto(i.modelVersion, i.generatedAt, i.coverage, "artifact", i.keysLoaded, i.status,
-                i.corridorsLoaded, i.baselineLoaded, i.byLineHourCells, i.corridorSample,
-                gtfsRtEnabled = gtfs != null, gtfsRtAgeSeconds = gtfs?.ageSeconds(), gtfsRtTripUpdates = gtfs?.peek()?.trips?.size ?: 0, gtfsRtCancelled = gtfs?.peek()?.cancelled ?: 0,
-                delayModelVersion = delay.info().modelVersion, delayPortions = delay.info().portions, delayLines = delay.info().lines, delayArtifactStatus = delay.info().status))
+            val i = risk.info(); val d = delay.info()
+            val cov = i.coverage as? JsonObject
+            fun str(k: String) = (cov?.get(k) as? JsonPrimitive)?.contentOrNull
+            fun day(k: String) = str(k)?.substringBefore('T')
+            val window = try { ChronoUnit.DAYS.between(LocalDate.parse(day("from")), LocalDate.parse(day("to"))).toInt() + 1 } catch (e: Exception) { null }
+            call.response.header(HttpHeaders.CacheControl, "public, max-age=300")
+            call.respond(HttpStatusCode.OK, ModelResponseDto(
+                RiskModelDto(i.modelVersion, i.generatedAt, if (risk === NoRiskEstimator) "NONE" else "ARTIFACT", i.status.uppercase(),
+                    cov?.let { CoverageDto(day("from"), day("to"), window, str("scope")) },
+                    RiskCountsDto(i.keysLoaded, i.corridorsLoaded, i.baselineLoaded, i.byLineHourCells)),
+                DelayModelDto(d.modelVersion, d.status.uppercase(), DelayCountsDto(d.portions, d.lines))))
         }
 
         get("/api/locations") {
-            val params = call.request.queryParameters
-            val bad = params.names().firstOrNull { it != "query" }?.let { "Unknown parameter: $it" }
-                ?: if ((params.getAll("query")?.size ?: 0) > 1) "Duplicate parameter: query" else null
-            val q = params["query"]?.trim()
-            val err = bad ?: when {
-                q == null -> "Missing required parameter: query"
-                q.isEmpty() -> "Parameter 'query' must not be blank"
-                q.codePointCount(0, q.length) > 120 -> "Parameter 'query' exceeds 120 code points"
-                else -> null
-            }
-            if (err != null) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", err)))
-                return@get
-            }
-            when (val r = searchService.searchLocations(q!!)) {
-                is LocationsResult.Success -> call.respond(
-                    HttpStatusCode.OK,
-                    LocationsResponseDto(r.locations.take(10).map { LocationDto(it.id, it.name, it.kind, it.x, it.y) })
-                )
-                is LocationsResult.Timeout -> call.respond(HttpStatusCode.GatewayTimeout, ErrorResponseDto(ErrorDetailDto("UPSTREAM_TIMEOUT", r.message)))
-                is LocationsResult.RateLimited -> call.respond(HttpStatusCode.ServiceUnavailable, ErrorResponseDto(ErrorDetailDto("UPSTREAM_RATE_LIMITED", r.message)))
-                is LocationsResult.Failure -> call.respond(HttpStatusCode.BadGateway, ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", r.message)))
-            }
-        }
-
-        get("/api/alternatives") {
             val q = call.request.queryParameters
-            val keys = call.request.local.uri.substringAfter("?", "").split("&").filter { it.isNotEmpty() }
-                .map { java.net.URLDecoder.decode(it.substringBefore("="), "UTF-8") }
-            fun station(n: String): String? = q[n]?.trim()?.takeIf { it.isNotEmpty() && it.codePointCount(0, it.length) <= 120 }
-            fun ts(n: String): OffsetDateTime? = q[n]?.let { try { OffsetDateTime.parse(it, RFC3339_FORMATTER) } catch (e: DateTimeParseException) { null } }
-            val from = station("from"); val to = station("to"); val notBefore = ts("notBefore"); val deadline = ts("arrivalDeadline")
-            val err = keys.firstOrNull { keys.count { k -> k == it } > 1 }?.let { "Duplicate parameter: $it" }
-                ?: keys.firstOrNull { it !in ALT_PARAMS }?.let { "Unknown parameter: $it" }
-                ?: listOf("from", "to", "notBefore").firstOrNull { q[it] == null }?.let { "Missing required parameter: $it" }
-                ?: when {
-                    from == null -> "Parameter 'from' must be 1-120 non-blank code points"
-                    to == null -> "Parameter 'to' must be 1-120 non-blank code points"
-                    notBefore == null -> "Invalid notBefore timestamp. Must be RFC 3339 with Z or numeric UTC offset."
-                    q["arrivalDeadline"] != null && deadline == null -> "Invalid arrivalDeadline timestamp. Must be RFC 3339 with Z or numeric UTC offset."
-                    else -> null
-                }
-            if (err != null) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", err)))
-                return@get
-            }
-            when (val result = searchService.search(SearchRequest(from!!, to!!, notBefore!!))) {
-                is SearchResult.Success -> {
-                    val (dtos, latest, advice) = rescue(result.journeys, deadline, risk, result.fares, delay = delay)
-                    call.respond(HttpStatusCode.OK, AlternativesResponseDto(
-                        AlternativesRequestDto(from, to, RFC3339_FORMATTER.format(notBefore), deadline?.let { RFC3339_FORMATTER.format(it) }),
-                        dtos, latest, if (deadline != null) latest == null else dtos.isEmpty(), advice))
-                }
-                is SearchResult.Timeout -> call.respond(HttpStatusCode.GatewayTimeout, ErrorResponseDto(ErrorDetailDto("UPSTREAM_TIMEOUT", result.message)))
-                is SearchResult.RateLimited -> call.respond(HttpStatusCode.ServiceUnavailable, ErrorResponseDto(ErrorDetailDto("UPSTREAM_RATE_LIMITED", result.message)))
-                is SearchResult.AuthError -> call.respond(HttpStatusCode.BadGateway, ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", result.message)))
-                is SearchResult.LocationResolutionError -> call.respond(HttpStatusCode.BadGateway, ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", result.message)))
-                is SearchResult.Failure -> call.respond(HttpStatusCode.BadGateway, ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", result.message)))
+            val query: String; val limit: Int
+            try {
+                call.rejectDuplicates(LOCATION_PARAMS)
+                query = q.text("query"); limit = q.limit(20, 8)
+            } catch (e: ParamError) { call.fail(HttpStatusCode.BadRequest, "INVALID_REQUEST", e.message!!, e.field); return@get }
+            when (val r = searchService.searchLocations(query)) {
+                is LocationsResult.Success -> call.respond(HttpStatusCode.OK, LocationsResponseDto(r.locations.take(limit).map {
+                    LocationDto(it.id, it.name, it.kind.uppercase(), if (it.x != null && it.y != null) CoordinatesDto(it.y, it.x) else null)
+                }))
+                is LocationsResult.Timeout -> call.fail(HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT", r.message)
+                is LocationsResult.RateLimited -> call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", r.message)
+                is LocationsResult.Failure -> call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
             }
         }
 
         get("/api/journeys") {
-            // --- Duplicate parameter detection via raw query string ---
-            val rawQuery = call.request.queryParameters
-            val rawQueryString = call.request.local.uri.substringAfter("?", "")
+            val q = call.request.queryParameters
+            val origin: String; val destination: String; val departure: OffsetDateTime; val deadline: OffsetDateTime?
+            val pref: Preference; val fareClass: Int; val discount: Discount; val limit: Int
+            try {
+                call.rejectDuplicates(JOURNEY_PARAMS)
+                origin = q.text("origin"); destination = q.text("destination")
+                departure = q.timestamp("departure") ?: OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS)
+                deadline = q.timestamp("arrivalDeadline")
+                pref = q.ranked()
+                fareClass = q["fareClass"]?.let { v -> v.trim().takeIf { it == "1" || it == "2" }?.toInt() ?: throw ParamError("fareClass", "Parameter 'fareClass' must be 1 or 2") } ?: 2
+                discount = q["discount"]?.let { v -> Discount.entries.firstOrNull { it.name.equals(v.trim(), ignoreCase = true) } ?: throw ParamError("discount", "Parameter 'discount' must be one of NONE, HALF_FARE") } ?: Discount.NONE
+                limit = q.limit(10, 3)
+            } catch (e: ParamError) { call.fail(HttpStatusCode.BadRequest, "INVALID_REQUEST", e.message!!, e.field); return@get }
 
-            // Count occurrences of each param key in raw query
-            val paramCounts = mutableMapOf<String, Int>()
-            if (rawQueryString.isNotEmpty()) {
-                rawQueryString.split("&").forEach { pair ->
-                    val key = pair.substringBefore("=").let {
-                        java.net.URLDecoder.decode(it, "UTF-8")
-                    }
-                    if (key.isNotEmpty()) {
-                        paramCounts[key] = (paramCounts[key] ?: 0) + 1
-                    }
-                }
+            val (from, to) = coroutineScope {
+                val o = async { searchService.resolvePlace(origin) }; val d = async { searchService.resolvePlace(destination) }
+                o.await() to d.await()
             }
+            for ((field, r) in listOf("origin" to from, "destination" to to)) when (r) {
+                is PlaceResult.Found -> {}
+                is PlaceResult.NotFound -> return@get call.fail(HttpStatusCode.NotFound, "LOCATION_NOT_FOUND", "Location not found", field)
+                is PlaceResult.Timeout -> return@get call.fail(HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT", r.message)
+                is PlaceResult.RateLimited -> return@get call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", r.message)
+                is PlaceResult.Failure -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
+            }
+            val o = (from as PlaceResult.Found).place; val d = (to as PlaceResult.Found).place
 
-            // Check for duplicates
-            val duplicateKey = paramCounts.entries.firstOrNull { it.value > 1 }?.key
-            if (duplicateKey != null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Duplicate parameter: $duplicateKey"))
-                )
-                return@get
+            val req = SearchRequest(o.query, d.query, departure, fareClass, discount)
+            val result = when (val r = searchService.search(req)) {
+                is SearchResult.Success -> r
+                is SearchResult.Timeout -> return@get call.fail(HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT", r.message)
+                is SearchResult.RateLimited -> return@get call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", r.message)
+                is SearchResult.LocationResolutionError -> return@get call.fail(HttpStatusCode.NotFound, "LOCATION_NOT_FOUND", "Location not found", r.field ?: "origin")
+                is SearchResult.AuthError -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
+                is SearchResult.Failure -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
             }
-
-            // Check for unknown parameters
-            val unknownKey = paramCounts.keys.firstOrNull { it !in KNOWN_PARAMS }
-            if (unknownKey != null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Unknown parameter: $unknownKey"))
-                )
-                return@get
-            }
-
-            // Validate origin
-            val originRaw = rawQuery["origin"]
-            if (originRaw == null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Missing required parameter: origin"))
-                )
-                return@get
-            }
-            val origin = originRaw.trim()
-            if (origin.isEmpty()) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'origin' must not be blank"))
-                )
-                return@get
-            }
-            if (origin.codePointCount(0, origin.length) > 120) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'origin' exceeds 120 code points"))
-                )
-                return@get
-            }
-
-            // Validate destination
-            val destinationRaw = rawQuery["destination"]
-            if (destinationRaw == null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Missing required parameter: destination"))
-                )
-                return@get
-            }
-            val destination = destinationRaw.trim()
-            if (destination.isEmpty()) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'destination' must not be blank"))
-                )
-                return@get
-            }
-            if (destination.codePointCount(0, destination.length) > 120) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'destination' exceeds 120 code points"))
-                )
-                return@get
-            }
-
-            // Parse departure (optional, defaults to now)
-            val earliestDeparture: OffsetDateTime
-            val departureRaw = rawQuery["departure"]
-            if (departureRaw != null) {
-                earliestDeparture = try {
-                    OffsetDateTime.parse(departureRaw, RFC3339_FORMATTER)
-                } catch (e: DateTimeParseException) {
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorResponseDto(
-                            ErrorDetailDto(
-                                "INVALID_REQUEST",
-                                "Invalid departure timestamp. Must be RFC 3339 with Z or numeric UTC offset."
-                            )
-                        )
-                    )
-                    return@get
-                }
-            } else {
-                earliestDeparture = OffsetDateTime.now(clock)
-            }
-
-            val deadlineRaw = rawQuery["arrivalDeadline"]
-            val deadline: OffsetDateTime? = if (deadlineRaw == null) null else try {
-                OffsetDateTime.parse(deadlineRaw, RFC3339_FORMATTER)
-            } catch (e: DateTimeParseException) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(
-                        ErrorDetailDto(
-                            "INVALID_REQUEST",
-                            "Invalid arrivalDeadline timestamp. Must be RFC 3339 with Z or numeric UTC offset."
-                        )
-                    )
-                )
-                return@get
-            }
-
-            val preferenceRaw = rawQuery["preference"]
-            val preference = if (preferenceRaw == null) Preference.FASTEST
-                else Preference.entries.firstOrNull { it.name.equals(preferenceRaw.trim(), ignoreCase = true) }
-            if (preference == null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'preference' must be one of FASTEST, CHEAPEST, SIMPLEST"))
-                )
-                return@get
-            }
-
-            val fareClassRaw = rawQuery["fareClass"]
-            val fareClass = if (fareClassRaw == null) 2 else fareClassRaw.trim().takeIf { it == "1" || it == "2" }?.toInt()
-            if (fareClass == null) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'fareClass' must be 1 or 2")))
-                return@get
-            }
-            val discountRaw = rawQuery["discount"]
-            val discount = if (discountRaw == null) Discount.NONE
-                else Discount.entries.firstOrNull { it.name.equals(discountRaw.trim(), ignoreCase = true) }
-            if (discount == null) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'discount' must be one of NONE, HALF_FARE")))
-                return@get
-            }
-
-            val limit = parseLimit(rawQuery["limit"])
-            if (limit == null) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'limit' must be an integer from 1 to 10")))
-                return@get
-            }
-            val includeText = parseIncludeText(rawQuery["includeText"])
-            if (includeText == null) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Parameter 'includeText' must be true or false")))
-                return@get
-            }
-
-            val searchRequest = SearchRequest(
-                origin = origin,
-                destination = destination,
-                earliestDeparture = earliestDeparture,
-                fareClass = fareClass,
-                discount = discount
-            )
-
-            when (val result = searchService.search(searchRequest)) {
-                is SearchResult.Success -> {
-                    val price = { q: FareQuote -> q.price(fareClass, discount) }
-                    val fareOf = { j: Journey -> result.fares?.get(j.id)?.let(price) }
-                    fun best(p: Preference) = result.journeys.minWithOrNull(RecommendationService.comparator(p, fareOf))?.id
-                    val sorted = result.journeys.sortedWith(RecommendationService.comparator(preference, fareOf))
-                    val (dtos, latestFeasible, advice) = rescue(sorted, deadline, risk, result.fares, price, delay)
-                    val byId = dtos.associateBy { it.id }
-                    val fastest = result.journeys.minWithOrNull(RecommendationService.comparator(Preference.FASTEST) { j -> j.arrival.toInstant().plusSeconds(60L * (delay.forJourney(j)?.minutes ?: 0)) })
-                    val response = JourneySearchResponseDto(
-                        request = SearchRequestDto(
-                            origin = origin,
-                            destination = destination,
-                            earliestDeparture = RFC3339_FORMATTER.format(earliestDeparture),
-                            arrivalDeadline = deadline?.let { RFC3339_FORMATTER.format(it) },
-                            preference = preference.name,
-                            fareClass = fareClass,
-                            discount = discount.name
-                        ),
-                        journeys = dtos.take(limit),
-                        latestFeasibleDeparture = latestFeasible,
-                        noFeasibleRoute = deadline?.let { latestFeasible == null },
-                        advice = advice,
-                        recommendations = RecommendationsDto(fastest?.let { byId[it.id] }, best(Preference.SIMPLEST)?.let { byId[it] }),
-                        recommendationIds = RecommendationIdsDto(best(Preference.FASTEST), best(Preference.CHEAPEST), best(Preference.SIMPLEST))
-                    )
-                    call.respond(HttpStatusCode.OK, textual(JourneySearchResponseDto.serializer(), response, includeText))
-                }
-                is SearchResult.Timeout -> {
-                    call.respond(
-                        HttpStatusCode.GatewayTimeout,
-                        ErrorResponseDto(ErrorDetailDto("UPSTREAM_TIMEOUT", result.message))
-                    )
-                }
-                is SearchResult.RateLimited -> {
-                    call.respond(
-                        HttpStatusCode.ServiceUnavailable,
-                        ErrorResponseDto(ErrorDetailDto("UPSTREAM_RATE_LIMITED", result.message))
-                    )
-                }
-                is SearchResult.AuthError -> {
-                    call.respond(
-                        HttpStatusCode.BadGateway,
-                        ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", result.message))
-                    )
-                }
-                is SearchResult.LocationResolutionError -> {
-                    call.respond(
-                        HttpStatusCode.BadGateway,
-                        ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", result.message))
-                    )
-                }
-                is SearchResult.Failure -> {
-                    call.respond(
-                        HttpStatusCode.BadGateway,
-                        ErrorResponseDto(ErrorDetailDto("UPSTREAM_ERROR", result.message))
-                    )
-                }
-            }
+            val plan = planner.plan(req, pref, deadline, result)
+            call.respond(HttpStatusCode.OK, buildResponse(plan, o, d, departure, deadline, pref, fareClass, discount, limit, risk, clock))
         }
     }
 }
 
-/** Shared by /api/journeys and /api/alternatives: DTOs with reasons, latestFeasibleDeparture, advice. */
-internal fun rescue(journeys: List<Journey>, deadline: OffsetDateTime?, risk: RiskEstimator, fares: Map<String, FareQuote>?,
-                   price: (FareQuote) -> Double? = { it.full2nd }, delay: RealtimeDelayModel = RealtimeDelayModel.NONE): Triple<List<JourneyDto>, String?, String> {
-    val risks = journeys.map { risk.estimate(it) }
-    val latest = deadline?.let { d -> journeys.filter { !it.arrival.toInstant().isAfter(d.toInstant()) }.maxByOrNull { it.departure.toInstant() } }
-        ?.let { RFC3339_FORMATTER.format(it.departure) }
-    val dtos = journeys.mapIndexed { i, j ->
-        j.toDto(risks[i], deadline?.let { !j.arrival.toInstant().isAfter(it.toInstant()) }, reasonsFor(j, journeys, risks[i], deadline), fares, price, delay.forJourney(j))
+private fun place(p: ResolvedPlace) = PlaceEchoDto(p.input, p.name, p.id)
+
+private fun buildResponse(
+    plan: JourneyPlan, o: ResolvedPlace, d: ResolvedPlace, departure: OffsetDateTime, deadline: OffsetDateTime?, pref: Preference,
+    fareClass: Int, discount: Discount, limit: Int, risk: RiskEstimator, clock: Clock
+): JourneysResponseDto {
+    val info = risk.info()
+    val windowDays = ((info.coverage as? JsonObject)?.let { c ->
+        try { ChronoUnit.DAYS.between(LocalDate.parse((c["from"] as JsonPrimitive).content.substringBefore('T')), LocalDate.parse((c["to"] as JsonPrimitive).content.substringBefore('T'))).toInt() + 1 } catch (e: Exception) { null }
+    })
+    val price = { q: FareQuote -> q.price(fareClass, discount) }
+    fun fareOf(j: Journey) = plan.fares?.get(j.id)?.let(price)
+    fun dto(j: Journey?) = j?.let { journeyDto(it, plan, deadline, fareClass, discount, risk.estimate(it), windowDays) }
+
+    val alternatives = plan.alternatives.take(limit)
+    val shown = (listOfNotNull(plan.primary, plan.recommended) + alternatives).distinctBy { it.id }
+    fun arrival(j: Journey) = (plan.realtime[j.id]?.expectedArrival ?: j.arrival).toInstant()
+    val highlights = HighlightsDto(
+        fastestId = shown.minWithOrNull(RecommendationService.comparator(Preference.FASTEST, ::fareOf, ::arrival))?.id,
+        simplestId = shown.minWithOrNull(RecommendationService.comparator(Preference.SIMPLEST, ::fareOf, ::arrival))?.id,
+        cheapestId = shown.filter { fareOf(it) != null }.minWithOrNull(RecommendationService.comparator(Preference.CHEAPEST, ::fareOf, ::arrival))?.id)
+    val summary = deadline?.let { DeadlineSummaryDto(plan.latestFeasibleDeparture != null, plan.latestFeasibleDeparture?.let { RFC3339_FORMATTER.format(it) }) }
+    return JourneysResponseDto(
+        request = RequestDto(place(o), place(d), RFC3339_FORMATTER.format(departure), deadline?.let { RFC3339_FORMATTER.format(it) }, pref.name, fareClass, discount.name),
+        status = plan.status.name, action = plan.action.name,
+        reasons = JsonArray(plan.reasons.map { r ->
+            buildJsonObject {
+                put("code", r.code)
+                r.serviceLabel?.let { put("serviceLabel", it) }; r.delayMinutes?.let { put("delayMinutes", it) }
+                r.savedMinutes?.let { put("savedMinutes", it) }; r.savedTransfers?.let { put("savedTransfers", it) }
+                r.savedChf?.let { put("savedChf", it) }; r.marginMinutes?.let { put("marginMinutes", it) }
+            }
+        }),
+        disruption = plan.disruption?.let { x ->
+            DisruptionDto(x.legIndex, x.leg.serviceLabel, x.leg.origin, x.leg.destination, RFC3339_FORMATTER.format(x.leg.departure),
+                x.estimatedDeparture?.let { RFC3339_FORMATTER.format(it) }, x.delayMinutes, x.cancelled, x.basis.name, x.confidence.uppercase(), x.cause)
+        },
+        primaryJourney = dto(plan.primary), recommendedJourney = dto(plan.recommended), alternatives = alternatives.map { dto(it)!! },
+        highlights = highlights, deadlineSummary = summary,
+        meta = MetaDto(RFC3339_FORMATTER.format(OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS)), info.modelVersion))
+}
+
+private fun journeyDto(j: Journey, plan: JourneyPlan, deadline: OffsetDateTime?, fareClass: Int, discount: Discount, r: RiskEstimate?, windowDays: Int?): JourneyDto {
+    val rt = plan.realtime.getValue(j.id)
+    fun f(t: OffsetDateTime?) = t?.let { RFC3339_FORMATTER.format(it) }
+    val fare = plan.fares?.get(j.id)
+    val selected = fare?.price(fareClass, discount)
+    val rank = listOf("LOW", "MEDIUM", "HIGH")
+    val legs = j.legs.mapIndexed { i, l ->
+        val x = rt.legs[i]
+        LegDto(l.mode.name, l.origin, l.destination, RFC3339_FORMATTER.format(l.departure), RFC3339_FORMATTER.format(l.arrival),
+            f(x.expectedDeparture), x.departureDelayMinutes, f(x.expectedArrival), x.arrivalDelayMinutes,
+            l.serviceLabel, l.departurePlatform, l.arrivalPlatform,
+            if (l.mode == LegMode.TRANSIT) OccupancyDto(l.occupancyFirst, l.occupancySecond) else null)
     }
-    return Triple(dtos, latest, adviceFor(journeys, risks, deadline))
-}
-
-// fares == null: lookup disabled, all fare fields null; missing id: lookup failed, fareStatus UNAVAILABLE.
-// fareChf is the requested class/discount; a quote lacking that number is also UNAVAILABLE.
-private fun Journey.toDto(r: RiskEstimate?, feasible: Boolean?, reasons: List<String>, fares: Map<String, FareQuote>?, price: (FareQuote) -> Double?, d: JourneyDelay?): JourneyDto {
-    val fare = fares?.get(id)
-    val selected = fare?.let(price)
+    val occupancy = j.legs.filter { it.mode == LegMode.TRANSIT }.mapNotNull { if (fareClass == 1) it.occupancyFirst else it.occupancySecond }.maxByOrNull { rank.indexOf(it) }
+    val rate = r?.lateArrivalProbability
     return JourneyDto(
-    id = id,
-    departure = RFC3339_FORMATTER.format(departure),
-    arrival = RFC3339_FORMATTER.format(arrival),
-    durationMinutes = durationMinutes,
-    transfers = transfers,
-    legs = legs.map { it.toDto() },
-    predictedDelayMinutes = r?.predictedDelayMinutes,
-    lateArrivalProbability = r?.lateArrivalProbability,
-    estimatedFareChf = fare?.full2nd,
-    feasible = feasible,
-    dataStatus = dataStatus.name,
-    riskSource = r?.source,
-    riskConfidence = r?.confidence,
-    riskLabel = r?.label,
-    disruptionDurationMin = r?.disruptionDurationMin,
-    riskBasis = r?.basis,
-    reasons = reasons,
-    halfFareChf = fare?.half2nd,
-    firstClassFareChf = fare?.full1st,
-    fareProduct = fare?.product,
-    fareSource = fare?.source,
-    fareStatus = fares?.let { if (selected != null) "PRICED" else "UNAVAILABLE" },
-    fareChf = selected,
-    firstClassHalfFareChf = fare?.half1st,
-    expectedArrival = RFC3339_FORMATTER.format(arrival.plusMinutes((d?.minutes ?: 0).toLong())),
-    expectedDelayMin = d?.minutes,
-    delaySource = d?.source ?: "none",
-    delaySamples = d?.samples
-)
+        id = j.id, dataStatus = j.dataStatus.name,
+        feasible = deadline?.let { !(rt.expectedArrival ?: j.arrival).toInstant().isAfter(it.toInstant()) },
+        maxOccupancy = occupancy,
+        schedule = ScheduleDto(RFC3339_FORMATTER.format(j.departure), RFC3339_FORMATTER.format(j.arrival), j.durationMinutes, j.transfers),
+        realtime = RealtimeDto(f(rt.expectedDeparture), rt.departureDelayMinutes, f(rt.expectedArrival), rt.arrivalDelayMinutes, rt.source, rt.sampleCount),
+        risk = RiskDto(rate, r?.disruptionDurationMin, if (r == null) "NONE" else if (r.source == "corridor") "CORRIDOR" else "BASELINE",
+            r?.basis?.let { if (r.source == "corridor") windowDays?.let { "DAY_WINDOW_$it" } ?: "DAY_WINDOW" else "HOURLY_BASELINE" },
+            r?.confidence?.uppercase(), rate?.let { if (it < 0.02) "LOW" else if (it < 0.06) "MEDIUM" else "HIGH" }),
+        fares = FaresDto(if (plan.fares == null) "DISABLED" else if (selected != null) "PRICED" else "UNAVAILABLE", selected, fare?.product, fare?.source,
+            fare?.let { CatalogFaresDto(it.full2nd, it.half2nd, it.full1st, it.half1st) }),
+        legs = legs)
 }
-
-private fun JourneyLeg.toDto(): JourneyLegDto = JourneyLegDto(
-    mode = mode.name,
-    origin = origin,
-    destination = destination,
-    departure = RFC3339_FORMATTER.format(departure),
-    arrival = RFC3339_FORMATTER.format(arrival),
-    serviceLabel = serviceLabel,
-    departurePlatform = departurePlatform,
-    arrivalPlatform = arrivalPlatform
-)

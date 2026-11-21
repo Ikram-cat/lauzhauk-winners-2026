@@ -58,48 +58,46 @@ class FareRankingTest {
     }
 
     private suspend fun ApplicationTestBuilder.get(pref: String?, extra: String = ""): Pair<HttpStatusCode, JsonObject> {
-        val r = client.get("/api/journeys?origin=A&destination=B&departure=2026-11-21T09:00:00Z" + (pref?.let { "&preference=$it" } ?: "") + "&limit=10&includeText=true" + extra)
+        val r = client.get("/api/journeys?origin=A&destination=B&departure=2026-11-21T09:00:00Z" + (pref?.let { "&preference=$it" } ?: "") + "&limit=10" + extra)
         return r.status to Json.parseToJsonElement(r.bodyAsText()).jsonObject
     }
-    private fun JsonObject.ids() = this["journeys"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }
-    private fun JsonObject.journey(id: String) = this["journeys"]!!.jsonArray.map { it.jsonObject }.first { it["id"]!!.jsonPrimitive.content == id }
+    /** primary first, then the alternatives: the whole ranked list when primary == recommended (always, here: no disruption). */
+    private fun JsonObject.ids() = listOf(o("primaryJourney").str("id")) + a("alternatives").map { it.obj().str("id") }
+    private fun JsonObject.journey(id: String) = (listOf(o("primaryJourney")) + a("alternatives").map { it.obj() }).first { it.str("id") == id }
+    private fun JsonObject.fares(id: String) = journey(id).o("fares")
 
     @Test fun `each preference orders journeys with documented tie-breaks`() = test(FareCache(FakeFares())) {
         assertEquals(listOf("j2", "j1", "j4", "j3"), get(null).second.ids())
         assertEquals(listOf("j2", "j1", "j4", "j3"), get("FASTEST").second.ids())
         assertEquals(listOf("j3", "j1", "j2", "j4"), get("CHEAPEST").second.ids()) // j1/j2 tie on fare+arrival -> id; null fare last
         assertEquals(listOf("j2", "j4", "j3", "j1"), get("simplest").second.ids())
-        assertEquals("SIMPLEST", get("simplest").second["request"]!!.jsonObject["preference"]!!.jsonPrimitive.content)
+        assertEquals("SIMPLEST", get("simplest").second.o("request").str("preference"))
     }
 
-    @Test fun `recommendations are independent of preference`() = test(FareCache(FakeFares())) {
+    @Test fun `highlights are independent of preference`() = test(FareCache(FakeFares())) {
         for (p in listOf("FASTEST", "CHEAPEST", "SIMPLEST")) {
-            val rec = get(p).second["recommendationIds"]!!.jsonObject
-            assertEquals(listOf("j2", "j3", "j2"), listOf("fastest", "cheapest", "simplest").map { rec[it]!!.jsonPrimitive.content })
-            val full = get(p).second["recommendations"]!!.jsonObject
-            assertEquals(listOf("j2", "j2"), listOf("fastest", "simplest").map { full[it]!!.jsonObject["id"]!!.jsonPrimitive.content })
+            val h = get(p).second.o("highlights")
+            assertEquals(listOf("j2", "j3", "j2"), listOf("fastestId", "cheapestId", "simplestId").map { h.str(it) })
         }
     }
 
     @Test fun `fare fields populated or unavailable`() = test(FareCache(FakeFares())) {
         val body = get(null).second
-        val j1 = body.journey("j1")
-        assertEquals(50.0, j1["estimatedFareChf"]!!.jsonPrimitive.double)
-        assertEquals(25.0, j1["halfFareChf"]!!.jsonPrimitive.double)
-        assertEquals(80.0, j1["firstClassFareChf"]!!.jsonPrimitive.double)
-        assertEquals("Streckenbillett", j1["fareProduct"]!!.jsonPrimitive.content)
-        assertEquals("NOVA", j1["fareSource"]!!.jsonPrimitive.content)
-        assertEquals("PRICED", j1["fareStatus"]!!.jsonPrimitive.content)
-        val j4 = body.journey("j4")
-        assertEquals("UNAVAILABLE", j4["fareStatus"]!!.jsonPrimitive.content)
-        for (f in listOf("estimatedFareChf", "halfFareChf", "firstClassFareChf", "fareProduct", "fareSource")) assertEquals(JsonNull, j4[f])
+        val f = body.fares("j1")
+        assertEquals("PRICED", f.str("status")); assertEquals(50.0, f["selectedChf"]!!.jsonPrimitive.double)
+        assertEquals("Streckenbillett", f.str("product")); assertEquals("NOVA", f.str("source"))
+        val c = f.o("catalogChf")
+        assertEquals(listOf(50.0, 25.0, 80.0, 40.0), listOf("secondClassFull", "secondClassHalfFare", "firstClassFull", "firstClassHalfFare").map { c[it]!!.jsonPrimitive.double })
+        val j4 = body.fares("j4")
+        assertEquals("UNAVAILABLE", j4.str("status"))
+        for (k in listOf("selectedChf", "product", "source", "catalogChf")) assertEquals(JsonNull, j4[k], k)
     }
 
-    @Test fun `fares disabled leaves every fare field null and cheapest unset`() = test(null) {
+    @Test fun `fares disabled is DISABLED with nulls and cheapest unset`() = test(null) {
         val body = get("CHEAPEST").second
-        assertEquals(JsonNull, body.journey("j1")["fareStatus"])
+        assertEquals("DISABLED", body.fares("j1").str("status")); assertEquals(JsonNull, body.fares("j1")["selectedChf"])
         assertEquals(listOf("j1", "j2", "j4", "j3"), body.ids()) // all null -> arrival, id
-        assertEquals("j1", body["recommendationIds"]!!.jsonObject["cheapest"]!!.jsonPrimitive.content)
+        assertEquals(JsonNull, body.o("highlights")["cheapestId"])
     }
 
     @Test fun `one quote per distinct od pair and cache avoids repeat calls`() {
@@ -113,13 +111,13 @@ class FareRankingTest {
     @Test fun `invalid preference is 400 INVALID_REQUEST`() = test(FareCache(FakeFares())) {
         val (status, body) = get("BOGUS")
         assertEquals(HttpStatusCode.BadRequest, status)
-        assertEquals("INVALID_REQUEST", body["error"]!!.jsonObject["code"]!!.jsonPrimitive.content)
+        assertEquals("INVALID_REQUEST", body.o("error").str("code")); assertEquals("preference", body.o("error").str("field"))
     }
 
-    private fun JsonObject.fare(id: String) = journey(id)["fareChf"]!!.jsonPrimitive.doubleOrNull
+    private fun JsonObject.fare(id: String) = fares(id)["selectedChf"]!!.jsonPrimitive.doubleOrNull
 
     @Test fun `each class and discount selects its price and ranks cheapest by it`() = test(FareCache(FakeFares())) {
-        // query suffix -> (j1 fareChf, j3 fareChf, CHEAPEST order)
+        // query suffix -> (j1 selectedChf, j3 selectedChf, CHEAPEST order)
         val cases = mapOf(
             "" to Triple(50.0, 30.0, listOf("j3", "j1", "j2", "j4")),
             "&fareClass=2&discount=HALF_FARE" to Triple(25.0, 15.0, listOf("j3", "j1", "j2", "j4")),
@@ -132,41 +130,38 @@ class FareRankingTest {
             assertEquals(exp.first, body.fare("j1"), q)
             assertEquals(exp.second, body.fare("j3"), q)
             assertEquals(exp.third, body.ids(), q)
-            assertEquals(exp.third.first(), body["recommendationIds"]!!.jsonObject["cheapest"]!!.jsonPrimitive.content, q)
+            assertEquals(exp.third.first(), body.o("highlights").str("cheapestId"), q)
             assertEquals(listOf("j2", "j1", "j4", "j3"), get("FASTEST", q).second.ids(), q) // other orders ignore fares
-            val j1 = body.journey("j1") // raw numbers stay as-is whatever the selection
-            assertEquals(listOf(50.0, 25.0, 80.0, 40.0), listOf("estimatedFareChf", "halfFareChf", "firstClassFareChf", "firstClassHalfFareChf").map { j1[it]!!.jsonPrimitive.double }, q)
+            val c = body.fares("j1").o("catalogChf") // catalog numbers stay as-is whatever the selection
+            assertEquals(listOf(50.0, 25.0, 80.0, 40.0), listOf("secondClassFull", "secondClassHalfFare", "firstClassFull", "firstClassHalfFare").map { c[it]!!.jsonPrimitive.double }, q)
         }
-        val req = get(null, "&fareClass=1&discount=Half_Fare").second["request"]!!.jsonObject
-        assertEquals(1, req["fareClass"]!!.jsonPrimitive.int)
-        assertEquals("HALF_FARE", req["discount"]!!.jsonPrimitive.content)
-        val def = get(null).second["request"]!!.jsonObject
-        assertEquals(2, def["fareClass"]!!.jsonPrimitive.int)
-        assertEquals("NONE", def["discount"]!!.jsonPrimitive.content)
+        val req = get(null, "&fareClass=1&discount=Half_Fare").second.o("request")
+        assertEquals(1, req["fareClass"]!!.jsonPrimitive.int); assertEquals("HALF_FARE", req.str("discount"))
+        val def = get(null).second.o("request")
+        assertEquals(2, def["fareClass"]!!.jsonPrimitive.int); assertEquals("NONE", def.str("discount"))
     }
 
-    @Test fun `missing selected number is null and UNAVAILABLE`() = test(FareCache(FakeFares())) {
-        val j3 = get(null, "&fareClass=1&discount=HALF_FARE").second.journey("j3")
-        assertEquals(JsonNull, j3["fareChf"])
-        assertEquals(JsonNull, j3["firstClassHalfFareChf"])
-        assertEquals("UNAVAILABLE", j3["fareStatus"]!!.jsonPrimitive.content)
-        assertEquals(30.0, j3["estimatedFareChf"]!!.jsonPrimitive.double)
-        assertEquals("PRICED", get(null, "&fareClass=1&discount=HALF_FARE").second.journey("j1")["fareStatus"]!!.jsonPrimitive.content)
+    @Test fun `missing selected number is null and UNAVAILABLE but the catalog stays`() = test(FareCache(FakeFares())) {
+        val j3 = get(null, "&fareClass=1&discount=HALF_FARE").second.fares("j3")
+        assertEquals(JsonNull, j3["selectedChf"]); assertEquals(JsonNull, j3.o("catalogChf")["firstClassHalfFare"])
+        assertEquals("UNAVAILABLE", j3.str("status"))
+        assertEquals(30.0, j3.o("catalogChf")["secondClassFull"]!!.jsonPrimitive.double)
+        assertEquals("PRICED", get(null, "&fareClass=1&discount=HALF_FARE").second.fares("j1").str("status"))
     }
 
-    @Test fun `invalid fareClass or discount is 400 with exact message`() = test(FareCache(FakeFares())) {
-        for ((q, msg) in listOf(
-            "&fareClass=3" to "Parameter 'fareClass' must be 1 or 2",
-            "&fareClass=first" to "Parameter 'fareClass' must be 1 or 2",
-            "&fareClass=" to "Parameter 'fareClass' must be 1 or 2",
-            "&discount=GA" to "Parameter 'discount' must be one of NONE, HALF_FARE",
-            "&discount=" to "Parameter 'discount' must be one of NONE, HALF_FARE",
-            "&fareClass=1&fareClass=2" to "Duplicate parameter: fareClass",
+    @Test fun `invalid fareClass or discount is 400 with exact message and field`() = test(FareCache(FakeFares())) {
+        for ((q, msg, field) in listOf(
+            Triple("&fareClass=3", "Parameter 'fareClass' must be 1 or 2", "fareClass"),
+            Triple("&fareClass=first", "Parameter 'fareClass' must be 1 or 2", "fareClass"),
+            Triple("&fareClass=", "Parameter 'fareClass' must be 1 or 2", "fareClass"),
+            Triple("&discount=GA", "Parameter 'discount' must be one of NONE, HALF_FARE", "discount"),
+            Triple("&discount=", "Parameter 'discount' must be one of NONE, HALF_FARE", "discount"),
+            Triple("&fareClass=1&fareClass=2", "Duplicate parameter: fareClass", "fareClass"),
         )) {
             val (status, body) = get(null, q)
             assertEquals(HttpStatusCode.BadRequest, status, q)
-            assertEquals("INVALID_REQUEST", body["error"]!!.jsonObject["code"]!!.jsonPrimitive.content, q)
-            assertEquals(msg, body["error"]!!.jsonObject["message"]!!.jsonPrimitive.content, q)
+            assertEquals("INVALID_REQUEST", body.o("error").str("code"), q)
+            assertEquals(msg, body.o("error").str("message"), q); assertEquals(field, body.o("error").str("field"), q)
         }
     }
 

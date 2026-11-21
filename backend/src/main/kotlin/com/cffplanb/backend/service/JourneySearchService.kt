@@ -16,7 +16,7 @@ sealed class SearchResult {
     data class Timeout(val message: String) : SearchResult()
     data class RateLimited(val message: String) : SearchResult()
     data class AuthError(val message: String) : SearchResult()
-    data class LocationResolutionError(val message: String) : SearchResult()
+    data class LocationResolutionError(val message: String, val field: String? = null) : SearchResult()
     data class Failure(val message: String) : SearchResult()
 }
 
@@ -27,6 +27,13 @@ class JourneySearchService(
 ) {
 
     suspend fun searchLocations(query: String) = provider.searchLocations(query)
+
+    suspend fun resolvePlace(input: String) = provider.resolvePlace(input)
+
+    fun ojpStatus() = provider.feedStatus()
+
+    /** DISABLED without a fare cache. */
+    fun novaStatus() = fares?.status() ?: "DISABLED"
 
     suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime, realtime: Boolean) = provider.stopEvents(stop, from, realtime)
 
@@ -39,7 +46,7 @@ class JourneySearchService(
             is ProviderResult.Timeout -> SearchResult.Timeout(providerResult.message)
             is ProviderResult.RateLimited -> SearchResult.RateLimited(providerResult.message)
             is ProviderResult.AuthError -> SearchResult.AuthError(providerResult.message)
-            is ProviderResult.LocationResolutionError -> SearchResult.LocationResolutionError(providerResult.message)
+            is ProviderResult.LocationResolutionError -> SearchResult.LocationResolutionError(providerResult.message, providerResult.field)
             is ProviderResult.Failure -> SearchResult.Failure(providerResult.message)
         }
     }

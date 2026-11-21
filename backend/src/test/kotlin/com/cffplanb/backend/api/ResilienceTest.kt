@@ -21,6 +21,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.int
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
@@ -103,7 +104,8 @@ class ResilienceTest {
             }
             repeat(6) { client.get("/api/journeys?origin=A&destination=B") }
             val h = client.get("/health")
-            assertEquals(HttpStatusCode.OK, h.status); assertEquals("""{"status":"ok"}""", h.bodyAsText())
+            assertEquals(HttpStatusCode.OK, h.status); val hj = parse(h.bodyAsText()) // a dead upstream is reported, never fatal: 200 with DOWN/DEGRADED
+            assertEquals("DOWN", hj.o("feeds").str("ojp")); assertEquals("DEGRADED", hj.str("status"))
             assertEquals(5, p.searches) // 6th call failed fast
         }
     }
@@ -121,7 +123,7 @@ class ResilienceTest {
     @Test fun `bundled artifact loads without RISK_ARTIFACT_PATH`() = testApplication {
         application { configureApp(clock, AppConfig(transportProvider = "mock", riskArtifactPath = null)) }
         val m = Json.parseToJsonElement(client.get("/api/model").bodyAsText()).jsonObject
-        assertTrue(m["corridorsLoaded"]!!.jsonPrimitive.content.toInt() > 0, m.toString())
+        assertTrue(m.o("riskModel").o("counts")["corridors"]!!.jsonPrimitive.int > 0, m.toString())
     }
 
     private val token = "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6_-abcdefghijkl"
@@ -149,7 +151,7 @@ class ResilienceTest {
                     install(ContentNegotiation) { json(Json { encodeDefaults = true }) }
                     configureRoutes(JourneySearchService(ResilientProvider(prov)), clock)
                 }
-                for (path in listOf("/api/journeys?origin=A&destination=B", "/api/alternatives?from=A&to=B&notBefore=2026-11-21T15%3A00%3A00Z")) {
+                for (path in listOf("/api/journeys?origin=A&destination=B")) {
                     val r = client.get(path); val body = r.bodyAsText(); payloads += body
                     assertEquals(status, r.status.value, path)
                     assertEquals(code, Json.parseToJsonElement(body).jsonObject["error"]!!.jsonObject["code"]!!.jsonPrimitive.content)

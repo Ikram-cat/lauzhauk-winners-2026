@@ -14,7 +14,13 @@ data class JourneyLeg(
     val arrival: OffsetDateTime,
     val serviceLabel: String?,
     val departurePlatform: String?,
-    val arrivalPlatform: String?
+    val arrivalPlatform: String?,
+    /** Provider estimates (OJP EstimatedTime); null when the provider gave none. */
+    val expectedDeparture: OffsetDateTime? = null,
+    val expectedArrival: OffsetDateTime? = null,
+    /** LOW | MEDIUM | HIGH at boarding, per class; null = unknown. */
+    val occupancyFirst: String? = null,
+    val occupancySecond: String? = null
 )
 
 data class Journey(

@@ -16,24 +16,27 @@ import java.time.Duration
 import java.time.OffsetDateTime
 
 /** SUPPRESSED_STOP: the trip runs but does not call at the boarding stop (GTFS-RT SKIPPED). */
-enum class DisruptionBasis { REALTIME_ESTIMATE, CANCELLED_FLAG, MISSING_ESTIMATE, SUPPRESSED_STOP }
+enum class DisruptionBasis { REALTIME_ESTIMATE, CANCELLED_FLAG, MISSING_FROM_REALTIME, SUPPRESSED_STOP }
 
 /** [legIndex] indexes the checked journey's legs; [leg] is that leg as scheduled. */
 data class Disruption(
     val legIndex: Int, val leg: JourneyLeg, val delayMinutes: Int?, val cancelled: Boolean,
     val basis: DisruptionBasis, val confidence: String, val estimatedDeparture: OffsetDateTime?, val cause: String? = null,
+    /** True when the verdict came from the GTFS-RT feed rather than OJP stop events. */
+    val fromGtfs: Boolean = false,
     /** False for a cancelled train that is not part of the checked journey (the planner already dropped it) but would have served the same hop. */
     val affectsJourney: Boolean = true
 )
 
 sealed class LegCheck {
-    object Clear : LegCheck()
+    /** [delayMinutes] is the measured boarding delay (< 3 min, may be 0); null when the source did not give a number. */
+    data class Clear(val delayMinutes: Int? = null, val fromGtfs: Boolean = false) : LegCheck()
     object Unknown : LegCheck()
     data class Hit(val disruption: Disruption) : LegCheck()
 }
 
-/** [worst] is the single most severe disruption; [count] how many legs are disrupted; [unknown] if any leg could not be verified. */
-data class JourneyCheck(val worst: Disruption?, val count: Int, val unknown: Boolean)
+/** [worst] is the single most severe disruption; [count] how many legs are disrupted; [unknown] if any leg could not be verified; [legs] the verdict per transit leg index. */
+data class JourneyCheck(val worst: Disruption?, val count: Int, val unknown: Boolean, val legs: Map<Int, LegCheck> = emptyMap())
 
 /** Smaller delays are not a disruption: nothing is reported and the normal recommendation stands. */
 const val MIN_DELAY_MINUTES = 3
@@ -53,12 +56,12 @@ fun plannedFor(leg: JourneyLeg, plan: List<StopEvent>): StopEvent? {
  */
 fun classifyLegGtfs(legIndex: Int, leg: JourneyLeg, planned: StopEvent, snap: GtfsSnapshot): LegCheck? {
     val trip = GtfsMatch.find(snap, planned.lineRef, planned.originDeparture?.toInstant()) ?: return null
-    fun hit(delay: Int?, cancelled: Boolean, basis: DisruptionBasis, est: OffsetDateTime? = null) = LegCheck.Hit(Disruption(legIndex, leg, delay, cancelled, basis, "high", est))
+    fun hit(delay: Int?, cancelled: Boolean, basis: DisruptionBasis, est: OffsetDateTime? = null) = LegCheck.Hit(Disruption(legIndex, leg, delay, cancelled, basis, "high", est, fromGtfs = true))
     if (trip.cancelled) return hit(null, true, DisruptionBasis.CANCELLED_FLAG)
     val stu = trip.stops.firstOrNull { GtfsMatch.sameStop(it.stopId, planned.stopRef) } ?: return null
     if (stu.skipped) return hit(null, false, DisruptionBasis.SUPPRESSED_STOP)
     val d = stu.delaySeconds ?: return null
-    return if (d / 60 >= MIN_DELAY_MINUTES) hit(d / 60, false, DisruptionBasis.REALTIME_ESTIMATE, leg.departure.plusSeconds(d.toLong())) else LegCheck.Clear
+    return if (d / 60 >= MIN_DELAY_MINUTES) hit(d / 60, false, DisruptionBasis.REALTIME_ESTIMATE, leg.departure.plusSeconds(d.toLong())) else LegCheck.Clear(d / 60, true)
 }
 
 /**
@@ -77,7 +80,7 @@ fun classifyLeg(legIndex: Int, leg: JourneyLeg, plan: List<StopEvent>, live: Lis
     if (counterpart.cancelled) return hit(null, true, DisruptionBasis.CANCELLED_FLAG, "high")
     val est = counterpart.estimated ?: return LegCheck.Unknown // no estimate is no evidence of a problem, and not proof of health either
     val delay = Duration.between(counterpart.scheduled, est).toMinutes().toInt()
-    return if (delay >= MIN_DELAY_MINUTES) hit(delay, false, DisruptionBasis.REALTIME_ESTIMATE, "high", est) else LegCheck.Clear
+    return if (delay >= MIN_DELAY_MINUTES) hit(delay, false, DisruptionBasis.REALTIME_ESTIMATE, "high", est) else LegCheck.Clear(delay)
 }
 
 /**
@@ -145,7 +148,7 @@ class DisruptionDetector(
                 } else LegCheck.Unknown
             }
             val hits = checks.filterIsInstance<LegCheck.Hit>().map { it.disruption } + extra
-            JourneyCheck(hits.maxWithOrNull(severity), hits.size, checks.any { it is LegCheck.Unknown })
+            JourneyCheck(hits.maxWithOrNull(severity), hits.size, checks.any { it is LegCheck.Unknown }, legs.map { it.first }.zip(checks).toMap())
         }
     }
 }
