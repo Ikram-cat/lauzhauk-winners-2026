@@ -13,12 +13,14 @@ import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.time.OffsetDateTime
 
-enum class DisruptionBasis { REALTIME_ESTIMATE, CANCELLED_FLAG, MISSING_FROM_REALTIME }
+enum class DisruptionBasis { REALTIME_ESTIMATE, CANCELLED_FLAG, MISSING_ESTIMATE }
 
 /** [legIndex] indexes the checked journey's legs; [leg] is that leg as scheduled. */
 data class Disruption(
-    val legIndex: Int, val leg: JourneyLeg, val delayMinutes: Int, val cancelled: Boolean,
-    val basis: DisruptionBasis, val confidence: String, val estimatedDeparture: OffsetDateTime?, val cause: String? = null
+    val legIndex: Int, val leg: JourneyLeg, val delayMinutes: Int?, val cancelled: Boolean,
+    val basis: DisruptionBasis, val confidence: String, val estimatedDeparture: OffsetDateTime?, val cause: String? = null,
+    /** False for a cancelled train that is not part of the checked journey (the planner already dropped it) but would have served the same hop. */
+    val affectsJourney: Boolean = true
 )
 
 sealed class LegCheck {
@@ -32,35 +34,55 @@ data class JourneyCheck(val worst: Disruption?, val count: Int, val unknown: Boo
 
 private fun norm(s: String?) = s?.uppercase()?.filter { it.isLetterOrDigit() }.orEmpty()
 
-/** Pure: classify one transit leg against the stop's realtime departures. */
-fun classifyLeg(legIndex: Int, leg: JourneyLeg, events: List<StopEvent>): LegCheck {
+/**
+ * Pure: classify one transit leg by diffing the timetable board [plan] against the live board [live].
+ * OJP drops cancelled trips from the live board, so "planned but not live" means cancelled.
+ */
+fun classifyLeg(legIndex: Int, leg: JourneyLeg, plan: List<StopEvent>, live: List<StopEvent>): LegCheck {
     val key = norm(leg.serviceLabel).ifEmpty { return LegCheck.Unknown }
-    fun gap(e: StopEvent) = Math.abs(Duration.between(leg.departure, e.scheduled).toMinutes())
-    val match = events.filter { (norm(it.label) == key || norm(it.lineRef) == key) && gap(it) <= 5 }.minByOrNull { gap(it) }
-    if (match == null) {
-        // Only claim "missing" when the realtime list demonstrably reaches past the leg's departure.
-        val covered = events.any { it.scheduled.toInstant().isAfter(leg.departure.plusMinutes(5).toInstant()) }
-        return if (covered) LegCheck.Hit(Disruption(legIndex, leg, 0, false, DisruptionBasis.MISSING_FROM_REALTIME, "low", null)) else LegCheck.Unknown
-    }
-    if (match.cancelled) return LegCheck.Hit(Disruption(legIndex, leg, 0, true, DisruptionBasis.CANCELLED_FLAG, "high", null))
-    val delay = match.estimated?.let { Duration.between(match.scheduled, it).toMinutes().toInt() } ?: 0
-    return if (delay >= 1) LegCheck.Hit(Disruption(legIndex, leg, delay, false, DisruptionBasis.REALTIME_ESTIMATE, "high", match.estimated)) else LegCheck.Clear
+    fun sameLine(a: StopEvent, label: String?, ref: String?) = (norm(a.label) == norm(label) && norm(label).isNotEmpty()) || (!ref.isNullOrBlank() && a.lineRef == ref)
+    fun gap(a: OffsetDateTime, b: OffsetDateTime) = Math.abs(Duration.between(a, b).toMinutes())
+    val planned = plan.filter { (norm(it.label) == key || norm(it.lineRef) == key) && gap(it.scheduled, leg.departure) <= 5 }.minByOrNull { gap(it.scheduled, leg.departure) }
+        ?: return LegCheck.Unknown
+    if (live.isEmpty()) return LegCheck.Unknown
+    fun hit(delay: Int?, cancelled: Boolean, basis: DisruptionBasis, conf: String, est: OffsetDateTime? = null) =
+        LegCheck.Hit(Disruption(legIndex, leg, delay, cancelled, basis, conf, est))
+    val counterpart = live.filter { sameLine(it, planned.label, planned.lineRef) && gap(it.scheduled, planned.scheduled) <= 2 }.minByOrNull { gap(it.scheduled, planned.scheduled) }
+        ?: return hit(null, true, DisruptionBasis.CANCELLED_FLAG, "high")
+    if (counterpart.cancelled) return hit(null, true, DisruptionBasis.CANCELLED_FLAG, "high")
+    val est = counterpart.estimated ?: return hit(null, false, DisruptionBasis.MISSING_ESTIMATE, "medium")
+    val delay = Duration.between(counterpart.scheduled, est).toMinutes().toInt()
+    return if (delay >= 1) hit(delay, false, DisruptionBasis.REALTIME_ESTIMATE, "high", est) else LegCheck.Clear
 }
 
-/** Cancelled beats delay, a larger delay beats a smaller one, low-confidence "missing" ranks last. */
-private val severity = compareBy<Disruption>({ if (it.cancelled) 2 else if (it.basis == DisruptionBasis.REALTIME_ESTIMATE) 1 else 0 }, { it.delayMinutes }, { -it.legIndex })
+/**
+ * Pure: the latest cancelled departure between [floor] and this leg that calls at the leg's destination. OJP omits cancelled trips
+ * from journey results, so this is the only way to notice that the train the traveller wanted is gone.
+ */
+fun cancelledEarlier(legIndex: Int, leg: JourneyLeg, floor: OffsetDateTime, plan: List<StopEvent>, live: List<StopEvent>): Disruption? {
+    if (live.isEmpty()) return null
+    val dest = norm(leg.destination)
+    val cut = leg.departure.minusMinutes(2)
+    val gone = plan.filter { !it.scheduled.isBefore(floor) && it.scheduled.isBefore(cut) && dest in it.onward }.filter { p ->
+        live.none { l -> Math.abs(Duration.between(l.scheduled, p.scheduled).toMinutes()) <= 2 && norm(l.label) == norm(p.label) && !l.cancelled }
+    }.maxByOrNull { it.scheduled } ?: return null
+    return Disruption(legIndex, leg.copy(serviceLabel = gone.label, departure = gone.scheduled), null, true, DisruptionBasis.CANCELLED_FLAG, "high", null, affectsJourney = false)
+}
+
+/** Cancelled beats delay, a larger delay beats a smaller one, an unknown delay ranks last. */
+private val severity = compareBy<Disruption>({ if (it.affectsJourney) 1 else 0 }, { if (it.cancelled) 2 else if (it.basis == DisruptionBasis.REALTIME_ESTIMATE) 1 else 0 }, { it.delayMinutes ?: 0 }, { -it.legIndex })
 
 class DisruptionDetector(
-    private val fetch: suspend (String, OffsetDateTime) -> StopEventsResult,
+    private val fetch: suspend (String, OffsetDateTime, Boolean) -> StopEventsResult,
     private val deadlineMs: Long = 6_000,
-    private val maxQueries: Int = 6
+    private val maxQueries: Int = 12
 ) {
     private val log = LoggerFactory.getLogger(DisruptionDetector::class.java)
 
     /** One check per journey (same order), or null when the global deadline or a provider error made detection impossible. */
-    suspend fun detect(journeys: List<Journey>): List<JourneyCheck>? {
+    suspend fun detect(journeys: List<Journey>, floor: OffsetDateTime): List<JourneyCheck>? {
         val out = try {
-            withTimeoutOrNull(deadlineMs) { run(journeys) }
+            withTimeoutOrNull(deadlineMs) { run(journeys, floor) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -71,23 +93,27 @@ class DisruptionDetector(
         return out
     }
 
-    private suspend fun run(journeys: List<Journey>): List<JourneyCheck> = coroutineScope {
-        val jobs = HashMap<Pair<String, Long>, Deferred<StopEventsResult>>()
-        fun job(leg: JourneyLeg): Deferred<StopEventsResult>? {
+    private suspend fun run(journeys: List<Journey>, floor: OffsetDateTime): List<JourneyCheck> = coroutineScope {
+        val jobs = HashMap<Triple<String, Long, Boolean>, Deferred<StopEventsResult>>()
+        fun job(leg: JourneyLeg, realtime: Boolean): Deferred<StopEventsResult>? {
             // 5-minute grid so legs at the same stop share one query; window starts 20 min before departure.
             val from = leg.departure.minusMinutes(20).let { it.minusMinutes((it.minute % 5).toLong()).withSecond(0).withNano(0) }
-            val k = leg.origin.trim().lowercase() to from.toEpochSecond()
-            return jobs[k] ?: if (jobs.size < maxQueries) async { fetch(leg.origin, from) }.also { jobs[k] = it } else null
+            val k = Triple(leg.origin.trim().lowercase(), from.toEpochSecond(), realtime)
+            return jobs[k] ?: if (jobs.size < maxQueries) async { fetch(leg.origin, from, realtime) }.also { jobs[k] = it } else null
         }
-        val planned = journeys.map { j -> j.legs.mapIndexedNotNull { i, l -> if (l.mode == LegMode.TRANSIT) Triple(i, l, job(l)) else null } }
-        planned.map { legs ->
+        val planned = journeys.map { j -> j.legs.mapIndexedNotNull { i, l -> if (l.mode == LegMode.TRANSIT) Triple(i, l, job(l, false) to job(l, true)) else null } }
+        planned.mapIndexed { ji, legs ->
+            val extra = mutableListOf<Disruption>()
             val checks = legs.map { (i, l, d) ->
-                when (val r = d?.await()) {
-                    is StopEventsResult.Success -> classifyLeg(i, l, r.events)
-                    else -> LegCheck.Unknown
-                }
+                val plan = d.first?.await(); val live = d.second?.await()
+                if (plan is StopEventsResult.Success && live is StopEventsResult.Success) {
+                    val earlier = cancelledEarlier(i, l, if (i == 0) floor else journeys[ji].legs[i - 1].arrival, plan.events, live.events)
+                    val own = classifyLeg(i, l, plan.events, live.events)
+                    extra += listOfNotNull(earlier)
+                    own
+                } else LegCheck.Unknown
             }
-            val hits = checks.filterIsInstance<LegCheck.Hit>().map { it.disruption }
+            val hits = checks.filterIsInstance<LegCheck.Hit>().map { it.disruption } + extra
             JourneyCheck(hits.maxWithOrNull(severity), hits.size, checks.any { it is LegCheck.Unknown })
         }
     }

@@ -193,16 +193,16 @@ class OjpTransportProvider(
     // ---- Stop events (realtime departures) ----
     private val stopEventTimeoutMs = 4_000L
 
-    override suspend fun stopEvents(stop: String, from: OffsetDateTime): StopEventsResult = try {
+    override suspend fun stopEvents(stop: String, from: OffsetDateTime, realtime: Boolean): StopEventsResult = try {
         val id = resolveStopId(stop)
-        StopEventsResult.Success(parseStopEvents(postLocationRequest(buildStopEventRequest(id, stop, from, nowTs()), stopEventTimeoutMs)))
+        StopEventsResult.Success(parseStopEvents(postLocationRequest(buildStopEventRequest(id, stop, from, nowTs(), realtime), stopEventTimeoutMs)))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         StopEventsResult.Failure("Stop events failed: ${e.javaClass.simpleName}")
     }
 
-    internal fun buildStopEventRequest(stopId: String, name: String, from: OffsetDateTime, ts: String): String {
+    internal fun buildStopEventRequest(stopId: String, name: String, from: OffsetDateTime, ts: String, realtime: Boolean = true): String {
         val fromTs = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(from.withOffsetSameInstant(ZoneOffset.UTC))
         return """<?xml version="1.0" encoding="UTF-8"?>
 <OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
@@ -218,11 +218,11 @@ class OjpTransportProvider(
           <DepArrTime>$fromTs</DepArrTime>
         </Location>
         <Params>
-          <NumberOfResults>30</NumberOfResults>
+          <NumberOfResults>40</NumberOfResults>
           <StopEventType>departure</StopEventType>
           <IncludePreviousCalls>false</IncludePreviousCalls>
-          <IncludeOnwardCalls>false</IncludeOnwardCalls>
-          <UseRealtimeData>full</UseRealtimeData>
+          <IncludeOnwardCalls>true</IncludeOnwardCalls>
+          <UseRealtimeData>${if (realtime) "full" else "none"}</UseRealtimeData>
         </Params>
       </OJPStopEventRequest>
     </siri:ServiceRequest>
@@ -246,7 +246,11 @@ class OjpTransportProvider(
                 scheduled = sched,
                 estimated = textContent(dep, "EstimatedTime")?.let { parseDateTimeOrNull(it) },
                 cancelled = (svc?.let { textContent(it, "Cancelled") } ?: textContent(ev, "Cancelled")).equals("true", ignoreCase = true),
-                platform = textIn(call, "PlannedQuay") ?: textIn(call, "EstimatedQuay")
+                platform = textIn(call, "PlannedQuay") ?: textIn(call, "EstimatedQuay"),
+                onward = ev.getElementsByTagNameNS("*", "OnwardCall").let { oc ->
+                    (0 until oc.length).mapNotNull { (oc.item(it) as? Element)?.let { e -> textIn(e, "StopPointName") } }
+                        .map { n -> n.uppercase().filter { c -> c.isLetterOrDigit() } }.toSet()
+                }
             )
         }
     }

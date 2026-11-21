@@ -115,7 +115,7 @@ data class DisruptionDto(
     val to: String,
     val scheduledDeparture: String,
     val estimatedDeparture: String?,
-    val delayMinutes: Int,
+    val delayMinutes: Int?,
     val cancelled: Boolean,
     val basis: String,
     val confidence: String,

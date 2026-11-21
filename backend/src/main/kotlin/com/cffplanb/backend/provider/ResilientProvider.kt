@@ -73,8 +73,8 @@ class ResilientProvider(
         }, { it is LocationsResult.Success })
 
     // Cached per (stop, window start minute) for searchTtlMs. Failures never trip the breaker: detection is best-effort and must not take /api/journeys down.
-    override suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime): StopEventsResult =
-        cached(Triple("ev", stop.trim().lowercase(), from.toEpochSecond() / 60), searchTtlMs, {
+    override suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime, realtime: Boolean): StopEventsResult =
+        cached(listOf("ev", realtime, stop.trim().lowercase(), from.toEpochSecond() / 60), searchTtlMs, {
             if (isOpen()) StopEventsResult.Failure(BREAKER_MESSAGE) else delegate.stopEvents(stop, from)
         }, { it is StopEventsResult.Success })
 

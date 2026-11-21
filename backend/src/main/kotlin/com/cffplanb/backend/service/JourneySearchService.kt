@@ -28,7 +28,7 @@ class JourneySearchService(
 
     suspend fun searchLocations(query: String) = provider.searchLocations(query)
 
-    suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime) = provider.stopEvents(stop, from)
+    suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime, realtime: Boolean) = provider.stopEvents(stop, from, realtime)
 
     suspend fun search(request: SearchRequest): SearchResult {
         return when (val providerResult = provider.search(request)) {

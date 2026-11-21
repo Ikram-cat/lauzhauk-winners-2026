@@ -46,37 +46,39 @@ class RedirectService(
         if (ordered.isEmpty()) return RedirectPlan(Situation.UNKNOWN, null, 0, null, null, emptyList(), fares, "No journeys found for this request.")
 
         val orig = ordered[0]
-        val checkList = ordered.take(3)
-        val checks = detector.detect(checkList)
+        val checkList = ordered.take(2)
+        val checks = detector.detect(checkList, req.earliestDeparture)
         val checkOf = if (checks == null) emptyMap() else checkList.map { it.id }.zip(checks).toMap()
         val disruption = checkOf[orig.id]?.worst
+        // [own] disrupts the planned journey itself; a [disruption] that is not own only informs ("the train you wanted is cancelled").
+        val own = disruption?.takeIf { it.affectsJourney }
         val situation = when {
             disruption != null -> Situation.DISRUPTION_DETECTED
             checks == null || checkOf[orig.id]!!.unknown -> Situation.UNKNOWN
             else -> Situation.NO_DISRUPTION
         }
 
-        fun usesAffected(j: Journey) = disruption != null && j.legs.any {
-            it.mode == LegMode.TRANSIT && norm(it.serviceLabel) == norm(disruption.leg.serviceLabel) &&
-                Math.abs(mins(it.departure, disruption.leg.departure)) <= 2
+        fun usesAffected(j: Journey) = own != null && j.legs.any {
+            it.mode == LegMode.TRANSIT && norm(it.serviceLabel) == norm(own!!.leg.serviceLabel) &&
+                Math.abs(mins(it.departure, own.leg.departure)) <= 2
         }
         // Cancelled / missing journeys are dropped; delayed ones keep their journey-level arrival shifted by the delay.
         val pool = first.journeys.mapNotNull { j ->
-            val d = checkOf[j.id]?.worst
+            val d = checkOf[j.id]?.worst?.takeIf { it.affectsJourney }
             when {
                 j.id != orig.id && usesAffected(j) -> null
                 d == null -> j
-                d.cancelled || d.basis != DisruptionBasis.REALTIME_ESTIMATE -> null
-                else -> j.copy(arrival = j.arrival.plusMinutes(d.delayMinutes.toLong()), durationMinutes = j.durationMinutes + d.delayMinutes)
+                d.cancelled -> null
+                else -> (d.delayMinutes ?: 0).let { j.copy(arrival = j.arrival.plusMinutes(it.toLong()), durationMinutes = j.durationMinutes + it) }
             }
         }.toMutableList()
 
-        if (disruption != null) {
+        if (own != null) {
             // Floor = when the traveller can be at the boarding station: now, or the previous leg's arrival.
-            val atStation = if (disruption.legIndex == 0) req.earliestDeparture else orig.legs[disruption.legIndex - 1].arrival
+            val atStation = if (own.legIndex == 0) req.earliestDeparture else orig.legs[own.legIndex - 1].arrival
             val now = OffsetDateTime.now(clock)
             val notBefore = if (atStation.isAfter(now)) atStation else now
-            val repl = search.search(SearchRequest(disruption.leg.origin, req.destination, notBefore, req.fareClass, req.discount))
+            val repl = search.search(SearchRequest(own.leg.origin, req.destination, notBefore, req.fareClass, req.discount))
             if (repl is SearchResult.Success) {
                 pool += repl.journeys.filterNot(::usesAffected)
                 if (repl.fares != null) fares = (fares ?: emptyMap()) + repl.fares
@@ -87,10 +89,18 @@ class RedirectService(
         val unique = pool.distinctBy { j -> j.legs.map { Triple(it.serviceLabel, it.departure.toInstant(), it.arrival.toInstant()) } }
         val eligible = unique.filter(::meets)
         val noFeasible = deadline != null && eligible.isEmpty()
-        val final = if (noFeasible) unique.sortedBy { it.arrival.toInstant() } else eligible.sortedWith(cmp)
+        var final = if (noFeasible) unique.sortedBy { it.arrival.toInstant() } else eligible.sortedWith(cmp)
+        // Stay-vs-reroute: a delayed (not cancelled) original is kept unless it misses the deadline or an alternative gains >= 5 min
+        // (and, for delays <= 10 min, strictly more than 5 min). Cancelled originals are not in the pool, so they always reroute.
+        val waitJ = if (own != null && !own.cancelled) unique.firstOrNull { it.id == orig.id } else null
+        if (waitJ != null && !noFeasible && final.first().id != waitJ.id) {
+            val gain = mins(final.first().arrival, waitJ.arrival)
+            val delay = own!!.delayMinutes ?: 0
+            if (meets(waitJ) && !(gain >= 5 && !(delay <= 10 && gain <= 5))) final = listOf(waitJ) + final.filter { it.id != waitJ.id }
+        }
         val rec = final.firstOrNull()
         val alts = final.drop(1).take(3)
-        val stay = disruption != null && rec != null && rec.id == orig.id
+        val stay = own != null && rec != null && rec.id == orig.id
         val waitJourney = unique.firstOrNull { it.id == orig.id }
 
         val why = rec?.let { whyFor(it, orig, disruption, stay, alts.firstOrNull(), waitJourney, pref, deadline, noFeasible, ::fareOf) }
@@ -105,10 +115,15 @@ class RedirectService(
         if (noFeasible) return "closest to your deadline: arrives ${mins(deadline!!, rec.arrival)} min late"
         if (d == null) return when (pref) { Preference.FASTEST -> "fastest"; Preference.SIMPLEST -> "fewest changes"; Preference.CHEAPEST -> "best price" }
         val lab = d.leg.serviceLabel ?: "service"
+        if (!d.affectsJourney) return "next departure after the cancelled $lab, ${mins(d.leg.departure, rec.departure)} min later"
         if (stay) {
+            val delay = d.delayMinutes
             val longer = nextBest?.let { mins(orig.arrival, it.arrival) }
-            return if (longer != null && longer >= d.delayMinutes) "waiting is faster: ${d.delayMinutes} min delay vs $longer min longer route"
-            else "no better option than staying on $lab despite the ${d.delayMinutes} min delay"
+            return when {
+                delay != null && longer != null && longer >= delay -> "waiting is faster: $delay min delay vs $longer min longer route"
+                delay != null -> "$delay min late, no meaningful gain from changing"
+                else -> "no live delay estimate for $lab, no meaningful gain from changing"
+            }
         }
         val skips = "skips the ${if (d.cancelled) "cancelled" else "disrupted"} $lab"
         return when (pref) {
@@ -171,7 +186,7 @@ class RedirectService(
         val at = d.leg.departure.hm()
         return when {
             d.cancelled -> "The $at $lab is cancelled"
-            d.basis == DisruptionBasis.MISSING_FROM_REALTIME -> "The $at $lab is missing from live data and may be cancelled"
+            d.delayMinutes == null -> "$lab at $at has no live delay estimate"
             else -> "$lab at $at is running ${d.delayMinutes} min late"
         }
     }

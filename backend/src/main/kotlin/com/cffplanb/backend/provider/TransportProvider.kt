@@ -17,14 +17,16 @@ interface TransportProvider {
 
     suspend fun searchLocations(query: String): LocationsResult = LocationsResult.Success(emptyList())
 
-    /** Realtime departures at [stop] (free-text name) starting at [from]. Providers without realtime data report Failure. */
-    suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime): StopEventsResult = StopEventsResult.Failure("stop events not supported")
+    /** Departures at [stop] (the live board when [realtime], else the timetable) (free-text name) starting at [from]. Providers without realtime data report Failure. */
+    suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime, realtime: Boolean = true): StopEventsResult = StopEventsResult.Failure("stop events not supported")
 }
 
 data class StopEvent(
     val label: String?, val lineRef: String?,
     val scheduled: java.time.OffsetDateTime, val estimated: java.time.OffsetDateTime?,
-    val cancelled: Boolean, val platform: String?
+    val cancelled: Boolean, val platform: String?,
+    /** Normalised names of the stops this trip calls at after this one (empty unless the provider supplied onward calls). */
+    val onward: Set<String> = emptySet()
 )
 
 sealed class StopEventsResult {
