@@ -1,0 +1,66 @@
+package planb
+
+internal enum class Language(val tag: String) {
+    French("fr"),
+    English("en");
+
+    fun text(copy: Copy) = if (this == French) copy.french else copy.english
+
+    fun count(count: Int, singular: Copy, plural: Copy): String =
+        "$count ${text(if (count == 1) singular else plural)}"
+}
+
+internal enum class Copy(val french: String, val english: String) {
+    WindowTitle("Plan B — Itinéraires en Suisse", "Plan B — Journeys in Switzerland"),
+    DemoMode("Mode démo", "Demo mode"),
+    ApiMode("Recherche API", "API search"),
+    ReduceMotion("Réduire le mouvement", "Reduce motion"),
+    EnableMotion("Activer le mouvement", "Enable motion"),
+    UseLight("Mode clair", "Light mode"),
+    UseDark("Mode sombre", "Dark mode"),
+    UseOtherLanguage("Passer en anglais", "Switch to French"),
+    Journeys("Itinéraires", "Journeys"),
+    Departures("Départs", "Departures"),
+    Planner("PLANIFICATEUR FERROVIAIRE", "RAIL JOURNEY PLANNER"),
+    YourJourney("Votre prochain départ", "Your next journey"),
+    StartsHere("commence ici.", "starts here."),
+    Intro("Trouvez votre itinéraire et gardez une option de secours.", "Find your route and keep a backup option."),
+    From("De", "From"),
+    SwapStations("Inverser les gares", "Swap stations"),
+    To("À", "To"),
+    Date("Date", "Date"),
+    DateFormat("AAAA-MM-JJ", "YYYY-MM-DD"),
+    SwissTime("Heure suisse", "Swiss time"),
+    DateHint("Laissez la date et l’heure vides pour partir maintenant.", "Leave date and time blank to leave now."),
+    Search("Rechercher →", "Search →"),
+    Searching("Recherche des itinéraires…", "Searching for journeys…"),
+    DistinctStations("Choisissez deux gares différentes.", "Choose two different stations."),
+    EmptyDemo("Aucun trajet de démonstration. Essayez Lausanne → Genève.", "No demo journey. Try Lausanne → Genève."),
+    EmptyJourney("Aucun itinéraire trouvé. Essayez une autre heure.", "No journeys found. Try a different time."),
+    Journey("itinéraire", "journey"),
+    JourneyPlural("itinéraires", "journeys"),
+    InvalidDate("Saisissez une date et une heure au format AAAA-MM-JJ et HH:mm.", "Enter a date and time in YYYY-MM-DD and HH:mm format."),
+    AmbiguousDate("Cette heure suisse est inexistante ou ambiguë. Choisissez une autre heure.", "This Swiss local time is skipped or ambiguous. Choose another time."),
+    BadRequest("Vérifiez les gares et l’heure de départ.", "Check the stations and departure time."),
+    ServiceUnavailable("Le service est momentanément indisponible. Veuillez réessayer.", "The service is temporarily unavailable. Try again."),
+    Demo("Démo", "Demo"),
+    ProviderSchedule("Horaire fournisseur", "Provider schedule"),
+    UnknownSource("Source inconnue", "Unknown source"),
+    Direct("Direct", "Direct"),
+    Transfer("correspondance", "transfer"),
+    TransferPlural("correspondances", "transfers"),
+    Platform("Voie", "Platform"),
+    Upcoming("Prochains départs", "Upcoming departures"),
+    DemoData("Données de démonstration", "Demo data"),
+    Departure("Départ", "Departure"),
+    Destination("Destination", "Destination"),
+    Status("Statut", "Status"),
+    OnTime("À l’heure", "On time"),
+    Prototype("Plan B · Prototype indépendant", "Plan B · Independent prototype"),
+    ZurichTime("HEURE EN SUISSE · EUROPE / ZURICH", "SWISS TIME · EUROPE / ZURICH"),
+    AnalogClock("Afficher l’horloge analogique", "Show analog clock"),
+    DigitalClock("Afficher l’heure numérique", "Show digital clock"),
+    In("Dans", "In"),
+    DeparturePassed("Horaire prévu écoulé", "Scheduled departure has passed"),
+    NextDeparture("Prochain départ · Démo", "Next departure · Demo")
+}
