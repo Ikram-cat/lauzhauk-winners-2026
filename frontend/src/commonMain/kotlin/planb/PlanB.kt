@@ -205,6 +205,7 @@ internal fun PlanB(api: String, reduceMotion: Boolean = false, onLanguageChanged
                                     shape = SegmentedButtonDefaults.itemShape(index, Preference.entries.size)
                                 ) { Text(copy(mode.label)) }
                             }
+                            if (preference == Preference.CHEAPEST) Text(copy(Copy.PriceHint), color = colors.onSurfaceVariant, fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
                                 itemVerticalAlignment = Alignment.CenterVertically) {
                                 SingleChoiceSegmentedButtonRow(Modifier.semantics { contentDescription = copy(Copy.TravelClass) }) {
