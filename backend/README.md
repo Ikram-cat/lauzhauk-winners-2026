@@ -17,7 +17,7 @@ export JAVA_HOME=~/.local/jdk/jdk-21.0.13.1+2      # JDK 21 (no system javac on 
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd backend
-./gradlew test                                     # 171 tests, no network needed
+./gradlew test                                     # 173 tests, no network needed
 TRANSPORT_PROVIDER=mock PORT=8080 ./gradlew run     # offline demo data, no keys required
 ```
 
@@ -37,7 +37,7 @@ podman build -t planb-backend ./backend
 podman run --rm -p 8080:8080 -e PORT=8080 -e TRANSPORT_PROVIDER=mock planb-backend
 ```
 
-Deploy verification (18 checks, covering all four endpoints and the 400/404 paths, against any base URL):
+Deploy verification (21 checks, covering all four endpoints and the 400/404 paths, against any base URL):
 
 ```bash
 ./scripts/smoke.sh https://your-service.up.railway.app
