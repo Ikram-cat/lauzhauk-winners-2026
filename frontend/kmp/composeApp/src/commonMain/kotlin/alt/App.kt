@@ -180,6 +180,7 @@ private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
                 onPick = st::pickFrom,
                 pal = pal,
                 hint = st.fromSel?.kind?.lowercase(),
+                searching = st.fromSearching,
             )
             Spacer(Modifier.height(12.dp))
 
@@ -195,6 +196,7 @@ private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
                         onPick = st::pickTo,
                         pal = pal,
                         hint = st.toSel?.kind?.lowercase(),
+                        searching = st.toSearching,
                     )
                 }
                 Spacer(Modifier.width(8.dp))
@@ -255,9 +257,7 @@ private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
             )
 
             Spacer(Modifier.height(20.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SquareCheck(st.halfFare, st.t("half"), pal) { st.halfFare = it }
-                Spacer(Modifier.weight(1f))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Text(
                     st.t("simulate"),
                     fontSize = 12.sp, fontWeight = FontWeight.Bold, color = pal.muted,
@@ -345,10 +345,15 @@ private fun EditorialField(
     onPick: (Location) -> Unit,
     pal: AltPalette,
     hint: String? = null,
+    searching: Boolean = false,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             FieldLabel(label, pal)
+            if (searching) {
+                Spacer(Modifier.width(8.dp))
+                Text("...", fontSize = 9.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = pal.red)
+            }
             if (hint != null) {
                 Spacer(Modifier.width(8.dp))
                 Text(hint.uppercase(), fontSize = 9.sp, letterSpacing = 0.8.sp, color = pal.muted)

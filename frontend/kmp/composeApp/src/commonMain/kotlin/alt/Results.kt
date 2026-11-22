@@ -60,6 +60,12 @@ fun ResultsPage(st: AppState, pal: AltPalette, modifier: Modifier) {
             }
             Spacer(Modifier.height(20.dp))
 
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                LegendDot(pal.red, st.t("legend.known"), pal.muted)
+                LegendDot(pal.estimate, st.t("legend.est"), pal.muted)
+            }
+            Spacer(Modifier.height(16.dp))
+
             StatusPanel(st, res, pal)
             if (res.demoPerturbation?.active == true) {
                 Spacer(Modifier.height(12.dp))
@@ -338,18 +344,6 @@ private fun FeatureCard(st: AppState, j: Journey, pal: AltPalette) {
                     }
                 }
             }
-
-            if (knownDep != null || knownArr != null || estDep != null || estArr != null) {
-                Spacer(Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    if (knownDep != null || knownArr != null) {
-                        LegendDot(pal.red, st.t("legend.known"), pal.featureMuted)
-                    }
-                    if (estDep != null || estArr != null) {
-                        LegendDot(pal.muted, st.t("legend.est"), pal.featureMuted)
-                    }
-                }
-            }
         }
     }
 }
@@ -376,8 +370,8 @@ private fun FeatureTime(
             }
             if (known != null && est != null) Spacer(Modifier.width(6.dp))
             if (est != null) {
-                Box(Modifier.border(1.dp, pal.muted).padding(horizontal = 6.dp, vertical = 3.dp)) {
-                    Text(est, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = pal.muted)
+                Box(Modifier.border(1.dp, pal.estimate).padding(horizontal = 6.dp, vertical = 3.dp)) {
+                    Text(est, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = pal.estimate)
                 }
             }
         }
@@ -490,8 +484,8 @@ private fun Band(
                 }
                 if (known != null && est != null) Spacer(Modifier.width(6.dp))
                 if (est != null) {
-                    Box(Modifier.border(1.dp, pal.muted).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                        Text(est, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = pal.muted)
+                    Box(Modifier.border(1.dp, pal.estimate).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text(est, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = pal.estimate)
                     }
                 }
             }
@@ -555,18 +549,19 @@ private fun BandLeg(st: AppState, leg: Leg, pal: AltPalette) {
             }
         }
         val chips = buildList {
-            fmtDelay(leg.departureDelayMinutes)?.let { add(it + " " + st.t("live")) }
-            fmtEstimate(leg.estimatedDepartureDelayMinutes)?.let { add(it + " " + st.t("estimated")) }
-            fmtPct(leg.incidentCancellationRisk)?.let { add(st.t("cancelrisk") + " " + it) }
-            fmtPct(leg.incidentSuppressedStopRisk)?.let { add(st.t("suppressed") + " " + it) }
-            fmtPct(leg.transferMissRisk)?.let { add(st.t("missrisk") + " " + it) }
+            fmtDelay(leg.departureDelayMinutes)?.let { add(it + " " + st.t("live") to pal.muted) }
+            fmtEstimate(leg.estimatedDepartureDelayMinutes)?.let { add(it + " " + st.t("estimated") to pal.estimate) }
+            fmtPct(leg.incidentCancellationRisk)?.let { add(st.t("cancelrisk") + " " + it to pal.muted) }
+            fmtPct(leg.incidentSuppressedStopRisk)?.let { add(st.t("suppressed") + " " + it to pal.muted) }
+            fmtPct(leg.transferMissRisk)?.let { add(st.t("missrisk") + " " + it to pal.muted) }
         }
         if (chips.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Row(Modifier.padding(start = 100.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                chips.forEach { c ->
-                    Box(Modifier.border(1.dp, pal.rule).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                        Text(c, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = pal.muted)
+                chips.forEach { (c, col) ->
+                    Box(Modifier.border(1.dp, if (col == pal.estimate) col else pal.rule)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text(c, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = col)
                     }
                 }
             }

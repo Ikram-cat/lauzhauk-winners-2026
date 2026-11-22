@@ -7,6 +7,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.datetime.DatePeriod
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 
 const val PAGE_SEARCH = 0
 const val PAGE_RESULTS = 1
@@ -24,6 +27,8 @@ class AppState(private val scope: CoroutineScope) {
     var toSel by mutableStateOf<Location?>(null)
     var fromSug by mutableStateOf<List<Location>>(emptyList())
     var toSug by mutableStateOf<List<Location>>(emptyList())
+    var fromSearching by mutableStateOf(false)
+    var toSearching by mutableStateOf(false)
 
     var dateText by mutableStateOf(todayZurichDate())
     var timeText by mutableStateOf("")
@@ -49,12 +54,14 @@ class AppState(private val scope: CoroutineScope) {
         fromText = text
         fromSel = null
         fromJob?.cancel()
-        if (text.trim().length < 3) { fromSug = emptyList(); return }
+        if (text.trim().length < 3) { fromSug = emptyList(); fromSearching = false; return }
+        fromSearching = true
         fromJob = scope.launch {
             delay(280)
             runCatching { api.locations(text.trim(), 6) }
                 .onSuccess { if (fromText == text) fromSug = it }
-                .onFailure { fromSug = emptyList() }
+                .onFailure { if (fromText == text) fromSug = emptyList() }
+            if (fromText == text) fromSearching = false
         }
     }
 
@@ -62,12 +69,14 @@ class AppState(private val scope: CoroutineScope) {
         toText = text
         toSel = null
         toJob?.cancel()
-        if (text.trim().length < 3) { toSug = emptyList(); return }
+        if (text.trim().length < 3) { toSug = emptyList(); toSearching = false; return }
+        toSearching = true
         toJob = scope.launch {
             delay(280)
             runCatching { api.locations(text.trim(), 6) }
                 .onSuccess { if (toText == text) toSug = it }
-                .onFailure { toSug = emptyList() }
+                .onFailure { if (toText == text) toSug = emptyList() }
+            if (toText == text) toSearching = false
         }
     }
 
@@ -93,9 +102,17 @@ class AppState(private val scope: CoroutineScope) {
 
     fun search(simulate: Boolean = false) {
         if (fromText.isBlank() || toText.isBlank()) { error = t("enterboth"); return }
-        val ts = timestamp(dateText, timeText)
+        var ts = timestamp(dateText, timeText)
         if (ts == "INVALID") { error = t("badtime"); return }
         if (arriveBy && ts == null) { error = t("badtime"); return }
+        if (simulate && !arriveBy && ts == null) {
+            // Deterministic demo departure: for imminent departures the live GTFS-RT feed
+            // supersedes the synthetic incident and the simulation shows nothing. Tomorrow
+            // 07:00 is outside the live feed's window and the incident fires reliably.
+            dateText = tomorrowZurichDate()
+            timeText = "07:00"
+            ts = timestamp(dateText, timeText)
+        }
 
         val q = SearchQuery(
             origin = fromText.trim(),
@@ -149,4 +166,10 @@ class AppState(private val scope: CoroutineScope) {
     fun simulate() = search(simulate = true)
 
     private fun todayText(): String = todayZurichDate()
+}
+
+private fun tomorrowZurichDate(): String = try {
+    LocalDate.parse(todayZurichDate()).plus(DatePeriod(days = 1)).toString()
+} catch (e: Exception) {
+    todayZurichDate()
 }
