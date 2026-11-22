@@ -30,7 +30,6 @@ const formatTime = (value, date = false) => value ? new Intl.DateTimeFormat(lang
   ...(date ? { month: "short", day: "numeric" } : {}),
 }).format(new Date(value)) : "—";
 const number = value => new Intl.NumberFormat(language).format(value);
-const percent = value => new Intl.NumberFormat(language, {style:"percent", maximumFractionDigits:2}).format(value);
 const money = value => value == null ? "CHF —" : new Intl.NumberFormat(language, {style:"currency", currency:"CHF"}).format(value);
 const token = value => value ? esc(t(value.toLowerCase()) === value.toLowerCase() ? value : t(value.toLowerCase())) : "—";
 const paths = {
@@ -155,15 +154,6 @@ const coordinateText = /[-+]?\d{1,3}\.\d{3,}\s*[,;/ ]\s*[-+]?\d{1,3}\.\d{3,}/;
 const placeLabel = (name, fallback) => esc(name && !coordinateText.test(name) ? name :
   fallback && !coordinateText.test(fallback) ? fallback : t("unnamedStop"));
 
-function historicalRate(risk) {
-  if (risk?.corridorIncidentRate == null) return "";
-  const basis = (risk.basis ?? "").toUpperCase();
-  const key = basis === "HOURLY_BASELINE" ? "historicHour" :
-    risk.source?.toUpperCase() === "BASELINE" || basis.includes("BASELINE") ? "historicBaseline" : "historicRate";
-  const window = /^DAY_WINDOW_(\d+)$/.exec(basis);
-  const rate = t(key).replace("{n}", percent(risk.corridorIncidentRate));
-  return window ? rate + " · " + t("historicWindow").replace("{n}", number(Number(window[1]))) : rate;
-}
 const reasonKeys = {
   EARLIER_ARRIVAL: ["reasonEarlier","savedMinutes"], EXPECTED_FASTER: ["reasonExpected","savedMinutes"],
   FEWER_TRANSFERS: ["reasonTransfers","savedTransfers"], CHEAPER: ["reasonCheaper","savedChf"],
@@ -179,24 +169,64 @@ function reasonText(reason) {
   return t(key).replace("{n}", value == null ? "—" : field === "savedChf" ? money(value) : number(value));
 }
 function metadata(journey) {
-  const { dataStatus, realtime, verified, feasible, maxOccupancy, risk, fares } = journey;
-  const riskData = historicalRate(risk);
+  const { dataStatus, realtime, verified, feasible, maxOccupancy, fares } = journey;
   return [
     dataStatus === "MOCK" && t("mock"), !verified && t("estimated"),
     realtime?.sampleCount != null && `${t("samples")} ${number(realtime.sampleCount)}`,
-    fares?.selectedChf == null && t("noPrice"), riskData,
+    fares?.selectedChf == null && t("noPrice"),
     maxOccupancy && `${t("occupancy")} ${token(maxOccupancy)}`,
     feasible === false && t("deadlineMiss"),
   ].filter(Boolean).join(" · ");
 }
-const arrival = journey => journey.realtime?.expectedArrival ?? journey.schedule.arrival;
 const duration = minutes => `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}`;
+const delayNumber = value => new Intl.NumberFormat(language, {
+  maximumFractionDigits:0, signDisplay:"exceptZero",
+}).format(value);
+const roundProjection = value => new Date(Math.round(Date.parse(value) / 60000) * 60000).toISOString();
+function timeLayers(scheduled, timing, side) {
+  const name = side === "Departure" ? "departure" : "arrival";
+  const known = timing?.[name + "DelayMinutes"];
+  const estimate = timing?.["estimated" + side + "DelayMinutes"];
+  const expected = timing?.["expected" + side];
+  const projected = timing?.["projected" + side];
+  if (projected && (estimate != null || Date.parse(projected) !== Date.parse(expected ?? scheduled))) {
+    return {scheduled, known, estimate, combined:projected, combinedLabel:"projected"};
+  }
+  return {scheduled, known, estimate, combined:expected ?? scheduled, combinedLabel:expected ? "expected" : ""};
+}
+function timingBox(layers, label, side, includeDate = false) {
+  const {scheduled, known, estimate, combined, combinedLabel} = layers;
+  const displayTime = combinedLabel === "projected" ? roundProjection(combined) : combined;
+  const dateChanged = combinedLabel && swissDateTime(new Date(scheduled)).slice(0,10) !== swissDateTime(new Date(displayTime)).slice(0,10);
+  const roundedEstimate = side === "Departure" ? Math.floor(estimate) : Math.ceil(estimate);
+  const chip = (variant, key, value) => `<span class="delay-chip delay-${variant}" title="${t(key)}"><span class="sr-only">${t(key)} </span>${delayNumber(value)} min</span>`;
+  return `<span class="journey-time">
+    <span class="caption time-label">${t(label)}</span>
+    <span class="time-scheduled">${includeDate ? `<time datetime="${esc(scheduled)}">${formatTime(scheduled, true)}</time>` : timeDisplay(scheduled)}</span>
+    ${known ? chip("known", "knownDelay", known) : ""}
+    ${estimate ? chip("estimate", "estimatedDelay", roundedEstimate) : ""}
+    ${combinedLabel ? `<span class="caption time-combined">${t(combinedLabel)} <time datetime="${esc(combined)}">${formatTime(displayTime, includeDate || dateChanged)}</time></span>` : ""}
+    </span>`;
+}
+function journeyTimes(journey) {
+  const { departure, arrival } = journey.schedule;
+  const { realtime } = journey;
+  const firstTransit = journey.legs.find(leg => leg.mode === "TRANSIT");
+  const lastTransit = journey.legs.findLast(leg => leg.mode === "TRANSIT");
+  const dep = timeLayers(realtime?.projectedDeparture ? firstTransit?.departure ?? departure : departure, realtime, "Departure");
+  const arr = timeLayers(realtime?.projectedArrival ? lastTransit?.arrival ?? arrival : arrival, realtime, "Arrival");
+  const depLabel = dep.scheduled === departure ? "depart" : "transitDeparture";
+  const arrLabel = arr.scheduled === arrival ? "arrival" : "transitArrival";
+  return `<span class="journey-times">
+    ${timingBox(dep, depLabel, "Departure")}
+    ${timingBox(arr, arrLabel, "Arrival")}
+    </span>`;
+}
 function timeDisplay(value) {
   const [hour, minute] = formatTime(value).split(":");
   return minute ? `<time datetime="${esc(value)}"><span>${hour}</span><span>:</span><span>${minute}</span></time>` : esc(hour);
 }
 const resultTimes = journey => `${timeDisplay(journey.schedule.departure)} <span aria-hidden="true">→</span> <span class="sr-only">${t("to")}</span> ${timeDisplay(journey.schedule.arrival)}`;
-const travelTimes = journey => `${formatTime(journey.schedule.departure)} → ${formatTime(journey.schedule.arrival)}`;
 function facts(journey) {
   return `<dl class="facts">
     <div><dt>${t("duration")}</dt><dd>${duration(journey.schedule.durationMinutes)}</dd></div>
@@ -221,10 +251,16 @@ function featured(result) {
   const journey = result.recommendedJourney;
   if (!journey) return `<p class="notice">${t(result.alternatives.length || result.primaryJourney ? "noRecommended" : "noRoutes")}</p>`;
   const reasons = result.reasons.map(reasonText).filter(Boolean);
-  return `<article class="feature"><p class="tag recommended-badge">${t("recommended")}</p>
-    <div><p class="label">${t("arrival")}${journey.realtime?.expectedArrival ? " · " + t("expected") : ""}</p>
-      <p class="arrival">${timeDisplay(arrival(journey))}</p></div>
-    <p class="result-times">${resultTimes(journey)}</p>${facts(journey)}
+  const realtime = journey.realtime;
+  const legendLine = (variant, key) => `<li class="legend-${variant}"><span aria-hidden="true"></span>${t(key)}</li>`;
+  const legend = [
+    (realtime?.departureDelayMinutes || realtime?.arrivalDelayMinutes) && legendLine("known", "knownDelay"),
+    (realtime?.estimatedDepartureDelayMinutes || realtime?.estimatedArrivalDelayMinutes) && legendLine("estimate", "estimatedDelay"),
+  ].filter(Boolean).join("");
+  return `<article class="feature">
+    <div class="feature-head"><p class="tag recommended-badge">${t("recommended")}</p>
+      ${legend ? `<ul class="delay-legend">${legend}</ul>` : ""}</div>
+    ${journeyTimes(journey)}${facts(journey)}
     ${reasons.length ? `<div><strong>${t("why")}</strong><ul>${reasons.map(text => `<li>${esc(text)}</li>`).join("")}</ul></div>` : ""}
     <p class="caption">${metadata(journey)}</p>
     ${button("details", "details", "", `data-id="${esc(journey.id)}"`)}
@@ -237,7 +273,8 @@ function bands(journeys, result) {
     const original = result.primaryJourney?.id === journey.id ? t("original") : "";
     return `<button type="button" class="band" data-action="details" data-id="${esc(journey.id)}">
       <span><strong class="band-title result-times">${resultTimes(journey)}</strong>
-      <small>${duration(durationMinutes)} · ${number(transfers)} ${t("transfers").toLowerCase()}${journey.realtime?.expectedArrival ? " · " + t("expected") + " " + formatTime(arrival(journey)) : ""}</small>
+      ${journeyTimes(journey)}
+      <small>${duration(durationMinutes)} · ${number(transfers)} ${t("transfers").toLowerCase()}</small>
       <small>${[original, metadata(journey)].filter(Boolean).join(" · ")}</small></span>
       <span class="band-end">${icon(journey.legs.every(leg => leg.mode === "WALK") ? "walking" : "station")}
         <small>${money(journey.fares?.selectedChf)}</small></span></button>`;
@@ -483,37 +520,36 @@ function openJourney(id) {
     const impacted = disruption && disruption.from === leg.origin && disruption.to === leg.destination &&
       (!disruption.serviceLabel || disruption.serviceLabel === leg.serviceLabel) &&
       Date.parse(disruption.scheduledDeparture) === Date.parse(leg.departure);
-    const stop = (place, time, platform, expected, delayMinutes, fallback) =>
-      `<span>${formatTime(time, true)} · ${placeLabel(place, fallback)}${platform ? " · " + t("platform") + " " + esc(platform) : ""}
-        ${expected ? " · " + t("expected") + " " + formatTime(expected) : ""}${delay(delayMinutes)}</span>`;
+    const stop = (place, time, platform, side, fallback) =>
+      `<div class="timeline-stop"><span>${placeLabel(place, fallback)}${platform ? " · " + t("platform") + " " + esc(platform) : ""}</span>
+        ${timingBox(timeLayers(time, leg, side), side === "Departure" ? "depart" : "arrival", side, true)}</div>`;
     const occupancy = leg.occupancy ? [["first",leg.occupancy.firstClass],["second",leg.occupancy.secondClass]]
       .filter(([, value]) => value).map(([key,value]) => `${t(key)} ${token(value)}`).join(" · ") : "";
     const walkingMinutes = leg.mode === "WALK" ? Math.round((Date.parse(leg.arrival) - Date.parse(leg.departure)) / 60000) : null;
     return `<li class="${impacted ? "impacted" : ""}"><strong>${esc(leg.serviceLabel ?? t(leg.mode === "WALK" ? "walking" : "train"))}
       ${walkingMinutes > 0 ? " · " + number(walkingMinutes) + " min" : ""}
       ${impacted ? " · " + t("disruption") : ""}</strong>
-      ${stop(leg.origin, leg.departure, leg.departurePlatform, leg.expectedDeparture, leg.departureDelayMinutes, index === 0 ? state.activeQuery?.origin : null)}
-      ${stop(leg.destination, leg.arrival, leg.arrivalPlatform, leg.expectedArrival, leg.arrivalDelayMinutes, index === journey.legs.length - 1 ? state.activeQuery?.destination : null)}
+      ${stop(leg.origin, leg.departure, leg.departurePlatform, "Departure", index === 0 ? state.activeQuery?.origin : null)}
+      ${stop(leg.destination, leg.arrival, leg.arrivalPlatform, "Arrival", index === journey.legs.length - 1 ? state.activeQuery?.destination : null)}
       ${occupancy ? `<small>${t("occupancy")} · ${occupancy}</small>` : ""}</li>`;
   }).join("");
-  const { risk, fares, realtime } = journey;
+  const { risk, fares } = journey;
   const catalog = fares?.catalogChf;
   const dialog = document.createElement("dialog");
   dialog.className = "details-dialog";
   dialog.setAttribute("aria-labelledby", "journey-detail-title");
   dialog.innerHTML = `<div class="dialog-body"><div class="heading-row"><h2 id="journey-detail-title">${t("details")}</h2>${button("close","close")}</div>
-    <p>${travelTimes(journey)}${realtime?.expectedArrival ? " · " + t("expected") + " " + formatTime(realtime.expectedArrival) : ""}${delay(realtime?.arrivalDelayMinutes)}</p>
+    ${journeyTimes(journey)}
     ${facts(journey)}<p class="caption">${metadata(journey)}</p>
     <ol class="timeline">${timeline}</ol>${impactPanels(result)}
     <div class="panel-grid"><div><strong>${t("price")}</strong>
       <p>${token(fares?.status)} ${esc(fares?.product)} ${esc(fares?.source)}</p>
       ${catalog ? [["second","secondClassFull"],["first","firstClassFull"]].map(([classKey, key]) =>
         `<p>${t(classKey)} · ${money(catalog[key])}</p>`).join("") : ""}
-    </div><div><strong>${t("risk")}</strong>
-      <p>${historicalRate(risk) || t("historyUnavailable")}</p>
+    </div>${risk?.typicalIncidentDurationMinutes != null || risk?.confidence ? `<div><strong>${t("risk")}</strong>
       ${risk?.typicalIncidentDurationMinutes != null ? `<p>${t("typical")} · ${number(risk.typicalIncidentDurationMinutes)} min</p>` : ""}
       ${risk?.confidence ? `<p>${t("confidence")} ${token(risk.confidence)}</p>` : ""}
-    </div></div>
+    </div>` : ""}</div>
     <p class="caption">${t("updated")} ${formatTime(result.meta.computedAt, true)} ${result.meta.modelVersion ? " · " + t("model") + " " + esc(result.meta.modelVersion) : ""}</p>
     ${journey.feasible === true ? `<p>${t("deadlineMet")}</p>` : ""}
   </div>`;
