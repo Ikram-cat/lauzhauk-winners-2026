@@ -1,6 +1,6 @@
 # Deployment runbook
 
-D owns the production release and records results in the [session handoff](SESSION_HANDOFF.md). This runbook describes the target configuration. The application build, Dockerfile, hosting connections, deploy URLs, and public smoke tests are pending in the repository. The master plan reports existing Vercel access for a team member. Verify repository access, account permissions, usage limits, and rollback availability with the hosting owners before the first release. [Master plan](MASTER_PLAN.md)
+D owns the production release and records results in the [session handoff](SESSION_HANDOFF.md). The backend is live on Railway; the Vercel frontend is still pending. The backend section records the configuration that actually runs in production, the frontend section the target configuration. The master plan reports existing Vercel access for a team member. Verify repository access, account permissions, usage limits, and rollback availability with the hosting owners before the first release. [Master plan](MASTER_PLAN.md)
 
 ## Environment variables
 
@@ -14,19 +14,68 @@ Use [the environment template](../.env.example) as a reference for variable name
 
 ## Backend on Railway
 
-1. After B supplies a runnable app, review `backend/Dockerfile` with B. Use the tested Gradle wrapper and JDK to build the Ktor artifact, then run only the built artifact and its JVM runtime in the final image. Run the same artifact locally before connecting the service. See the [backend README](../backend/README.md) for the selected toolchain and commands.
-2. Connect the GitHub repository to a Railway service and select `main` for production. Set the service root to `/backend` and keep the build inputs in that directory. If a future shared Gradle project requires repository-level inputs, coordinate a build-context change with D and recheck local, CI, and Railway builds. Confirm the build log identifies the Dockerfile. [Railway monorepos](https://docs.railway.com/deployments/monorepo) · [Railway Dockerfiles](https://docs.railway.com/builds/dockerfiles)
-3. Bind Ktor to `0.0.0.0` and the runtime `PORT`. Configure `/health` as the deployment health check and return HTTP 200 with `{"status":"ok"}` once the server accepts requests. Keep the health route independent of provider availability. Enable public HTTPS networking and verify the domain's target port. [Railway health checks](https://docs.railway.com/deployments/healthchecks) · [Railway public networking](https://docs.railway.com/networking/public-networking)
-4. Set `CORS_ALLOWED_ORIGINS` to the frontend origins from the table. Parse each entry as a complete origin and configure Ktor CORS with its explicit scheme, hostname, and port if present. Allow the methods and headers the browser client actually uses. Keep browser credentials disabled for the public read-only MVP. [Ktor CORS configuration](https://ktor.io/docs/server-cors.html)
+### As built (2026-11-22)
 
-After `backend/Dockerfile` and the health route exist, run this container check from the repository root with Docker available.
+| Item | Value |
+| --- | --- |
+| Account | Railway CLI 5.75.0, `sabu8craft@gmail.com`, workspace *My Projects* |
+| Project | `lauzhauk-backend` (`20402d86-1efd-4f47-8671-0c8b937a2d2c`), environment `production` |
+| Service | `lauzhauk-backend` (`fc7b6632-d1d4-438a-b55c-a8982f554bc8`), region `sfo` |
+| Service root directory | `backend` — the Docker build context is the backend module only |
+| Build | `backend/Dockerfile` via `backend/railway.json` (`builder: DOCKERFILE`, `healthcheckPath: /health`, `healthcheckTimeout: 120`, restart on failure ×3) |
+| Public URL | `https://lauzhauk-backend-production.up.railway.app` (also aliased as `https://lauzhauk-winners-2026-production.up.railway.app`) |
+| Runtime port | `PORT` is injected by Railway; `Application.kt` reads `System.getenv("PORT")` and falls back to 8080. The image's `ENV PORT=8080` is only the local default. |
 
-```powershell
-docker build --tag alt-backend:local ./backend
-docker run --rm -p 127.0.0.1:8080:8080 -e PORT=8080 alt-backend:local
+A third project named `alt-backend` was attempted first and refused by the plan:
+`Free plan resource provision limit exceeded. Please upgrade to provision more
+resources!` Creating a project is only possible after upgrading or freeing an
+existing project; the deploy therefore went into the existing `lauzhauk-backend`
+project.
+
+### Variables
+
+Set with `railway variables --service lauzhauk-backend --skip-deploys --set KEY=value`.
+Values are read from local files (`~/lauzhack-ojp.env`, `~/lauzhack-gtfsrt.env`) and
+never committed to the repository.
+
+| Name | Value / source |
+| --- | --- |
+| `TRANSPORT_PROVIDER` | `ojp` |
+| `OJP_API_KEY` | OJP key, server-side only |
+| `GTFS_RT_API_KEY` | GTFS-RT key, server-side only |
+| `CORS_ALLOWED_ORIGINS` | **not set** — backend defaults to accepting any host. Set it to the Vercel origin once the frontend URL exists, then redeploy. |
+
+### Deploy and expose
+
+```bash
+cd <repo-root>                     # service root dir = backend, so upload the repo
+railway link --project lauzhauk-backend
+railway up --service lauzhauk-backend --ci
+railway domain                     # attach/print the public domain
 ```
 
-In a second terminal, run `curl.exe --fail-with-body http://localhost:8080/health`. Confirm an HTTP 200 response body matches the [API contract](API_CONTRACT.md). Stop the local container with Ctrl+C when finished.
+Pitfalls confirmed on this service:
+
+- `railway up` from inside `backend/` uploads the repository root and Railpack then
+  fails with *"could not determine how to build the app"* — always run it from the
+  repository root once the service root directory is `backend`.
+- `railway up backend` (path argument) fails with `prefix not found`.
+- The service root directory is a service-instance setting, not a repository file:
+  `serviceInstanceUpdate(input: {rootDirectory: "backend"})` over the Railway
+  GraphQL API, or Settings → Source in the dashboard.
+
+### Verify the release
+
+```bash
+BASE=https://lauzhauk-backend-production.up.railway.app
+./scripts/smoke.sh "$BASE"                                    # 22 checks, exit 1 on failure
+curl -fsS "$BASE/health"                                      # 200, feeds.ojp = OK
+curl -fsS "$BASE/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&limit=2"
+```
+
+A green smoke run proves the Dockerfile builds the Gradle distribution, the
+service binds to Railway's `PORT`, `/health` answers 200 for the health check, and
+the OJP/GTFS-RT credentials resolve at runtime.
 
 ## Frontend on Vercel
 

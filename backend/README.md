@@ -42,6 +42,55 @@ Search + realtime disruption detection + reroute recommendation in one call.
 
 Returns: `status` (`NO_DISRUPTION` \| `DISRUPTION_DETECTED` \| `UNKNOWN`), `action` (`REROUTE` \| `STAY` \| `NONE`), `reasons[]` (structured codes with the numbers that justify them), `disruption` (with `cause`/`severity` tokens), `primaryJourney`, `recommendedJourney`, `alternatives[]`, `highlights`, `deadlineSummary`, `meta`.
 
+#### Realtime delay layers
+
+`realtime` on the journey, and the same fields inline on every leg, carry two
+separate delay layers. They are never summed into one field.
+
+| Field | Meaning |
+| --- | --- |
+| `departureDelayMinutes` / `arrivalDelayMinutes` | Known live delay (OJP / GTFS-RT). Unchanged. |
+| `estimatedDepartureDelayMinutes` / `estimatedArrivalDelayMinutes` | Predicted delay learned from measured historical actuals (Ist-Daten medians). Signed — early running is negative. |
+| `estimatedSource` | `HISTORICAL_ACTUALS` \| `LIVE_SAMPLE` \| `NONE` |
+| `estimatedSamples` | Measurements behind the estimate; `null` when there is none |
+| `projectedDeparture` / `projectedArrival` | Scheduled time + known delay + estimated delay |
+
+Journey level mirrors the legs: first transit leg for departure, last transit leg
+for arrival. The estimated component is clamped to `[-10, +30]` minutes before it
+is applied. `ESTIMATE_OVERLAP=known_wins` zeroes the estimated component on legs
+that already carry a known delay; the default is additive.
+
+```bash
+curl "$BASE/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&limit=1"
+```
+
+```json
+"realtime": {
+  "expectedDeparture": "2026-11-22T10:45:00+01:00",
+  "departureDelayMinutes": 3,
+  "expectedArrival": "2026-11-22T11:39:00+01:00",
+  "arrivalDelayMinutes": 3,
+  "source": "GTFS_RT",
+  "sampleCount": 41,
+  "estimatedDepartureDelayMinutes": 2,
+  "estimatedArrivalDelayMinutes": -1,
+  "estimatedSource": "HISTORICAL_ACTUALS",
+  "estimatedSamples": 214,
+  "projectedDeparture": "2026-11-22T10:47:00+01:00",
+  "projectedArrival": "2026-11-22T11:41:00+01:00"
+}
+```
+
+A leg with no known delay and no estimate is `null` in every one of these fields
+and `estimatedSource` is `NONE` — never `0`. A zero means a measured on-time
+train, nothing else.
+
+These fields are additive and optional. They are documented ahead of the rollout:
+the same base URL serves them the moment the delay-estimate model ships and the
+service is redeployed (`railway up` from the repository root). Until that build is
+live, clients must treat them as absent. No existing field changes name, type or
+meaning.
+
 ### `GET /api/model`
 Static artifact metadata (cacheable). No arguments.
 

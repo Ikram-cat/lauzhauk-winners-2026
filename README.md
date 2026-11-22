@@ -13,7 +13,10 @@ CFF Plan B is a four-person LauzHack 2026 project for Swiss public-transport jou
 
 Times are relative to actual kickoff. Integration records the kickoff and checks the official submission deadline. The MVP takes origin, destination, and an optional earliest departure and sorts valid itineraries by scheduled arrival. It includes loading, error, and empty results, and shows platforms when supplied. Deadline-aware recommendations, validated historical insights, workspace suggestions, iOS, and Android are future work. Accounts and a database are outside the MVP.
 
-The repository currently contains documentation, an environment template, and a PR template. Application code, build wrappers, executable CI, provider behavior, Compose Web/Wasm viability, and public deployments are pending or unverified. Samples in the API contract are illustrative. Runtime mock data must be visibly identified in the UI.
+The backend is deployed and public (see below); the Vercel Web app, executable CI, and Compose Web/Wasm viability are still pending or unverified. Samples in the API contract are illustrative. Runtime mock data must be visibly identified in the UI.
+
+**Live backend** ([runbook](docs/DEPLOYMENT.md#backend-on-railway)):
+`https://lauzhauk-backend-production.up.railway.app` — `GET /health`, `GET /api/locations`, `GET /api/journeys`, `GET /api/model`, backed by OJP and GTFS-RT. The backend README documents the request rules and the additive predictive-delay fields.
 
 ## Architecture and ownership
 
