@@ -4,12 +4,17 @@ import com.alt.backend.domain.Journey
 import com.alt.backend.domain.LegMode
 import com.alt.backend.domain.SearchRequest
 import com.alt.backend.provider.FareQuote
+import com.alt.backend.service.estimate.BASIS_NONE
 import com.alt.backend.service.estimate.DelayEstimateModel
+import com.alt.backend.service.estimate.IncidentContext
 import com.alt.backend.service.estimate.LegEstimate
 import com.alt.backend.service.estimate.OVERLAP_KNOWN_WINS
 import com.alt.backend.service.estimate.SOURCE_NONE
 import com.alt.backend.service.estimate.SideEstimate
 import com.alt.backend.service.estimate.weekdayClassOf
+import com.alt.backend.service.impact.DisruptionSource
+import com.alt.backend.service.impact.EmptyDisruptionSource
+import com.alt.backend.service.impact.JourneyDisruptionMatcher
 import java.time.Clock
 import java.time.Duration
 import java.time.OffsetDateTime
@@ -34,7 +39,12 @@ data class LegRealtime(
     val expectedDeparture: OffsetDateTime?, val departureDelayMinutes: Int?, val expectedArrival: OffsetDateTime?, val arrivalDelayMinutes: Int?,
     val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
     val estimatedSource: String = SOURCE_NONE, val estimatedSamples: Int? = null,
-    val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null
+    val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null,
+    /** Which ladder answered: LINE | STATION | LINE_INCIDENT | STATION_INCIDENT | NONE. */
+    val estimatedBasis: String = BASIS_NONE,
+    /** Incident-conditioned layer: present only while a live disruption touches this leg. */
+    val incidentExtraMinutes: Double? = null, val incidentCancellationRisk: Double? = null,
+    val incidentSuppressedStopRisk: Double? = null, val incidentSamples: Int? = null, val incidentCount: Int? = null
 )
 
 /** [source]: GTFS_RT | OJP | DELAY_MODEL | NONE. Journey values come from the first / last transit leg or the worst leg; [sampleCount] only for DELAY_MODEL. */
@@ -43,7 +53,10 @@ data class JourneyRealtime(
     val expectedArrival: OffsetDateTime?, val arrivalDelayMinutes: Int?, val source: String, val sampleCount: Int?,
     val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
     val estimatedSource: String = SOURCE_NONE, val estimatedSamples: Int? = null,
-    val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null
+    val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null,
+    val estimatedBasis: String = BASIS_NONE,
+    val incidentExtraMinutes: Double? = null, val incidentCancellationRisk: Double? = null,
+    val incidentSuppressedStopRisk: Double? = null, val incidentSamples: Int? = null, val incidentCount: Int? = null
 )
 
 /**
@@ -72,7 +85,9 @@ class JourneyPlanService(
     private val delay: RealtimeDelayModel = RealtimeDelayModel.NONE,
     private val estimates: DelayEstimateModel = DelayEstimateModel.NONE,
     /** ESTIMATE_OVERLAP: additive (default) or known_wins. */
-    private val estimateOverlap: String = System.getenv("ESTIMATE_OVERLAP") ?: "additive"
+    private val estimateOverlap: String = System.getenv("ESTIMATE_OVERLAP") ?: "additive",
+    /** ACTIVE disruptions (SIRI/GTFS alert feed, replayed timelines): a second source of incident context. */
+    private val disruptions: DisruptionSource = EmptyDisruptionSource
 ) {
     suspend fun plan(req: SearchRequest, pref: Preference, deadline: OffsetDateTime?, first: SearchResult.Success): JourneyPlan {
         val price = { q: FareQuote -> q.price(req.fareClass, req.discount) }
@@ -88,6 +103,8 @@ class JourneyPlanService(
         val checkList = ordered.take(4)
         val checks = detector.detect(checkList, req.earliestDeparture)
         val checkOf = if (checks == null) emptyMap() else checkList.map { it.id }.zip(checks).toMap()
+        // ACTIVE alert/replay disruptions feed the conditioned estimate layer alongside the per-leg detection.
+        val active = try { disruptions.active(OffsetDateTime.now(clock)) } catch (e: Exception) { emptyList() }
         val disruption = checkOf[primary.id]?.worst
         val own = disruption?.takeIf { it.affectsJourney }
         val status = when {
@@ -102,7 +119,7 @@ class JourneyPlanService(
         fun unusable(j: Journey) = checkOf[j.id]?.worst?.let { it.affectsJourney && (it.cancelled || it.basis == DisruptionBasis.SUPPRESSED_STOP) } == true
         val pool = first.journeys.filter { j -> !unusable(j) && (j.id == primary.id || !usesAffected(j)) }.toMutableList()
         val rt = HashMap<String, JourneyRealtime>()
-        fun realtimeOf(j: Journey) = rt.getOrPut(j.id) { realtime(j, checkOf[j.id], checks != null) }
+        fun realtimeOf(j: Journey) = rt.getOrPut(j.id) { realtime(j, checkOf[j.id], checks != null, active) }
 
         if (own != null) {
             // Floor = when the traveller can be at the boarding station: now, or the previous leg's arrival.
@@ -171,13 +188,14 @@ class JourneyPlanService(
         return JourneyPlan(status, action, reasons, disruption, primary, recommended, alternatives, fares, rt, latest, checkOf.keys)
     }
 
-    /** Historical estimate for a transit leg: departure looked up at its origin, arrival at its destination. */
-    private fun estimateFor(l: com.alt.backend.domain.JourneyLeg): LegEstimate {
+    /** Historical estimate for a transit leg: departure looked up at its origin, arrival at its destination.
+     *  [incident] is set only when live detection found an ACTIVE disruption on this leg's line/corridor. */
+    private fun estimateFor(l: com.alt.backend.domain.JourneyLeg, incident: IncidentContext? = null): LegEstimate {
         val depLocal = l.departure.atZoneSameInstant(estimateZone)
         val arrLocal = l.arrival.atZoneSameInstant(estimateZone)
-        val dep = estimates.estimate(l.serviceLabel, l.origin, weekdayClassOf(depLocal.toLocalDate()), depLocal.hour).departure
-        val arr = estimates.estimate(l.serviceLabel, l.destination, weekdayClassOf(arrLocal.toLocalDate()), arrLocal.hour).arrival
-        return LegEstimate(dep, arr)
+        val depEst = estimates.estimate(l.serviceLabel, l.origin, weekdayClassOf(depLocal.toLocalDate()), depLocal.hour, incident)
+        val arrEst = estimates.estimate(l.serviceLabel, l.destination, weekdayClassOf(arrLocal.toLocalDate()), arrLocal.hour, incident)
+        return LegEstimate(depEst.departure, arrEst.arrival, depEst.incident ?: arrEst.incident)
     }
 
     /** scheduled + known + estimated (the estimate is dropped when ESTIMATE_OVERLAP=known_wins and live is known).
@@ -199,9 +217,12 @@ class JourneyPlanService(
      * for departure, last transit leg (else the worst leg delay) for arrival; the statistical delay model fills in
      * only when nothing live is known. [live] false (detection failed) leaves everything null.
      */
-    private fun realtime(j: Journey, check: JourneyCheck?, live: Boolean): JourneyRealtime {
+    private fun realtime(j: Journey, check: JourneyCheck?, live: Boolean, active: List<com.alt.backend.domain.ActiveDisruption> = emptyList()): JourneyRealtime {
         if (!live) return JourneyRealtime(j.legs.map { LegRealtime(null, null, null, null) }, null, null, null, null, "NONE", null)
         var gtfs = false; var ojp = false
+        // Legs an ACTIVE alert/replay disruption touches: a second, feed-level source of incident context.
+        val alertLegs = if (active.isEmpty()) emptySet() else
+            active.flatMap { d -> JourneyDisruptionMatcher.match(j, d)?.stations?.map { it.legIndex } ?: emptyList() }.toSet()
         val legs = j.legs.mapIndexed { i, l ->
             if (l.mode != LegMode.TRANSIT) return@mapIndexed LegRealtime(null, null, null, null)
             var dep = l.expectedDeparture; var arr = l.expectedArrival
@@ -214,13 +235,22 @@ class JourneyPlanService(
                 is LegCheck.Clear -> c.delayMinutes?.let { dep = l.departure.plusMinutes(it.toLong()); if (c.fromGtfs) gtfs = true else ojp = true }
                 else -> {}
             }
-            val est = estimateFor(l)
+            val hit = (check?.legs?.get(i) as? LegCheck.Hit)?.disruption?.takeIf { it.affectsJourney }
+            val incCtx = hit?.let { IncidentContext(hit.leg.serviceLabel ?: l.serviceLabel) }
+                ?: if (i in alertLegs) IncidentContext(l.serviceLabel) else null
+            val est = estimateFor(l, incCtx)
             LegRealtime(dep, dep?.let { mins(l.departure, it) }, arr, arr?.let { mins(l.arrival, it) },
                 estimatedDepartureDelayMinutes = est.departure?.let { Math.round(it.median * 10) / 10.0 },
                 estimatedArrivalDelayMinutes = est.arrival?.let { Math.round(it.median * 10) / 10.0 },
                 estimatedSource = est.source, estimatedSamples = est.samples,
                 projectedDeparture = project(l.departure, dep, est.departure),
-                projectedArrival = project(l.arrival, arr, est.arrival))
+                projectedArrival = project(l.arrival, arr, est.arrival),
+                estimatedBasis = est.basis,
+                incidentExtraMinutes = est.incident?.extraMinutes,
+                incidentCancellationRisk = est.incident?.cancellationRisk,
+                incidentSuppressedStopRisk = est.incident?.suppressedStopRisk,
+                incidentSamples = est.incident?.samples,
+                incidentCount = est.incident?.incidentCount)
         }
         val transit = j.legs.indices.filter { j.legs[it].mode == LegMode.TRANSIT }
         val firstLeg = transit.firstOrNull()?.let { legs[it] }
@@ -230,16 +260,25 @@ class JourneyPlanService(
         val arrDelay = lastDelay ?: worst
         val estSource = firstLeg?.estimatedSource?.takeIf { it != SOURCE_NONE } ?: lastLeg?.estimatedSource ?: SOURCE_NONE
         val estSamples = firstLeg?.estimatedSamples ?: lastLeg?.estimatedSamples
+        val estBasis = firstLeg?.estimatedBasis ?: BASIS_NONE
+        val incExtra = firstLeg?.incidentExtraMinutes ?: lastLeg?.incidentExtraMinutes
+        val incSamples = firstLeg?.incidentSamples ?: lastLeg?.incidentSamples
+        val incCount = firstLeg?.incidentCount ?: lastLeg?.incidentCount
+        val incCancelled = transit.mapNotNull { legs[it].incidentCancellationRisk }.maxOrNull()
+        val incSuppressed = transit.mapNotNull { legs[it].incidentSuppressedStopRisk }.maxOrNull()
         val projDep = firstLeg?.projectedDeparture
         val projArr = lastLeg?.projectedArrival
         if (gtfs || ojp) {
             val src = if (gtfs) "GTFS_RT" else "OJP"
             return JourneyRealtime(legs, firstLeg?.expectedDeparture, firstLeg?.departureDelayMinutes, arrDelay?.let { j.arrival.plusMinutes(it.toLong()) }, arrDelay, src, null,
-                firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr)
+                firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr,
+                estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount)
         }
         val m = delay.forJourney(j) ?: return JourneyRealtime(legs, null, null, null, null, "NONE", null,
-            firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr)
+            firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr,
+            estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount)
         return JourneyRealtime(legs, null, null, j.arrival.plusMinutes(m.minutes.toLong()), m.minutes, "DELAY_MODEL", m.samples,
-            firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr)
+            firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr,
+            estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount)
     }
 }

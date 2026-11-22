@@ -28,5 +28,15 @@
      "dep": {"median": 1.0, "p90": 3.0, "shareLate": 0.2, "samples": 50}},
     {"station": "Brig", "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "BLOCK4",
      "dep": {"median": 2.0, "p90": 4.0, "shareLate": 0.3, "samples": 20}}
+  ],
+  "linesIncident": [
+    {"serviceLabel": "IR 90", "station": null, "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "BLOCK4",
+     "dep": {"median": 9.0, "p90": 15.0, "shareLate": 0.8, "samples": 25}, "arr": {"median": 8.0, "p90": 14.0, "shareLate": 0.7, "samples": 25},
+     "incidentCount": 4, "cancellationShare": 0.12, "suppressionShare": 0.04}
+  ],
+  "stationsIncident": [
+    {"station": "Zürich HB", "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "BLOCK4",
+     "dep": {"median": 5.5, "p90": 9.0, "shareLate": 0.6, "samples": 30},
+     "incidentCount": 3, "cancellationShare": 0.2, "suppressionShare": 0.1}
   ]
 }

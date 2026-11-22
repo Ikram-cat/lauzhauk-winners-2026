@@ -15,7 +15,7 @@ data class ErrorResponseDto(val error: ErrorDetailDto)
 data class GtfsRtHealthDto(val enabled: Boolean, val status: String, val ageSeconds: Long?, val activeTripUpdates: Int?, val cancelledTrips: Int?)
 
 @Serializable
-data class EstimatesHealthDto(val status: String, val lineBuckets: Int, val stationBuckets: Int)
+data class EstimatesHealthDto(val status: String, val lineBuckets: Int, val stationBuckets: Int, val incidentBuckets: Int = 0)
 
 @Serializable
 data class FeedsDto(val ojp: String, val nova: String, val gtfsRt: GtfsRtHealthDto, val estimates: EstimatesHealthDto)
@@ -86,7 +86,10 @@ data class RealtimeDto(
     val source: String, val sampleCount: Int?,
     val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
     val estimatedSource: String = "NONE", val estimatedSamples: Int? = null,
-    val projectedDeparture: String? = null, val projectedArrival: String? = null
+    val projectedDeparture: String? = null, val projectedArrival: String? = null,
+    val estimatedBasis: String = "NONE",
+    val incidentExtraMinutes: Double? = null, val incidentCancellationRisk: Double? = null,
+    val incidentSuppressedStopRisk: Double? = null, val incidentSamples: Int? = null, val incidentCount: Int? = null
 )
 
 @Serializable
@@ -111,7 +114,10 @@ data class LegDto(
     val serviceLabel: String?, val departurePlatform: String?, val arrivalPlatform: String?, val occupancy: OccupancyDto?,
     val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
     val estimatedSource: String = "NONE", val estimatedSamples: Int? = null,
-    val projectedDeparture: String? = null, val projectedArrival: String? = null
+    val projectedDeparture: String? = null, val projectedArrival: String? = null,
+    val estimatedBasis: String = "NONE",
+    val incidentExtraMinutes: Double? = null, val incidentCancellationRisk: Double? = null,
+    val incidentSuppressedStopRisk: Double? = null, val incidentSamples: Int? = null, val incidentCount: Int? = null
 )
 
 @Serializable

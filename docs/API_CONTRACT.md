@@ -528,13 +528,34 @@ At journey level the fields mirror the existing rule: departure values come from
 
 Projection is additive by default: the known live delay and the chronic historical delay are both applied. Set `ESTIMATE_OVERLAP=known_wins` to drop the estimated component from `projected*` on legs that already carry a known live delay (the estimate stays visible in `estimated*`). The default is `additive`.
 
-Source of the numbers: SBB/open data `ist-daten-v2` (Actual data v2) for September and October 2026, 61 operating days, `PRODUKT_ID = Zug` only, `*_PROGNOSE_STATUS = REAL` only, cancelled/extra/through rows and `|delay| > 180` minutes dropped. Buckets are `(line, station, weekday class, hour)` for ~70 Swiss hubs and every line serving them, with weekday classes `MON_FRI` / `SAT` / `SUN` plus a pooled `ANY`, and 4-hour blocks (`00-03 … 20-23`) for thin hours. A lookup walks line-at-station → line (pooled stations) → station, each most-specific bucket first, and the first bucket with at least 10 samples wins. Ist-Daten often stores the last forecast rather than a true actual, so treat these numbers as delay distributions, not guarantees.
+Source of the numbers: SBB/open data `ist-daten-v2` (Actual data v2) for January–May and July–October 2026, 274 operating days, `PRODUKT_ID = Zug` only, `*_PROGNOSE_STATUS = REAL` only, cancelled/extra/through rows and `|delay| > 180` minutes dropped. Buckets are `(line, station, weekday class, hour)` for ~70 Swiss hubs and every line serving them, with weekday classes `MON_FRI` / `SAT` / `SUN` plus a pooled `ANY`, and 4-hour blocks (`00-03 … 20-23`) for thin hours. A lookup walks line-at-station → line (pooled stations) → station, each most-specific bucket first, and the first bucket with at least 10 samples wins. Ist-Daten often stores the last forecast rather than a true actual, so treat these numbers as delay distributions, not guarantees.
 
 `GET /health` gains one additive feed:
 
 ```json
 "feeds": { "ojp": "…", "nova": "…", "gtfsRt": { "…": "…" },
-           "estimates": { "status": "OK", "lineBuckets": 18234, "stationBuckets": 2411 } }
+           "estimates": { "status": "OK", "lineBuckets": 18234, "stationBuckets": 2411, "incidentBuckets": 412 } }
 ```
 
 `status` is `OK` when the artifact loaded, `MISSING` when it did not. Bucket counts are the artifact's emitted rows, not the number of live lookups.
+
+### Incident-conditioned estimates and stop risk (`incident*`)
+
+While live detection reports an ACTIVE disruption on the leg's line/corridor (a GTFS-RT or OJP hit on that leg), the estimate switches from the chronic delay to the INCIDENT-CONDITIONED one. All fields are additive and nullable; without an active disruption they are `null` / `NONE` and the payload is exactly the Phase-1 one — a v1 client can ignore this layer.
+
+Applies to `journeys[].realtime` and every entry of `journeys[].legs[]`:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `estimatedBasis` | `LINE` \| `STATION` \| `LINE_INCIDENT` \| `STATION_INCIDENT` \| `NONE` | Which ladder answered. `LINE` / `STATION` are the unconditional Phase-1 families; `*_INCIDENT` means a conditioned bucket answered while a disruption was active. `NONE` means unknown. |
+| `incidentExtraMinutes` | Number (one decimal) or null | Conditioned median minus the unconditional median of the same leg — what the incident typically costs ON TOP of the chronic delay. Null when either median is unknown. |
+| `incidentCancellationRisk` | 0..1 or null | Share of matching planned trains that were cancelled during similar past incidents. The traveller should not count on that departure at all. |
+| `incidentSuppressedStopRisk` | 0..1 or null | Share of matching planned stops the train actually skipped (through-running) during similar past incidents. The train runs but may not halt at the boarding stop — board elsewhere or wait. |
+| `incidentSamples` | Integer or null | Measurements behind the conditioned bucket (at least 10, pooled over all incidents). |
+| `incidentCount` | Integer or null | Distinct past incidents behind the conditioned bucket. |
+
+Lookup order when a disruption is active: `linesIncident` (line × 4-hour block, pooled weekdays) → `stationsIncident` (station × 4-hour block) → the unconditional Phase-1 ladder. `projected*` compose the CONDITIONED estimate while the incident is active. At journey level `incidentExtraMinutes` / `incidentSamples` / `incidentCount` / `estimatedBasis` come from the first transit leg (else the last), and the two risk fields are the maximum over the transit legs.
+
+Conditioned numbers are measured only on trips that ran and reported: cancelled trips are excluded from the delay medians but are counted in the `incidentCancellationRisk` and `incidentSuppressedStopRisk` denominators, which are ALL planned stops matching the station/window, including cancelled and skipped ones. This survivor bias is deliberate — the delay distribution describes trains that operated, the risk shares describe what happened to the planned ones. A zero share is a measured zero, not fabricated.
+
+Incidents are reconstructed from the SBB public liveticker audit trail: window start is the first source record, end the first `ENDED` version (the `duration_from` column is empty for almost every incident). A train trip is in scope when its folded stop sequence shares at least two stations with the incident corridor and the measurement's scheduled time lies inside the window. The Phase-1 unconditional tables are untouched: the conditioned ones are separate top-level arrays in the same artifact.
