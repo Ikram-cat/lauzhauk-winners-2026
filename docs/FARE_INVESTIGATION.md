@@ -61,14 +61,38 @@ delivery; most likely missing intermediate stops — see evidence).
   403s, the human step is requesting product tedp_ojpfare-1 in the
   opentransportdata API manager — one click for the lead).
 
-## Plan (Phase F) — exact fares
+## Token + endpoint round (2026-11-22, after the lead supplied the dedicated fare token)
 
-1. Crack the request shape (the only real unknown, ~0.5-3h):
-   - Get OJP trip responses to include intermediate stops (the OJP trip
-     params / Swiss profile control this), embed the full trip in
-     TripFareRequest; iterate until a non-empty OJPFareDelivery arrives.
-   - Cross-check with the opentransportdata OJP Fare product docs /
-     Postman collection (tedp_ojpfare-1) for the canonical example.
+- Token stored at ~/lauzhack-ojpfare.env (600). The fare product has its OWN
+  endpoint: **https://api.opentransportdata.swiss/ojpfare** (found on the
+  API-manager product page tedp_ojpfare-1). The ojp20 endpoint 403s the fare
+  token ("Access to this API has been disallowed") and answers fare requests
+  with the JOURNEY token as empty 200s — product tokens are endpoint-scoped.
+- Cookbook found (opentransportdata.swiss/en/cookbook/open-journey-planner-ojp-landing-page/ojp-fare):
+  canonical request is v1.0-flavor (siri default ns, ojp: prefixed), trips must
+  include intermediate stops (OJPTripRequest param `IncludeIntermediateStops`
+  — works on ojp20: 14 LegIntermediate elements flow for Lausanne→Genève),
+  and **EntitlementProduct HTA = Halbtax is the ONLY entitlement the beta
+  supports** — GA is NOT supported by the beta service; GA needs the labeled
+  static-coverage fallback in our product.
+- Probe matrix against /ojpfare with the fare token (6 rounds): auth PASSES
+  (500, not 403) but EVERY well-formed variant returns a naked
+  `500 Internal Server Error` — v1.0 siri-default, v2.0 vdv-default,
+  RequestorRef alt/OJP2NOVA, plain Trip vs Trip-wrapped-in-TripResult,
+  text/xml vs application/xml, with/without Params. The 2023 cookbook example
+  may be stale, or the beta service is currently broken. The status page
+  shows no direct mention.
+- REMAINING UNKNOWN (one human step or one support mail): the CURRENT
+  canonical request example / Postman collection behind the API-manager
+  product page ("Read more" on tedp_ojpfare-1, needs the lead's login).
+  With one working request in hand, the backend build is mechanical.
+
+## Plan (Phase F) — exact fares (updated)
+
+1. Get one working OJPFareDelivery (was "crack the shape"):
+   - HUMAN STEP: lead opens api-manager product tedp_ojpfare-1 → "Read more"
+     → copies the CURRENT example request (or Postman collection) to Teddy.
+     Fallback: mail opendata@sbb.ch with our failing request + trace.
    - Exit criterion: a Lausanne→Genève trip returns FareProducts with CHF
      prices, and a Genève→Zürich search returns DIFFERENT prices for
      different connections.
