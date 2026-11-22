@@ -98,8 +98,56 @@ New file `backend/src/main/resources/realtime/delay_estimates_v2.json`
                     dep{median,p90,shareLate,samples}, arr{median,p90,shareLate,samples} } ],
       stations:[ { station, weekdayClass, hourBucket, dep{...}, arr{...} } ] }
 
-weekend classes: MON_FRI | SAT | SUN, with an implicit ANY fallback row
-emitted by the aggregator (pooled) for thin buckets.
+weekend classes: MON_FRI | SAT | SUN | ANY (pooled), with an implicit ANY
+fallback row emitted by the aggregator (pooled) for thin buckets.
+
+### 2b. Parameter table (frozen defaults — the whole tuning surface)
+
+LOOKUP KEY, most -> least specific (dep and arr estimated SEPARATELY):
+
+    | dimension | values | source |
+    | line      | normalized label (IC5, S1)  | LINIEN_TEXT <-> OJP serviceLabel |
+    | station   | name-forms (stationForms) | HALTESTELLEN_NAME |
+    | weekday   | MON_FRI / SAT / SUN / ANY  | operating day (BETRIEBSTAG) |
+    | time      | hour 0-23, or 4h block    | SCHEDULED local time, Europe/Zurich |
+
+FALLBACK LADDER — first bucket with samples >= 10 wins, then stop:
+
+    1. line + station, weekday, hour
+    2. line + station, ANY, hour
+    3. line + station, ANY, 4h block   (00-03 04-07 08-11 12-15 16-19 20-23)
+    4. line (pooled stations), weekday, hour
+    5. line, ANY, 4h block
+    6. station, weekday, hour
+    7. station, ANY, hour
+    8. station, ANY, 4h block
+    9. null (unknown -> estimated* = null, source NONE)
+
+AGGREGATION:
+    MIN_SAMPLES per emitted bucket   = 10 rows (distinct journey+stop)
+    drop: status != REAL, ZUSATZFAHRT_TF, FAELLT_AUS_TF, DURCHFAHRT_TF
+    drop: |delay| > 180 min (parse/outlier guard)
+    per bucket: median (signed), p90, shareLate>=3min, samples
+
+APPLICATION (backend):
+    applied estimate = bucket median, clamped to [-10, +30] min
+    projected = scheduled + known + estimated          (default ADDITIVE)
+    ESTIMATE_OVERLAP = additive | known_wins           (known_wins zeroes
+                       the estimated component on legs that already carry a
+                       live known delay)
+    source priority  = HISTORICAL_ACTUALS > LIVE_SAMPLE > NONE (the live
+                       sampler only fills gaps the historical artifact misses)
+    hour/weekday at lookup come from the leg's SCHEDULED local time and the
+    calendar weekday of that local date (night rides follow the operating
+    day; documented, not silently normalized)
+
+RANKING:
+    No arbitrary weight factors anywhere. Specificity is expressed by the
+    ladder above, magnitude by the measured medians themselves. The
+    recommendation path stays: arrivalOf = projectedArrival ?: expectedArrival
+    ?: scheduled, feeding the unchanged >= 5 min gain gate and FASTEST
+    gating. p90 is exposed in the wire for a "up to +N" UI hint but never
+    enters ranking.
 
 Aggregation rules:
 - hourBucket 0-23 local Europe/Zurich, from the SCHEDULED time.
