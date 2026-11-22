@@ -51,19 +51,38 @@ Source mechanics: daily CSVs from the CKAN catalog (data.opentransportdata.swiss
 dataset ist-daten-v2) or monthly ZIPs from archive.opentransportdata.swiss —
 resolve the exact URL/size as build task #1.
 
-Compute budget (this PC, raw pandas in ~/code/venv-analytics, no ML, no
-pyarrow): chunked single pass reading ~10 of 24 columns, ~15-40 s per 2M-row
-day -> 61 days ~= 15-40 min; filter to trains in-flight (PRODUKT_ID=Train,
-~300-600k rows/day), accumulate per-bucket running stats in a dict -> RAM
-< 2 GB; ~2-4 GB transient disk for CSVs, deleted after aggregation.
+Compute budget (this PC, ~/code/venv-analytics): VALIDATED at 5.5 s per day
+file with the plain csv module (2.6M rows/day), filtering to 182k Zug rows
+in-flight and accumulating per-bucket running stats in a dict -> 61 days
+~= 6 min, RAM well under 2 GB. Data already downloaded and sitting in
+~/Downloads/ist-daten/ (ist-daten-v2-2026-09.zip 1.42 GB + 2026-10.zip
+1.45 GB, 30 + 31 daily CSVs, streamed from inside the ZIPs — no extraction
+needed).
 
 Delay computation per (journey, stop):
     departure delay = AB_PROGNOSE - ABFAHRTSZEIT
     arrival delay   = AN_PROGNOSE - ANKUNFTSZEIT
-Keep: status REAL or ESTIMATED only (FORECAST/UNKNOWN rows are not actuals),
-PRODUKT_ID = Train (rail first; buses optional later), DURCHFAHRT_TF=false.
-Drop: FAELLT_AUS_TF=true, ZUSATZFAHRT_TF=true (extra trips skew patterns).
-Keep negative delays (early arrivals are real in CH: "even -2").
+Keep: status REAL only (see VALIDATION below — the file's enum is German and
+only REAL is a true actual), PRODUKT_ID = "Zug" (also German!), DURCHFAHRT_TF
+= false. Drop: FAELLT_AUS_TF=true, ZUSATZFAHRT_TF=true (extra trips skew
+patterns). Keep negative delays (early arrivals are real in CH: "even -2").
+
+VALIDATED against the real files (probe of 2026-09-01, v2 zip, 2026-11-22):
+- 22 columns, delimiter ';', SLOID present. Cookbook vs reality traps:
+  PRODUKT_ID is "Zug"/"Bus"/"Tram"/"BUS"/"Metro"/"Zahnradbahn"/"Schiff"
+  (German, mixed case) — filter is p.upper() == "ZUG".
+  Status enum is German: REAL / PROGNOSE / UNBEKANNT / "" (=forecast) —
+  there is no "ESTIMATED" in practice; use REAL rows only.
+- 2,639,653 rows/day total; Zug rows 182,143/day (~7%); REAL status ~78.5%
+  of train rows (143k usable dep + 143k arr measurements per day).
+- One day (Tue): dep delays median +1, p90 +3, share>=3min 10.8%;
+  arr delays median 0, p90 +2, share>=3min 7.6%; negatives real
+  (min -21 dep, -44 arr); 1,911 cancelled train stop-rows flagged.
+- LINIEN_TEXT for rail is the customer label ("S1", "S14" ... IC/IR style);
+  normalizeRiskKey joins it to OJP serviceLabel ("ojp:IC 5" -> "IC5").
+- Compute: plain csv module streams one full day (2.6M rows) in 5.5 s ->
+  61 days ~= 6 MINUTES total. No pandas needed in the loader; venv python
+  (numpy/pandas available anyway) is plenty. "Raw code, no AI" holds.
 
 Known caveat (document, do not hide): Ist-Daten is often the LAST FORECAST,
 not true actual — good enough for delay distributions, stated in the contract.
