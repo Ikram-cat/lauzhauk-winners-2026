@@ -19,6 +19,8 @@ data class AppConfig(
     val estimateArtifactPath: String? = System.getenv("ESTIMATE_ARTIFACT_PATH"),
     // Blank disables fare lookup (used by the test task to stay offline).
     val fareBaseUrl: String = System.getenv("FARE_BASE_URL") ?: "https://transport.opendata.ch",
+    /** Directory with the same-origin web UI (frontend/web, copied into the image); missing -> no static routes. */
+    val webDir: String = System.getenv("WEB_DIR") ?: "web",
     val gtfsRtApiKey: String? = System.getenv("GTFS_RT_API_KEY"),
     /** GTFS-RT Service Alerts key (la/gtfs-sa); unset -> live alerts DISABLED in /api/journeys/impact. */
     val gtfsSaApiKey: String? = System.getenv("GTFS_SA_API_KEY"),
