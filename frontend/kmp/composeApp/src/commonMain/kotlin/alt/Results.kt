@@ -440,7 +440,7 @@ private fun Band(
     onToggle: () -> Unit,
 ) {
     val sched = j.schedule
-    val known = fmtDelay(j.realtime?.departureDelayMinutes)
+    val known = fmtDelay(listOfNotNull(j.realtime?.departureDelayMinutes, j.realtime?.arrivalDelayMinutes) .plus(j.legs.flatMap { listOfNotNull(it.departureDelayMinutes, it.arrivalDelayMinutes) }).maxOrNull())
     val est = fmtEstimate(j.realtime?.estimatedDepartureDelayMinutes)
 
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
