@@ -1,6 +1,10 @@
 package alt
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import org.jetbrains.compose.resources.painterResource
+import alt_kmp.composeapp.generated.resources.Res
+import alt_kmp.composeapp.generated.resources.alt_mark
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -84,13 +88,11 @@ private fun Masthead(st: AppState, pal: AltPalette) {
                     }
                     Spacer(Modifier.width(18.dp))
                 }
-                Box(
-                    Modifier.size(40.dp).border(1.dp, pal.ink),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("ALT", fontSize = 12.sp, fontWeight = FontWeight.Black,
-                        letterSpacing = (-0.8).sp, color = pal.ink)
-                }
+                Image(
+                    painter = painterResource(Res.drawable.alt_mark),
+                    contentDescription = "ALT",
+                    modifier = Modifier.size(44.dp),
+                )
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("ALT", fontSize = 20.sp, fontWeight = FontWeight.Black,

@@ -52,6 +52,10 @@ kotlin {
     }
 }
 
+compose.resources {
+    publicResClass = true
+}
+
 compose.desktop {
     application {
         mainClass = "alt.MainKt"

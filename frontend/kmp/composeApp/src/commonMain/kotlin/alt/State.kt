@@ -58,8 +58,8 @@ class AppState(private val scope: CoroutineScope) {
         fromSearching = true
         fromJob = scope.launch {
             delay(280)
-            runCatching { api.locations(text.trim(), 6) }
-                .onSuccess { if (fromText == text) fromSug = it }
+            runCatching { api.locations(text.trim(), 12) }
+                .onSuccess { if (fromText == text) fromSug = it.stopsOnly() }
                 .onFailure { if (fromText == text) fromSug = emptyList() }
             if (fromText == text) fromSearching = false
         }
@@ -73,8 +73,8 @@ class AppState(private val scope: CoroutineScope) {
         toSearching = true
         toJob = scope.launch {
             delay(280)
-            runCatching { api.locations(text.trim(), 6) }
-                .onSuccess { if (toText == text) toSug = it }
+            runCatching { api.locations(text.trim(), 12) }
+                .onSuccess { if (toText == text) toSug = it.stopsOnly() }
                 .onFailure { if (toText == text) toSug = emptyList() }
             if (toText == text) toSearching = false
         }
@@ -167,6 +167,10 @@ class AppState(private val scope: CoroutineScope) {
 
     private fun todayText(): String = todayZurichDate()
 }
+
+/** Stations only — addresses are excluded from autocomplete by design. */
+private fun List<Location>.stopsOnly(): List<Location> =
+    filter { it.kind.equals("STOP", ignoreCase = true) }.take(6)
 
 private fun tomorrowZurichDate(): String = try {
     LocalDate.parse(todayZurichDate()).plus(DatePeriod(days = 1)).toString()
