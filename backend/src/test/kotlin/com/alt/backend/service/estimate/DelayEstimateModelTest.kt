@@ -85,6 +85,43 @@ class DelayEstimateModelTest {
         assertEquals("fixture-estimates-1", model.info().modelVersion)
         assertEquals(9, model.info().lineBuckets)
         assertEquals(3, model.info().stationBuckets)
+        assertEquals(2, model.info().incidentBuckets)
+    }
+
+    @Test fun `an active incident switches the ladder to the conditioned line bucket`() {
+        val e = model.estimate("IR 90", "Lausanne", "SAT", 16, IncidentContext("IR 90"))
+        assertEquals(9.0, e.departure!!.median)                 // conditioned, not the chronic 3.0
+        assertEquals(BASIS_LINE_INCIDENT, e.departure!!.basis)
+        assertEquals(BASIS_LINE_INCIDENT, e.basis)
+        assertEquals(6.0, e.incident!!.extraMinutes)            // 9.0 conditioned - 3.0 unconditional
+        assertEquals(0.12, e.incident!!.cancellationRisk)
+        assertEquals(0.04, e.incident!!.suppressedStopRisk)
+        assertEquals(25, e.incident!!.samples)
+        assertEquals(4, e.incident!!.incidentCount)
+    }
+
+    @Test fun `without an incident the ladder stays unconditional and reports its family`() {
+        val e = model.estimate("IR 90", "Lausanne", "SAT", 16)
+        assertEquals(3.0, e.departure!!.median)
+        assertEquals(BASIS_LINE, e.basis)
+        assertNull(e.incident)
+        assertEquals(BASIS_STATION, model.estimate("ZZ 9", "Zürich HB", "SAT", 16).basis)
+        assertEquals(BASIS_NONE, model.estimate("ZZ 9", "Nowhere", "SAT", 16).basis)
+    }
+
+    @Test fun `incident without a conditioned bucket falls back to the unconditional ladder`() {
+        val e = model.estimate("IC 5", "Lausanne", "SAT", 16, IncidentContext("IC 5"))
+        assertEquals(4.0, e.departure!!.median)                 // Phase-1 pooled ANY hour
+        assertEquals(BASIS_LINE, e.departure!!.basis)
+        assertNull(e.incident)
+    }
+
+    @Test fun `the conditioned station bucket answers when no line bucket exists`() {
+        val e = model.estimate("ZZ 9", "Zürich HB", "SAT", 16, IncidentContext("ZZ 9"))
+        assertEquals(5.5, e.departure!!.median)
+        assertEquals(BASIS_STATION_INCIDENT, e.basis)
+        assertEquals(4.0, e.incident!!.extraMinutes)            // 5.5 - 1.5 station weekday/hour
+        assertEquals(3, e.incident!!.incidentCount)
     }
 
     @Test fun `the live sampler only fills gaps the historical artifact misses`() {

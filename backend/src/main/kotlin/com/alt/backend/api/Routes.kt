@@ -86,14 +86,15 @@ fun Application.configureRoutes(
     serviceAlerts: com.alt.backend.service.impact.ServiceAlertsSource? = null
 ) {
     val snap: (suspend () -> com.alt.backend.gtfs.GtfsSnapshot?)? = gtfs?.let { g -> { g.current() } }
-    val planner = JourneyPlanService(searchService, DisruptionDetector(searchService::stopEvents, gtfs = snap), clock, delay, estimates)
+    val planner = JourneyPlanService(searchService, DisruptionDetector(searchService::stopEvents, gtfs = snap), clock, delay, estimates,
+        disruptions = disruptionSource)
 
     routing {
         get("/health") {
             val g = gtfs?.peek()
             val rt = GtfsRtHealthDto(gtfs != null, gtfs?.health() ?: "DISABLED", gtfs?.ageSeconds(), g?.trips?.size, g?.cancelled)
             val ei = estimates.info()
-            val est = EstimatesHealthDto(ei.status.uppercase(), ei.lineBuckets, ei.stationBuckets)
+            val est = EstimatesHealthDto(ei.status.uppercase(), ei.lineBuckets, ei.stationBuckets, ei.incidentBuckets)
             val feeds = FeedsDto(searchService.ojpStatus(), searchService.novaStatus(), rt, est)
             val ok = listOf(feeds.ojp, feeds.nova, rt.status).all { it == "OK" || it == "DEGRADED" || it == "DISABLED" }
             call.respond(HttpStatusCode.OK, HealthResponseDto(if (ok) "OK" else "DEGRADED", feeds))
@@ -253,7 +254,10 @@ private fun journeyDto(j: Journey, plan: JourneyPlan, deadline: OffsetDateTime?,
             l.serviceLabel, l.departurePlatform, l.arrivalPlatform,
             if (l.mode == LegMode.TRANSIT) OccupancyDto(l.occupancyFirst, l.occupancySecond) else null,
             x.estimatedDepartureDelayMinutes, x.estimatedArrivalDelayMinutes, x.estimatedSource, x.estimatedSamples,
-            f(x.projectedDeparture), f(x.projectedArrival))
+            f(x.projectedDeparture), f(x.projectedArrival),
+            estimatedBasis = x.estimatedBasis, incidentExtraMinutes = x.incidentExtraMinutes,
+            incidentCancellationRisk = x.incidentCancellationRisk, incidentSuppressedStopRisk = x.incidentSuppressedStopRisk,
+            incidentSamples = x.incidentSamples, incidentCount = x.incidentCount)
     }
     val occupancy = j.legs.filter { it.mode == LegMode.TRANSIT }.mapNotNull { if (fareClass == 1) it.occupancyFirst else it.occupancySecond }.maxByOrNull { rank.indexOf(it) }
     val rate = r?.lateArrivalProbability
@@ -264,7 +268,10 @@ private fun journeyDto(j: Journey, plan: JourneyPlan, deadline: OffsetDateTime?,
         schedule = ScheduleDto(RFC3339_FORMATTER.format(j.departure), RFC3339_FORMATTER.format(j.arrival), j.durationMinutes, j.transfers),
         realtime = RealtimeDto(f(rt.expectedDeparture), rt.departureDelayMinutes, f(rt.expectedArrival), rt.arrivalDelayMinutes, rt.source, rt.sampleCount,
             rt.estimatedDepartureDelayMinutes, rt.estimatedArrivalDelayMinutes, rt.estimatedSource, rt.estimatedSamples,
-            f(rt.projectedDeparture), f(rt.projectedArrival)),
+            f(rt.projectedDeparture), f(rt.projectedArrival),
+            estimatedBasis = rt.estimatedBasis, incidentExtraMinutes = rt.incidentExtraMinutes,
+            incidentCancellationRisk = rt.incidentCancellationRisk, incidentSuppressedStopRisk = rt.incidentSuppressedStopRisk,
+            incidentSamples = rt.incidentSamples, incidentCount = rt.incidentCount),
         risk = RiskDto(rate, r?.disruptionDurationMin, if (r == null) "NONE" else if (r.source == "corridor") "CORRIDOR" else "BASELINE",
             r?.basis?.let { if (r.source == "corridor") windowDays?.let { "DAY_WINDOW_$it" } ?: "DAY_WINDOW" else "HOURLY_BASELINE" },
             r?.confidence?.uppercase(), rate?.let { if (it < 0.02) "LOW" else if (it < 0.06) "MEDIUM" else "HIGH" }),

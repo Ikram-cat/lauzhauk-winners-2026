@@ -84,12 +84,20 @@ class EstimateAwareTest {
     @Test fun `every pre-existing leg and realtime field keeps its exact key set`() = api(listOf(journey("J", "Lausanne", "Genève", "15:10", "16:00", "15:12", "16:02"))) { j ->
         val p = j.obj("primaryJourney")
         assertEquals(setOf("expectedDeparture", "departureDelayMinutes", "expectedArrival", "arrivalDelayMinutes", "source", "sampleCount",
-            "estimatedDepartureDelayMinutes", "estimatedArrivalDelayMinutes", "estimatedSource", "estimatedSamples", "projectedDeparture", "projectedArrival"),
+            "estimatedDepartureDelayMinutes", "estimatedArrivalDelayMinutes", "estimatedSource", "estimatedSamples", "projectedDeparture", "projectedArrival",
+            "estimatedBasis", "incidentExtraMinutes", "incidentCancellationRisk", "incidentSuppressedStopRisk", "incidentSamples", "incidentCount"),
             p.obj("realtime").keys)
         assertEquals(setOf("mode", "origin", "destination", "departure", "arrival", "expectedDeparture", "departureDelayMinutes", "expectedArrival", "arrivalDelayMinutes",
             "serviceLabel", "departurePlatform", "arrivalPlatform", "occupancy",
-            "estimatedDepartureDelayMinutes", "estimatedArrivalDelayMinutes", "estimatedSource", "estimatedSamples", "projectedDeparture", "projectedArrival"),
+            "estimatedDepartureDelayMinutes", "estimatedArrivalDelayMinutes", "estimatedSource", "estimatedSamples", "projectedDeparture", "projectedArrival",
+            "estimatedBasis", "incidentExtraMinutes", "incidentCancellationRisk", "incidentSuppressedStopRisk", "incidentSamples", "incidentCount"),
             p["legs"]!!.jsonArray[0].jsonObject.keys)
+        // without a live disruption the incident layer stays entirely null and the basis is the unconditional one
+        val leg = p["legs"]!!.jsonArray[0].jsonObject
+        assertEquals("LINE", leg.str("estimatedBasis"))
+        for (k in listOf("incidentExtraMinutes", "incidentCancellationRisk", "incidentSuppressedStopRisk", "incidentSamples", "incidentCount")) {
+            assertEquals(JsonNull, leg[k], k); assertEquals(JsonNull, p.obj("realtime")[k], k)
+        }
     }
 
     @Test fun `known_wins overlap keeps the estimate visible but out of the projection`() = testApplication {
@@ -113,8 +121,9 @@ class EstimateAwareTest {
         val feeds = Json.parseToJsonElement(r.bodyAsText()).jsonObject.obj("feeds")
         assertEquals(setOf("ojp", "nova", "gtfsRt", "estimates"), feeds.keys)
         val est = feeds.obj("estimates")
-        assertEquals(setOf("status", "lineBuckets", "stationBuckets"), est.keys)
+        assertEquals(setOf("status", "lineBuckets", "stationBuckets", "incidentBuckets"), est.keys)
         assertEquals("OK", est.str("status")); assertEquals("9", est.str("lineBuckets")); assertEquals("3", est.str("stationBuckets"))
+        assertEquals("2", est.str("incidentBuckets"))
     }
 
     private fun SearchResult.Success.primaryRequest() = SearchRequest("Lausanne", "Genève", t("15:00"), 2, Discount.NONE)
