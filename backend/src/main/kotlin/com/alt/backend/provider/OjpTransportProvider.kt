@@ -30,7 +30,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 class OjpLocationResolutionException(message: String) : RuntimeException(message)
 class OjpAuthenticationException(message: String) : RuntimeException(message)
-class OjpRateLimitedException : RuntimeException("rate limited")
+class OjpRateLimitedException(val retryAfter: String?) : RuntimeException("rate limited")
 class OjpTimeoutException : RuntimeException("timeout")
 class OjpUpstreamException(message: String) : RuntimeException(message)
 
@@ -70,7 +70,7 @@ class OjpTransportProvider(
         } catch (e: OjpLocationResolutionException) {
             return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve origin stop", "origin")
         } catch (e: OjpRateLimitedException) {
-            return ProviderResult.RateLimited("OJP rate limit reached")
+            return ProviderResult.RateLimited("OJP rate limit reached", e.retryAfter)
         } catch (e: OjpTimeoutException) {
             return ProviderResult.Timeout("OJP did not respond within ${timeoutMs}ms")
         } catch (e: CancellationException) {
@@ -87,7 +87,7 @@ class OjpTransportProvider(
         } catch (e: OjpLocationResolutionException) {
             return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve destination stop", "destination")
         } catch (e: OjpRateLimitedException) {
-            return ProviderResult.RateLimited("OJP rate limit reached")
+            return ProviderResult.RateLimited("OJP rate limit reached", e.retryAfter)
         } catch (e: OjpTimeoutException) {
             return ProviderResult.Timeout("OJP did not respond within ${timeoutMs}ms")
         } catch (e: CancellationException) {
@@ -118,7 +118,7 @@ class OjpTransportProvider(
                             "Transport provider authentication failed."
                         )
                     }
-                    429 -> ProviderResult.RateLimited("OJP rate limit reached")
+                    429 -> ProviderResult.RateLimited("OJP rate limit reached", response.headers[HttpHeaders.RetryAfter])
                     else -> {
                         log.error("OJP upstream error: HTTP {}", response.status.value)
                         ProviderResult.Failure("OJP upstream returned HTTP ${response.status.value}")
@@ -172,7 +172,7 @@ class OjpTransportProvider(
         }
     } catch (e: OjpLocationResolutionException) { PlaceResult.NotFound
     } catch (e: OjpTimeoutException) { PlaceResult.Timeout("OJP did not respond within ${timeoutMs}ms")
-    } catch (e: OjpRateLimitedException) { PlaceResult.RateLimited("OJP rate limit reached")
+    } catch (e: OjpRateLimitedException) { PlaceResult.RateLimited("OJP rate limit reached", e.retryAfter)
     } catch (e: OjpAuthenticationException) { PlaceResult.Failure(e.message ?: "Provider authentication failed")
     } catch (e: CancellationException) { throw e
     } catch (e: Exception) { PlaceResult.Failure("Place lookup failed: ${e.javaClass.simpleName}") }
@@ -222,7 +222,7 @@ class OjpTransportProvider(
                         log.error("OJP authentication error: HTTP {}. Check OJP_API_KEY configuration.", response.status.value)
                         throw OjpAuthenticationException("Transport provider authentication failed.")
                     }
-                    429 -> throw OjpRateLimitedException()
+                    429 -> throw OjpRateLimitedException(response.headers[HttpHeaders.RetryAfter])
                     else -> throw OjpUpstreamException("OJP location request failed with HTTP ${response.status.value}")
                 }
             } catch (e: CancellationException) {
@@ -339,11 +339,11 @@ class OjpTransportProvider(
     private val suggestCache = ConcurrentHashMap<String, Pair<Instant, List<LocationSuggestion>>>()
 
     override suspend fun searchNearby(lat: Double, lon: Double): LocationsResult = try {
-        LocationsResult.Success(parseLocationSuggestions(postLocationRequest(buildNearbyRequest(lat, lon, nowTs()), suggestTimeoutMs)))
+        LocationsResult.Success(rememberSuggestedStops(parseLocationSuggestions(postLocationRequest(buildNearbyRequest(lat, lon, nowTs()), suggestTimeoutMs))))
     } catch (e: OjpTimeoutException) {
         LocationsResult.Timeout("Location lookup timed out")
     } catch (e: OjpRateLimitedException) {
-        LocationsResult.RateLimited("Transport provider is rate limiting requests")
+        LocationsResult.RateLimited("Transport provider is rate limiting requests", e.retryAfter)
     } catch (e: OjpAuthenticationException) {
         LocationsResult.Failure(e.message ?: "Transport provider authentication failed")
     } catch (e: OjpUpstreamException) {
@@ -352,17 +352,17 @@ class OjpTransportProvider(
 
     override suspend fun searchLocations(query: String): LocationsResult {
         val key = query.trim().lowercase()
-        suggestCache[key]?.let { (at, v) -> if (Duration.between(at, Instant.now(clock)).toMinutes() < 10) return LocationsResult.Success(v) }
+        suggestCache[key]?.let { (at, v) -> if (Duration.between(at, Instant.now(clock)).toMinutes() < 10) return LocationsResult.Success(rememberSuggestedStops(v)) }
         return try {
             val xml = postLocationRequest(buildLocationRequest(query, nowTs(), limit = 20, types = listOf("stop", "address")), suggestTimeoutMs)
             val found = parseLocationSuggestions(xml)
             if (suggestCache.size > 500) suggestCache.clear()
             suggestCache[key] = Instant.now(clock) to found
-            LocationsResult.Success(found)
+            LocationsResult.Success(rememberSuggestedStops(found))
         } catch (e: OjpTimeoutException) {
             LocationsResult.Timeout("Location lookup timed out")
         } catch (e: OjpRateLimitedException) {
-            LocationsResult.RateLimited("Transport provider is rate limiting requests")
+            LocationsResult.RateLimited("Transport provider is rate limiting requests", e.retryAfter)
         } catch (e: OjpAuthenticationException) {
             LocationsResult.Failure(e.message ?: "Transport provider authentication failed")
         } catch (e: OjpLocationResolutionException) {
@@ -370,6 +370,16 @@ class OjpTransportProvider(
         } catch (e: OjpUpstreamException) {
             LocationsResult.Failure("Location lookup failed")
         }
+    }
+
+    // OJP has already resolved these stops, so journey search can reuse their IDs without a board lookup.
+    private fun rememberSuggestedStops(locations: List<LocationSuggestion>): List<LocationSuggestion> {
+        for (location in locations) {
+            if (!location.kind.equals("stop", ignoreCase = true) || !SLOID.matches(location.id)) continue
+            if (stopCache.size >= MAX_STOP_CACHE && !stopCache.containsKey(location.id)) stopCache.clear()
+            stopCache.putIfAbsent(location.id, location.id to location.name)
+        }
+        return locations
     }
 
     internal fun parseLocationSuggestions(xml: String): List<LocationSuggestion> = try {

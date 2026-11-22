@@ -90,6 +90,15 @@ class OjpOccupancyAndPlacesTest {
         p.resolvePlace("Genève"); assertEquals(1, calls.size)
     }
 
+    @Test fun `selecting an OJP suggestion does not require another board request`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val id = "ch:1:sloid:1008"
+        val p = ojp({ HttpStatusCode.OK to place(id, "Genève") }, calls)
+        assertEquals(id, assertIs<LocationsResult.Success>(p.searchLocations("Gen")).locations.single().id)
+        assertEquals(ResolvedPlace(id, id, "Genève", id), assertIs<PlaceResult.Found>(p.resolvePlace(id)).place)
+        assertTrue("OJPLocationInformationRequest" in calls.single())
+    }
+
     private val board = """<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri"><OJPResponse><siri:ServiceDelivery><OJPStopEventDelivery><StopEventResponseContext><Places><Place><StopPlace><StopPlaceRef>ch:1:sloid:7100</StopPlaceRef><StopPlaceName><Text>Thun</Text></StopPlaceName></StopPlace></Place><Place><StopPlace><StopPlaceRef>ch:1:sloid:7000</StopPlaceRef><StopPlaceName><Text>Bern</Text></StopPlaceName></StopPlace></Place></Places></StopEventResponseContext><StopEventResult><StopEvent/></StopEventResult></OJPStopEventDelivery></siri:ServiceDelivery></OJPResponse></OJP>"""
     private val noEvents = """<OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri"><OJPResponse><siri:ServiceDelivery><OJPStopEventDelivery><ErrorCondition><StopEventProblemType>STOPEVENT_NOEVENTFOUND</StopEventProblemType></ErrorCondition></OJPStopEventDelivery></siri:ServiceDelivery></OJPResponse></OJP>"""
 

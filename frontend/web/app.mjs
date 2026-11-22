@@ -1,5 +1,5 @@
 import { copy, languageNames, welcomeHeadings } from "./copy.mjs";
-import { distanceKm, hasCoordinates, locationValue, otherJourneys, request, swissBoundary, swissDateTime, swissInstant, swissLocations } from "./api.mjs";
+import { distanceKm, hasCoordinates, locationValue, nearbyRailStations, otherJourneys, railSuggestions, request, swissBoundary, swissDateTime, swissInstant, swissLocations, uniqueLocations } from "./api.mjs";
 
 const app = document.querySelector("#app");
 const announcement = document.querySelector("#announcement");
@@ -16,7 +16,7 @@ const mobile = matchMedia("(max-width: 700px)");
 const state = {
   origin: null, destination: null, preference: "FASTEST", activeQuery: null, collapsed: false,
   departure: "", arrivalDeadline: "", fareClass: "2", scheduled: false, result: null, error: "", field: "",
-  busy: false, chronological: false, shown: 7, drafts: {},
+  busy: false, retrying: false, chronological: false, shown: 7, drafts: {},
 };
 let searchController, observer, disposeFields = [];
 let activeInfoTooltip = null;
@@ -25,8 +25,9 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, character => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 })[character]);
 const checked = value => value ? "checked" : "";
-const formatTime = (value, date = false) => value ? new Intl.DateTimeFormat(language, {
+const formatTime = (value, date = false, seconds = false) => value ? new Intl.DateTimeFormat(language, {
   timeZone: "Europe/Zurich", hourCycle: "h23", hour: "2-digit", minute: "2-digit",
+  ...(seconds ? { second:"2-digit" } : {}),
   ...(date ? { month: "short", day: "numeric" } : {}),
 }).format(new Date(value)) : "—";
 const number = value => new Intl.NumberFormat(language).format(value);
@@ -70,7 +71,8 @@ function clock() {
     `<path d="M50 6v${i % 5 === 0 ? 9 : 3}" stroke-width="${i % 5 === 0 ? 2.6 : 1}" transform="rotate(${i * 6} 50 50)"/>`).join("");
   return `<svg class="clock" viewBox="0 0 100 100" role="img" aria-label="${t("clock")}">
     <circle class="clock-face" cx="50" cy="50" r="48"/>${ticks}
-    <path data-hand d="M50 55V26" stroke-width="5"/><path data-hand d="M50 56V16" stroke-width="3.5"/>
+    <path data-hand d="M50 55V26" stroke-width="5"/>
+    <path data-hand class="minute-hand" d="M47.9 56V36L48.6 16H51.4L52.1 36V56Z" fill="currentColor" stroke="none"/>
     <g data-hand class="seconds"><path d="M50 61V15"/><circle cx="50" cy="15" r="4"/></g>
     <circle cx="50" cy="50" r="2" fill="currentColor"/>
   </svg>`;
@@ -125,7 +127,7 @@ function planner() {
     </select></label>
     ${modes()}
     ${state.error ? `<div class="notice warning" role="alert">${icon("warning")}${t(state.error)}</div>` : ""}
-    <button type="submit" class="primary ${state.busy ? "loading" : ""}" ${locked}>${t(state.busy ? "searching" : state.error && !state.field ? "retry" : "find")}</button>
+    <button type="submit" class="primary ${state.busy ? "loading" : ""}" ${locked}>${t(state.busy ? (state.retrying ? "retrying" : "searching") : state.error && !state.field ? "retry" : "find")}</button>
   </form></div></section>`;
 }
 function departureField(locked) {
@@ -182,31 +184,83 @@ const duration = minutes => `${Math.floor(minutes / 60)}h${String(minutes % 60).
 const delayNumber = value => new Intl.NumberFormat(language, {
   maximumFractionDigits:0, signDisplay:"exceptZero",
 }).format(value);
-const roundProjection = value => new Date(Math.round(Date.parse(value) / 60000) * 60000).toISOString();
+function hasIncidentEstimate(timing) {
+  return timing && (timing.estimatedBasis === "LINE_INCIDENT" || timing.estimatedBasis === "STATION_INCIDENT" ||
+    timing.incidentExtraMinutes != null || timing.incidentCancellationRisk != null || timing.incidentSuppressedStopRisk != null);
+}
+function incidentSummary(timing, { journey = false, context = "" } = {}) {
+  if (!hasIncidentEstimate(timing)) return "";
+  const { estimatedBasis, incidentExtraMinutes, incidentCancellationRisk, incidentSuppressedStopRisk,
+    incidentSamples, incidentCount } = timing;
+  const highRisk = incidentCancellationRisk > 0.3;
+  const percentage = new Intl.NumberFormat(language, {style:"percent", maximumFractionDigits:2});
+  const signedMinutes = new Intl.NumberFormat(language, {signDisplay:"exceptZero", minimumFractionDigits:1, maximumFractionDigits:1});
+  const statistic = (label, value, prominent = false) => value == null ? "" :
+    `<span class="incident-stat${prominent ? " incident-high-stat" : ""}"><strong>${value}</strong> ${t(label)}</span>`;
+  const risk = value => value == null ? null : percentage.format(value);
+  const summary = [
+    statistic(journey ? "incidentHighestCancellation" : "incidentCancellation", risk(incidentCancellationRisk), highRisk),
+    statistic(journey ? "incidentHighestSkippedStop" : "incidentSkippedStop", risk(incidentSuppressedStopRisk)),
+    statistic("incidentExtra", incidentExtraMinutes == null ? null : signedMinutes.format(incidentExtraMinutes) + " min"),
+  ].join("");
+  const evidence = [
+    incidentCount != null && t("incidentPastCount").replace("{n}", number(incidentCount)),
+    incidentSamples != null && t("incidentSamples").replace("{n}", number(incidentSamples)),
+  ].filter(Boolean).join(" · ");
+  return `<span class="incident-summary${highRisk ? " incident-high" : ""}">
+    <strong class="incident-title">${highRisk ? icon("warning") : ""}${t(estimatedBasis === "LINE_INCIDENT" ? "incidentOnLine" : estimatedBasis === "STATION_INCIDENT" ? "incidentAtStation" : "incidentConditions")}</strong>
+    ${context ? `<span class="incident-context">${context}</span>` : ""}
+    ${summary ? `<span class="incident-stats">${summary}</span>` : ""}
+    ${evidence ? `<span class="caption">${evidence}</span>` : ""}
+    <span class="caption">${t(incidentExtraMinutes == null ? "incidentHistoricalRisk" : "incidentReportedTrips")}</span>
+  </span>`;
+}
 function timeLayers(scheduled, timing, side) {
   const name = side === "Departure" ? "departure" : "arrival";
   const known = timing?.[name + "DelayMinutes"];
   const estimate = timing?.["estimated" + side + "DelayMinutes"];
   const expected = timing?.["expected" + side];
   const projected = timing?.["projected" + side];
-  if (projected && (estimate != null || Date.parse(projected) !== Date.parse(expected ?? scheduled))) {
+  if (projected) {
     return {scheduled, known, estimate, combined:projected, combinedLabel:"projected"};
   }
   return {scheduled, known, estimate, combined:expected ?? scheduled, combinedLabel:expected ? "expected" : ""};
 }
-function timingBox(layers, label, side, includeDate = false) {
+function arrivalEstimate(journey) {
+  const estimates = journey.legs.map(leg => leg.estimatedArrivalDelayMinutes).filter(Number.isFinite);
+  // Sum the contract's tenths without carrying floating-point residue into the label.
+  return estimates.length ? estimates.reduce((sum, value) => sum + Math.round(value * 10), 0) / 10 :
+    journey.realtime?.estimatedArrivalDelayMinutes;
+}
+function timingBox(layers, label, side, { includeDate = false, total = false } = {}) {
   const {scheduled, known, estimate, combined, combinedLabel} = layers;
-  const displayTime = combinedLabel === "projected" ? roundProjection(combined) : combined;
-  const dateChanged = combinedLabel && swissDateTime(new Date(scheduled)).slice(0,10) !== swissDateTime(new Date(displayTime)).slice(0,10);
+  const dateChanged = combinedLabel && swissDateTime(new Date(scheduled)).slice(0,10) !== swissDateTime(new Date(combined)).slice(0,10);
+  const decimalDelay = new Intl.NumberFormat(language, {signDisplay:"exceptZero", minimumFractionDigits:1, maximumFractionDigits:1});
   const roundedEstimate = side === "Departure" ? Math.floor(estimate) : Math.ceil(estimate);
-  const chip = (variant, key, value) => `<span class="delay-chip delay-${variant}" title="${t(key)}"><span class="sr-only">${t(key)} </span>${delayNumber(value)} min</span>`;
+  const estimateLabel = total ? "totalEstimatedDelay" : "estimatedDelay";
+  const chip = (variant, key, value) => `<span class="delay-chip delay-${variant}" title="${t(key)}"><span class="sr-only">${t(key)} </span>${value} min</span>`;
   return `<span class="journey-time">
     <span class="caption time-label">${t(label)}</span>
     <span class="time-scheduled">${includeDate ? `<time datetime="${esc(scheduled)}">${formatTime(scheduled, true)}</time>` : timeDisplay(scheduled)}</span>
-    ${known ? chip("known", "knownDelay", known) : ""}
-    ${estimate ? chip("estimate", "estimatedDelay", roundedEstimate) : ""}
-    ${combinedLabel ? `<span class="caption time-combined">${t(combinedLabel)} <time datetime="${esc(combined)}">${formatTime(displayTime, includeDate || dateChanged)}</time></span>` : ""}
+    ${known ? chip("known", "knownDelay", delayNumber(known)) : ""}
+    ${estimate && roundedEstimate !== 0 ? chip("estimate", estimateLabel, delayNumber(roundedEstimate)) : ""}
+    ${combinedLabel ? `<span class="caption time-combined">${t(combinedLabel)} <time datetime="${esc(combined)}">${formatTime(combined, includeDate || dateChanged, combinedLabel === "projected")}</time></span>` : ""}
+    ${estimate != null ? `<span class="caption time-precise">${t(total ? "estimateTotalExact" : "estimateExact").replace("{n}", decimalDelay.format(estimate))}</span>` : ""}
     </span>`;
+}
+function estimateEvidence(timing) {
+  if (!timing) return "";
+  const {estimatedSource, estimatedSamples, estimatedBasis, estimatedDepartureDelayMinutes, estimatedArrivalDelayMinutes} = timing;
+  if (estimatedDepartureDelayMinutes == null && estimatedArrivalDelayMinutes == null) return "";
+  const source = {HISTORICAL_ACTUALS:"estimateHistorical", LIVE_SAMPLE:"estimateLiveSample"}[estimatedSource];
+  const basis = {STATION:"estimateStation", LINE:"estimateLine", STATION_INCIDENT:"estimateStationIncident", LINE_INCIDENT:"estimateLineIncident"}[estimatedBasis];
+  const description = [
+    source && t(source), estimatedSamples != null && t("incidentSamples").replace("{n}", number(estimatedSamples)),
+  ].filter(Boolean).join(" · ");
+  return description || basis ? `<span class="estimate-evidence">
+    ${description ? `<span class="evidence-chip">${description}</span>` : ""}
+    ${basis ? `<span class="evidence-chip">${t(basis)}</span>` : ""}
+    </span>` : "";
 }
 function journeyTimes(journey) {
   const { departure, arrival } = journey.schedule;
@@ -214,12 +268,16 @@ function journeyTimes(journey) {
   const firstTransit = journey.legs.find(leg => leg.mode === "TRANSIT");
   const lastTransit = journey.legs.findLast(leg => leg.mode === "TRANSIT");
   const dep = timeLayers(realtime?.projectedDeparture ? firstTransit?.departure ?? departure : departure, realtime, "Departure");
-  const arr = timeLayers(realtime?.projectedArrival ? lastTransit?.arrival ?? arrival : arrival, realtime, "Arrival");
+  const arr = {
+    ...timeLayers(realtime?.projectedArrival ? lastTransit?.arrival ?? arrival : arrival, realtime, "Arrival"),
+    estimate:arrivalEstimate(journey),
+  };
   const depLabel = dep.scheduled === departure ? "depart" : "transitDeparture";
   const arrLabel = arr.scheduled === arrival ? "arrival" : "transitArrival";
   return `<span class="journey-times">
     ${timingBox(dep, depLabel, "Departure")}
-    ${timingBox(arr, arrLabel, "Arrival")}
+    ${timingBox(arr, arrLabel, "Arrival", {total:true})}
+    ${estimateEvidence(realtime)}
     </span>`;
 }
 function timeDisplay(value) {
@@ -252,15 +310,21 @@ function featured(result) {
   if (!journey) return `<p class="notice">${t(result.alternatives.length || result.primaryJourney ? "noRecommended" : "noRoutes")}</p>`;
   const reasons = result.reasons.map(reasonText).filter(Boolean);
   const realtime = journey.realtime;
+  const original = result.primaryJourney;
+  const disruptedLeg = original && original.id !== journey.id &&
+    [original.legs[result.disruption?.legIndex], ...original.legs].find(hasIncidentEstimate);
+  const originalRisk = disruptedLeg ? incidentSummary(disruptedLeg, {
+    context:`${t("incidentOriginalLeg")} · ${esc(disruptedLeg.serviceLabel ?? "")} ${placeLabel(disruptedLeg.origin)} → ${placeLabel(disruptedLeg.destination)}`,
+  }) : "";
   const legendLine = (variant, key) => `<li class="legend-${variant}"><span aria-hidden="true"></span>${t(key)}</li>`;
   const legend = [
     (realtime?.departureDelayMinutes || realtime?.arrivalDelayMinutes) && legendLine("known", "knownDelay"),
-    (realtime?.estimatedDepartureDelayMinutes || realtime?.estimatedArrivalDelayMinutes) && legendLine("estimate", "estimatedDelay"),
+    (Math.floor(realtime?.estimatedDepartureDelayMinutes ?? 0) || Math.ceil(arrivalEstimate(journey) ?? 0)) && legendLine("estimate", "estimatedDelay"),
   ].filter(Boolean).join("");
   return `<article class="feature">
     <div class="feature-head"><p class="tag recommended-badge">${t("recommended")}</p>
       ${legend ? `<ul class="delay-legend">${legend}</ul>` : ""}</div>
-    ${journeyTimes(journey)}${facts(journey)}
+    ${originalRisk}${incidentSummary(realtime, {journey:true})}${journeyTimes(journey)}${facts(journey)}
     ${reasons.length ? `<div><strong>${t("why")}</strong><ul>${reasons.map(text => `<li>${esc(text)}</li>`).join("")}</ul></div>` : ""}
     <p class="caption">${metadata(journey)}</p>
     ${button("details", "details", "", `data-id="${esc(journey.id)}"`)}
@@ -274,6 +338,7 @@ function bands(journeys, result) {
     return `<button type="button" class="band" data-action="details" data-id="${esc(journey.id)}">
       <span><strong class="band-title result-times">${resultTimes(journey)}</strong>
       ${journeyTimes(journey)}
+      ${incidentSummary(journey.realtime, {journey:true})}
       <small>${duration(durationMinutes)} · ${number(transfers)} ${t("transfers").toLowerCase()}</small>
       <small>${[original, metadata(journey)].filter(Boolean).join(" · ")}</small></span>
       <span class="band-end">${icon(journey.legs.every(leg => leg.mode === "WALK") ? "walking" : "station")}
@@ -321,6 +386,28 @@ async function drawLoadingRoute(svg, origin, destination) {
     <g class="route-train" style="--start-x:${x1}px;--start-y:${y1}px;--end-x:${x2}px;--end-y:${y2}px">
       <circle r="13"/><g transform="translate(-9 -9) scale(.75)">${paths.station}</g></g>`;
 }
+const demoSeed = 12345;
+
+function simulationChip(result) {
+  const simulation = result.demoPerturbation;
+  if (simulation?.active === true) {
+    return `<p class="simulation-chip" role="status">${t("simulationActive")} · ${t("simulationSeed").replace("{seed}", esc(simulation.seed))}</p>`;
+  }
+  return "";
+}
+
+function simulationControls(result) {
+  const active = result.demoPerturbation?.active === true;
+  return `<div class="simulation-controls">
+    ${simulationChip(result)}
+    ${!active && state.activeQuery?.simulationRequested ? `<p class="caption" role="status">${t("simulationUnavailable")}</p>` : ""}
+    ${active ? button("endSimulation", "endSimulation") :
+      `${button("simulate", "simulate", "", 'aria-describedby="simulation-hint"')}
+      <p class="caption" id="simulation-hint">${t("simulationHint")}</p>`}
+    ${active && result.status !== "DISRUPTION_DETECTED" ? `<p class="caption">${t("simulationHint")}</p>` : ""}
+  </div>`;
+}
+
 function results() {
   const result = state.result;
   if (state.busy) return routeLoader(state.activeQuery);
@@ -332,6 +419,7 @@ function results() {
     <div class="result-heading"><h2 tabindex="-1" id="results-heading">${t("routes")}</h2>
     <p>${placeLabel(placeName(query.origin), state.activeQuery?.origin)} → ${placeLabel(placeName(query.destination), state.activeQuery?.destination)}</p>
     <p class="caption">${formatTime(query.departure, true)} · ${t(query.preference.toLowerCase())} · ${t(query.fareClass === 1 ? "first" : "second")}</p></div>
+    ${simulationControls(result)}
     ${action !== "NONE" ? `<p class="caption">${t(action === "REROUTE" ? "reroute" : "stay")}</p>` : ""}
     ${deadlineSummary ? `<p class="notice">${t(deadlineSummary.feasible ? "deadlineMet" : "deadlineMiss")}
       ${deadlineSummary.latestFeasibleDeparture ? " · " + t("leaveBy") + " " + formatTime(deadlineSummary.latestFeasibleDeparture, true) : ""}</p>` : ""}
@@ -365,16 +453,16 @@ function render(focus, keepSettings = false) {
   preferences();
   document.title = "ALT · " + t("planner");
   app.innerHTML = `<header class="site-head"><div class="wrap head-inner">
-    <a class="brand" href="./" aria-label="ALT"><span class="mark" aria-hidden="true">ALT</span><span class="brand-word">ALT</span></a>
+    <a class="brand" href="./" aria-label="ALT"><span class="mark" aria-hidden="true"></span><span class="brand-word">ALT</span></a>
     <div class="head-actions"><select name="language" aria-label="${t("language")}">${languageOptions()}</select>
       <button type="button" data-action="settings" class="icon-button" aria-label="${t("settings")}">${icon("settings")}</button></div>
   </div></header><main class="wrap" ${state.collapsed ? 'data-compact="true"' : ""}>${hero()}
     <div class="layout">${planner()}${results()}</div></main>
-  <footer class="wrap foot"><span>${t("swiss")}</span><span>©swisstopo</span></footer>
+  <footer class="wrap foot"><span>${t("swiss")}</span><span>©swisstopo · <a href="https://data.sbb.ch/explore/dataset/dienststellen-gemass-opentransportdataswiss/">SBB / DiDok</a></span></footer>
   ${preferencesDialog()}`;
   for (const container of app.querySelectorAll("[data-place]")) connectPlace(container);
   const loadingMap = app.querySelector(".route-loader svg");
-  if (loadingMap) drawLoadingRoute(loadingMap, state.origin, state.destination);
+  if (loadingMap) drawLoadingRoute(loadingMap, state.activeQuery.originPlace, state.activeQuery.destinationPlace);
   updateClock();
   watchBatches();
   if (keepSettings) app.querySelector(".settings-dialog").showModal();
@@ -405,15 +493,23 @@ function connectPlace(container) {
     controller = next;
     status.textContent = t("searching");
     timer = setTimeout(async () => {
+      const reference = state[id === "origin" ? "destination" : "origin"]?.coordinates;
+      const show = (matches, message) => {
+        if (next.signal.aborted) return;
+        places = uniqueLocations(matches);
+        list.innerHTML = placeButtons(places, reference);
+        status.textContent = t(message);
+      };
       try {
         const result = await request("locations", { query, limit: 20 }, next.signal);
         const swiss = await swissLocations(result.locations);
         if (next.signal.aborted) return;
-        places = swiss;
-        list.innerHTML = placeButtons(places, state[id === "origin" ? "destination" : "origin"]?.coordinates);
-        status.textContent = t(places.length ? "selectPlace" : result.locations.length ? "noSwissPlaces" : "noPlaces");
+        const matches = swiss.length ? swiss : await railSuggestions(query).catch(() => []);
+        show(matches, matches.length ? "selectPlace" : result.locations.length ? "noSwissPlaces" : "noPlaces");
       } catch (error) {
-        if (!next.signal.aborted) status.textContent = t(error.message);
+        if (next.signal.aborted) return;
+        const savedMatches = await railSuggestions(query).catch(() => []);
+        show(savedMatches, savedMatches.length ? "railFallback" : error.message);
       }
     }, 350);
   });
@@ -427,10 +523,10 @@ function connectPlace(container) {
     try {
       const point = await currentPosition();
       if (next.signal.aborted) return;
-      const data = await request("locations", {near:[point.lat, point.lon].join(","), radiusKm:5, limit:20}, next.signal);
-      const swiss = await swissLocations(data.locations);
+      if (point.accuracy > 1000) throw new Error("geoImprecise");
+      const nearest = await nearbyRailStations(point);
       if (next.signal.aborted) return;
-      places = swiss;
+      places = nearest;
       list.innerHTML = placeButtons(places, point.accuracy <= 250 ? point : null);
       status.textContent = t(places.length ? "selectPlace" : "noNearby");
     } catch (error) {
@@ -472,7 +568,7 @@ function currentPosition() {
   return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
     ({coords}) => resolve({lat:coords.latitude, lon:coords.longitude, accuracy:coords.accuracy}),
     error => reject(new Error(({1:"denied", 2:"geoUnavailable", 3:"geoTimeout"})[error.code] ?? "geoUnavailable")),
-    {timeout:12000, maximumAge:0},
+    {timeout:12000, maximumAge:0, enableHighAccuracy:true},
   ));
 }
 
@@ -522,7 +618,7 @@ function openJourney(id) {
       Date.parse(disruption.scheduledDeparture) === Date.parse(leg.departure);
     const stop = (place, time, platform, side, fallback) =>
       `<div class="timeline-stop"><span>${placeLabel(place, fallback)}${platform ? " · " + t("platform") + " " + esc(platform) : ""}</span>
-        ${timingBox(timeLayers(time, leg, side), side === "Departure" ? "depart" : "arrival", side, true)}</div>`;
+        ${timingBox(timeLayers(time, leg, side), side === "Departure" ? "depart" : "arrival", side, {includeDate:true})}</div>`;
     const occupancy = leg.occupancy ? [["first",leg.occupancy.firstClass],["second",leg.occupancy.secondClass]]
       .filter(([, value]) => value).map(([key,value]) => `${t(key)} ${token(value)}`).join(" · ") : "";
     const walkingMinutes = leg.mode === "WALK" ? Math.round((Date.parse(leg.arrival) - Date.parse(leg.departure)) / 60000) : null;
@@ -531,14 +627,17 @@ function openJourney(id) {
       ${impacted ? " · " + t("disruption") : ""}</strong>
       ${stop(leg.origin, leg.departure, leg.departurePlatform, "Departure", index === 0 ? state.activeQuery?.origin : null)}
       ${stop(leg.destination, leg.arrival, leg.arrivalPlatform, "Arrival", index === journey.legs.length - 1 ? state.activeQuery?.destination : null)}
+      ${estimateEvidence(leg)}
+      ${incidentSummary(leg)}
       ${occupancy ? `<small>${t("occupancy")} · ${occupancy}</small>` : ""}</li>`;
   }).join("");
-  const { risk, fares } = journey;
+  const { fares } = journey;
   const catalog = fares?.catalogChf;
   const dialog = document.createElement("dialog");
   dialog.className = "details-dialog";
   dialog.setAttribute("aria-labelledby", "journey-detail-title");
   dialog.innerHTML = `<div class="dialog-body"><div class="heading-row"><h2 id="journey-detail-title">${t("details")}</h2>${button("close","close")}</div>
+    ${simulationChip(result)}
     ${journeyTimes(journey)}
     ${facts(journey)}<p class="caption">${metadata(journey)}</p>
     <ol class="timeline">${timeline}</ol>${impactPanels(result)}
@@ -546,10 +645,7 @@ function openJourney(id) {
       <p>${token(fares?.status)} ${esc(fares?.product)} ${esc(fares?.source)}</p>
       ${catalog ? [["second","secondClassFull"],["first","firstClassFull"]].map(([classKey, key]) =>
         `<p>${t(classKey)} · ${money(catalog[key])}</p>`).join("") : ""}
-    </div>${risk?.typicalIncidentDurationMinutes != null || risk?.confidence ? `<div><strong>${t("risk")}</strong>
-      ${risk?.typicalIncidentDurationMinutes != null ? `<p>${t("typical")} · ${number(risk.typicalIncidentDurationMinutes)} min</p>` : ""}
-      ${risk?.confidence ? `<p>${t("confidence")} ${token(risk.confidence)}</p>` : ""}
-    </div>` : ""}</div>
+    </div>${incidentSummary(journey.realtime, {journey:true})}</div>
     <p class="caption">${t("updated")} ${formatTime(result.meta.computedAt, true)} ${result.meta.modelVersion ? " · " + t("model") + " " + esc(result.meta.modelVersion) : ""}</p>
     ${journey.feasible === true ? `<p>${t("deadlineMet")}</p>` : ""}
   </div>`;
@@ -560,7 +656,7 @@ function openJourney(id) {
 
 function resetResults() {
   searchController?.abort();
-  Object.assign(state, {result:null, busy:false, error:"", field:"", chronological:false, shown:7});
+  Object.assign(state, {result:null, busy:false, retrying:false, error:"", field:"", chronological:false, shown:7});
 }
 function invalid(message, field = "") {
   if (!["origin", "destination", "departure", "arrivalDeadline", "fareClass"].includes(field)) field = "";
@@ -571,13 +667,11 @@ function invalid(message, field = "") {
   app.querySelector(field ? `#${field},[name="${field}"]` : '[type="submit"]')?.focus();
   announce(message);
 }
-let retryAfter = 0;
 async function search() {
   if (state.busy) return;
   if (!state.origin) return invalid("selectPlace", "origin");
   if (!state.destination) return invalid("selectPlace", "destination");
   if (locationValue(state.origin) === locationValue(state.destination)) return invalid("same", "destination");
-  if (Date.now() < retryAfter) return invalid("busy");
   let departure, deadline;
   try { departure = state.scheduled ? swissInstant(state.departure) : null; } catch { return invalid("dates", "departure"); }
   if (state.scheduled && !departure) return invalid("dates", "departure");
@@ -589,9 +683,14 @@ async function search() {
   };
   if (departure) parameters.departure = departure;
   if (deadline) parameters.arrivalDeadline = deadline;
+  return runSearch({origin:state.origin.name, destination:state.destination.name,
+    originPlace:state.origin, destinationPlace:state.destination, parameters,
+    preference:state.preference, departure:departure ?? new Date().toISOString(), now:!state.scheduled});
+}
+
+async function runSearch(query, simulate = false) {
   resetResults();
-  state.activeQuery = {origin:state.origin.name, destination:state.destination.name,
-    preference:state.preference, departure:departure ?? new Date().toISOString(), now:!state.scheduled};
+  state.activeQuery = {...query, simulationRequested:simulate};
   state.collapsed = mobile.matches;
   state.busy = true;
   const controller = new AbortController();
@@ -600,19 +699,29 @@ async function search() {
   if (state.collapsed) window.scrollTo(0, 0);
   announce("searching");
   try {
-    const result = await request("journeys", parameters, controller.signal);
+    const parameters = simulate ? {...query.parameters, demoPerturbation:demoSeed} : query.parameters;
+    const result = await request("journeys", parameters, controller.signal, () => {
+      state.retrying = true;
+      const submit = app.querySelector("#planner [type=submit]");
+      if (submit) submit.textContent = t("retrying");
+      announce("retrying");
+    });
     if (controller.signal.aborted) return;
     state.result = result;
     state.activeQuery.departure = result.request.departure;
     state.busy = false;
     render(mobile.matches && state.collapsed ? ".mobile-summary" : "#results-heading");
-    announce("resultReady");
+    announce(result.demoPerturbation?.active === true ? "simulationActive" : "resultReady");
   } catch (error) {
     if (controller.signal.aborted) return;
     state.busy = false;
-    if (error.message === "busy") retryAfter = Date.now() + 15000;
     invalid(error.message, error.field);
   }
+}
+
+function replaySearch(simulate) {
+  if (!state.result || state.busy) return;
+  return runSearch(state.activeQuery, simulate);
 }
 
 app.addEventListener("submit", event => {
@@ -663,6 +772,8 @@ app.addEventListener("click", event => {
   const { action, value, id } = control.dataset;
   switch (action) {
     case "settings": app.querySelector(".settings-dialog").showModal(); break;
+    case "simulate": replaySearch(true); break;
+    case "endSimulation": replaySearch(false); break;
     case "close": control.closest("dialog").close(); break;
     case "editSearch":
       state.collapsed = !state.collapsed;

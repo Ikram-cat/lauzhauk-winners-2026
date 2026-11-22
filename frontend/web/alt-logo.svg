@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 121" fill="none">
+  <style>@media (prefers-color-scheme:dark){g{stroke:#fff}}</style>
+  <g transform="translate(.5 .5)" stroke="#000" stroke-width="5.07" stroke-miterlimit="10">
+    <path transform="rotate(30 65.16 59.57)" d="M 24.52 41.54 L 15.63 25.72 Q 14.38 23.51 16.92 23.51 L 93.12 23.51 Q 95.66 23.51 96.9 25.72 L 114.7 57.36 Q 115.94 59.57 114.7 61.78 L 96.9 93.42 Q 95.66 95.63 93.12 95.63 L 16.92 95.63 Q 14.38 95.63 15.63 93.42 L 33.42 61.78 Q 34.67 59.57 33.42 57.36 Z"/>
+    <path d="M 38.22 44.01 L 47.13 90.8"/>
+    <path d="M 38.22 44.01 Q 56.42 44 56.42 56.93 Q 56.42 69.86 76.71 69.86 Q 97 69.86 97 58.91 Q 97 47.96 109.55 47.94"/>
+  </g>
+</svg>

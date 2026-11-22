@@ -14,7 +14,7 @@ sealed class SearchResult {
     /** [fares] is keyed by journey id; null when fare lookup is disabled, missing ids mean UNAVAILABLE. */
     data class Success(val journeys: List<Journey>, val fares: Map<String, FareQuote>? = null) : SearchResult()
     data class Timeout(val message: String) : SearchResult()
-    data class RateLimited(val message: String) : SearchResult()
+    data class RateLimited(val message: String, val retryAfter: String? = null) : SearchResult()
     data class AuthError(val message: String) : SearchResult()
     data class LocationResolutionError(val message: String, val field: String? = null) : SearchResult()
     data class Failure(val message: String) : SearchResult()
@@ -46,7 +46,7 @@ class JourneySearchService(
                 SearchResult.Success(ranked, fares?.let { priceAll(it, ranked) })
             }
             is ProviderResult.Timeout -> SearchResult.Timeout(providerResult.message)
-            is ProviderResult.RateLimited -> SearchResult.RateLimited(providerResult.message)
+            is ProviderResult.RateLimited -> SearchResult.RateLimited(providerResult.message, providerResult.retryAfter)
             is ProviderResult.AuthError -> SearchResult.AuthError(providerResult.message)
             is ProviderResult.LocationResolutionError -> SearchResult.LocationResolutionError(providerResult.message, providerResult.field)
             is ProviderResult.Failure -> SearchResult.Failure(providerResult.message)

@@ -48,8 +48,10 @@ private fun distanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): 
 /** A 400: [field] is the offending query parameter. */
 private class ParamError(val field: String, message: String) : Exception(message)
 
-private suspend fun ApplicationCall.fail(status: HttpStatusCode, code: String, message: String, field: String? = null) =
+private suspend fun ApplicationCall.fail(status: HttpStatusCode, code: String, message: String, field: String? = null, retryAfter: String? = null) {
+    if (code == "UPSTREAM_RATE_LIMITED") response.headers.append(HttpHeaders.RetryAfter, retryAfter ?: "5")
     respond(status, ErrorResponseDto(ErrorDetailDto(code, message, field)))
+}
 
 /** Unknown parameters are ignored, but a repeated known parameter is ambiguous. */
 private fun ApplicationCall.rejectDuplicates(known: Set<String>) {
@@ -156,7 +158,7 @@ fun Application.configureRoutes(
                     LocationDto(it.id, it.name, it.kind.uppercase(), if (it.x != null && it.y != null) CoordinatesDto(it.y, it.x) else null)
                 }))
                 is LocationsResult.Timeout -> call.fail(HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT", r.message)
-                is LocationsResult.RateLimited -> call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", r.message)
+                is LocationsResult.RateLimited -> call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", r.message, retryAfter = r.retryAfter)
                 is LocationsResult.Failure -> call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
             }
         }
@@ -187,7 +189,7 @@ fun Application.configureRoutes(
                 is PlaceResult.Found -> {}
                 is PlaceResult.NotFound -> return@get call.fail(HttpStatusCode.NotFound, "LOCATION_NOT_FOUND", "Location not found", field)
                 is PlaceResult.Timeout -> return@get call.fail(HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT", r.message)
-                is PlaceResult.RateLimited -> return@get call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", r.message)
+                is PlaceResult.RateLimited -> return@get call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", r.message, retryAfter = r.retryAfter)
                 is PlaceResult.Failure -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
             }
             val o = (from as PlaceResult.Found).place; val d = (to as PlaceResult.Found).place
@@ -200,7 +202,7 @@ fun Application.configureRoutes(
             when (result) {
                 is SearchResult.Success -> {}
                 is SearchResult.Timeout -> return@get call.fail(HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT", result.message)
-                is SearchResult.RateLimited -> return@get call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", result.message)
+                is SearchResult.RateLimited -> return@get call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", result.message, retryAfter = result.retryAfter)
                 is SearchResult.LocationResolutionError -> return@get call.fail(HttpStatusCode.NotFound, "LOCATION_NOT_FOUND", "Location not found", result.field ?: "origin")
                 is SearchResult.AuthError -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", result.message)
                 is SearchResult.Failure -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", result.message)

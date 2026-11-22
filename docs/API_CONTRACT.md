@@ -131,7 +131,7 @@ This illustrates the empty response shape. It makes no claim about service on th
 | --- | --- | --- |
 | `400` | `INVALID_REQUEST` | Missing or invalid query parameter. |
 | `502` | `UPSTREAM_ERROR` | Provider call failed or returned an unusable response. |
-| `503` | `UPSTREAM_RATE_LIMITED` | The provider reports throttling. |
+| `503` | `UPSTREAM_RATE_LIMITED` | The provider reports throttling. Location and journey search include `Retry-After` with the provider value, or a five-second retry interval if none was supplied. |
 | `504` | `UPSTREAM_TIMEOUT` | The provider did not respond within the configured timeout. |
 | `500` | `INTERNAL_ERROR` | Unexpected application failure. |
 
