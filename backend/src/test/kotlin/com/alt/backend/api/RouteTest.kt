@@ -88,7 +88,9 @@ class RouteTest {
         assertEquals(setOf("departure", "arrival", "durationMinutes", "transfers"), j.o("schedule").keys)
         assertEquals(setOf("expectedDeparture", "departureDelayMinutes", "expectedArrival", "arrivalDelayMinutes", "source", "sampleCount",
             "estimatedDepartureDelayMinutes", "estimatedArrivalDelayMinutes", "estimatedSource", "estimatedSamples", "projectedDeparture", "projectedArrival",
-            "estimatedBasis", "incidentExtraMinutes", "incidentCancellationRisk", "incidentSuppressedStopRisk", "incidentSamples", "incidentCount"), j.o("realtime").keys)
+            "estimatedBasis", "incidentExtraMinutes", "incidentCancellationRisk", "incidentSuppressedStopRisk", "incidentSamples", "incidentCount",
+            "transferMissRisk", "transferRiskBasis", "transferRiskDetail"), j.o("realtime").keys)
+
         assertEquals(setOf("corridorIncidentRate", "typicalIncidentDurationMinutes", "source", "basis", "confidence", "level"), j.o("risk").keys)
         assertEquals(setOf("status", "selectedChf", "product", "source", "catalogChf"), j.o("fares").keys)
         assertEquals(setOf("mode", "origin", "destination", "departure", "arrival", "expectedDeparture", "departureDelayMinutes", "expectedArrival", "arrivalDelayMinutes",

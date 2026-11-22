@@ -14,6 +14,7 @@ class MockTransportProvider : TransportProvider {
         LocationSuggestion("mock:lausanne", "Lausanne", "stop", 6.62909, 46.51679),
         LocationSuggestion("mock:geneve", "Genève", "stop", 6.14259, 46.21025),
         LocationSuggestion("mock:bern", "Bern", "stop", 7.43911, 46.94883),
+        LocationSuggestion("mock:fribourg", "Fribourg", "stop", 7.16201, 46.80321),
         LocationSuggestion("mock:zurich", "Zürich HB", "stop", 8.54021, 47.37819)
     )
 

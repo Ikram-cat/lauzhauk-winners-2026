@@ -27,6 +27,7 @@ class DemoScenarioTransportProvider(private val fallback: TransportProvider = Mo
         val base = request.earliestDeparture
         return when (od) {
             "lausanne" to "geneve" -> ProviderResult.Success(lausanneGeneva(base))
+            "lausanne" to "fribourg" -> ProviderResult.Success(lausanneFribourg(base))
             "zurich stadelhofen" to "stettbach" -> ProviderResult.Success(stadelhofenStettbach(base))
             else -> fallback.search(request)
         }
@@ -40,6 +41,19 @@ class DemoScenarioTransportProvider(private val fallback: TransportProvider = Mo
             leg(base, 25, 60, "Lausanne-Ouchy", "Évian-les-Bains (débarcadère)", null, null, "CGN boat"),
             leg(base, 60, 70, "Évian-les-Bains (débarcadère)", "Évian-les-Bains", null, null, null, mode = LegMode.WALK),
             leg(base, 78, 140, "Évian-les-Bains", "Genève", null, GE, "L1"))
+    )
+
+    /**
+     * The transfer-miss demo: one journey changes at Fribourg with 3 minutes of slack, the other with 30.
+     * A predicted (or demo-perturbed) delay on the first leg should make the tight one not-recommended.
+     */
+    private fun lausanneFribourg(base: OffsetDateTime) = listOf(
+        journey("demo-fribourg-tight",
+            leg(base, 5, 40, "Lausanne", "Fribourg", LS, FRIBOURG, "IC 1"),
+            leg(base, 43, 75, "Fribourg", "Bern", FRIBOURG, BERN, "IR 15")),
+        journey("demo-fribourg-safe",
+            leg(base, 10, 45, "Lausanne", "Fribourg", LS, FRIBOURG, "IR 90"),
+            leg(base, 75, 110, "Fribourg", "Bern", FRIBOURG, BERN, "IC 5"))
     )
 
     private fun stadelhofenStettbach(base: OffsetDateTime) = listOf(
@@ -70,6 +84,8 @@ class DemoScenarioTransportProvider(private val fallback: TransportProvider = Mo
     private companion object {
         const val LS = "ch:1:sloid:1120"
         const val GE = "ch:1:sloid:1008"
+        const val FRIBOURG = "ch:1:sloid:4100"
+        const val BERN = "ch:1:sloid:7000"
         const val RENENS = "ch:1:sloid:1118"
         const val MORGES = "ch:1:sloid:1037"
         const val ALLAMAN = "ch:1:sloid:1035"

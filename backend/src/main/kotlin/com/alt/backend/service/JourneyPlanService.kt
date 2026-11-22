@@ -11,6 +11,14 @@ import com.alt.backend.service.estimate.LegEstimate
 import com.alt.backend.service.estimate.OVERLAP_KNOWN_WINS
 import com.alt.backend.service.estimate.SOURCE_NONE
 import com.alt.backend.service.estimate.SideEstimate
+import com.alt.backend.service.estimate.TRANSFER_MISS_RISK_THRESHOLD
+import com.alt.backend.service.estimate.TRANSFER_RISK_BASIS_CHRONIC
+import com.alt.backend.service.estimate.TRANSFER_RISK_BASIS_CONDITIONED_INCIDENT
+import com.alt.backend.service.estimate.TRANSFER_RISK_BASIS_KNOWN
+import com.alt.backend.service.estimate.TRANSFER_RISK_BASIS_NONE
+import com.alt.backend.service.estimate.TRANSFER_SAFE_RISK_THRESHOLD
+import com.alt.backend.service.estimate.TransferMissRisk
+import com.alt.backend.service.estimate.missProbability
 import com.alt.backend.service.estimate.weekdayClassOf
 import com.alt.backend.service.impact.DisruptionSource
 import com.alt.backend.service.impact.EmptyDisruptionSource
@@ -56,7 +64,13 @@ data class JourneyRealtime(
     val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null,
     val estimatedBasis: String = BASIS_NONE,
     val incidentExtraMinutes: Double? = null, val incidentCancellationRisk: Double? = null,
-    val incidentSuppressedStopRisk: Double? = null, val incidentSamples: Int? = null, val incidentCount: Int? = null
+    val incidentSuppressedStopRisk: Double? = null, val incidentSamples: Int? = null, val incidentCount: Int? = null,
+    /** Transfer-miss risk (0..1): the maximum over consecutive TRANSIT pairs; null when there are no transfers or all are unknown. */
+    val transferMissRisk: Double? = null, val transferRiskBasis: String = TRANSFER_RISK_BASIS_NONE,
+    /** One entry per transfer; null when the journey has fewer than two transit legs. */
+    val transferRiskDetail: List<TransferMissRisk>? = null,
+    /** Predicted arrival delay beyond the worst transfer's slack, in minutes; internal (drives the reason), not on the wire. */
+    val transferRiskOverrunMinutes: Int? = null
 )
 
 /**
@@ -144,8 +158,8 @@ class JourneyPlanService(
 
         val reasons = mutableListOf<Reason>()
         if (status == Situation.UNKNOWN) reasons += Reason("REALTIME_UNAVAILABLE")
-        val recommended: Journey?
-        val action: Action
+        var recommended: Journey?
+        var action: Action
         val label = own?.leg?.serviceLabel
         when {
             own != null && (own.cancelled || own.basis == DisruptionBasis.SUPPRESSED_STOP) -> {
@@ -169,6 +183,23 @@ class JourneyPlanService(
                 val robust = if (pref == Preference.FASTEST) sorted(unique.filter { it.id != primary.id && mins(arrivalOf(it), expectedPrimary) >= MIN_REROUTE_GAIN_MIN }).firstOrNull() else null
                 recommended = robust ?: primary; action = Action.STAY
                 if (robust != null) reasons += Reason("EXPECTED_FASTER", savedMinutes = mins(arrivalOf(robust), expectedPrimary))
+            }
+        }
+        // Transfer-miss risk gate: when the current pick is predicted to miss a connection (>= 0.5) and another
+        // candidate is genuinely safe (< 0.2), the safe one wins WITHOUT the usual 5-minute arrival-gain floor —
+        // the benefit is not arriving earlier but arriving at all. The risky journey stays listed as an alternative.
+        val current = recommended ?: primary
+        val currentRt = realtimeOf(current)
+        val currentRisk = currentRt.transferMissRisk
+        if (currentRisk != null && currentRisk >= TRANSFER_MISS_RISK_THRESHOLD) {
+            // A journey with no transfer has no connection to miss: it counts as safe (risk 0), not unknown.
+            fun safetyOf(c: Journey) = realtimeOf(c).transferMissRisk ?: if (c.transfers < 1) 0.0 else 1.0
+            val safer = sorted(unique.filter { it.id != current.id && safetyOf(it) < TRANSFER_SAFE_RISK_THRESHOLD }).firstOrNull()
+            if (safer != null) {
+                recommended = safer
+                action = if (safer.id == primary.id) Action.STAY else Action.REROUTE
+                reasons.removeAll { it.code == "EARLIER_ARRIVAL" || it.code == "EXPECTED_FASTER" }
+                reasons += Reason("TRANSFER_MISS_RISK", delayMinutes = currentRt.transferRiskOverrunMinutes?.takeIf { it > 0 })
             }
         }
         if (recommended != null && recommended.id != primary.id) {
@@ -223,6 +254,7 @@ class JourneyPlanService(
         // Legs an ACTIVE alert/replay disruption touches: a second, feed-level source of incident context.
         val alertLegs = if (active.isEmpty()) emptySet() else
             active.flatMap { d -> JourneyDisruptionMatcher.match(j, d)?.stations?.map { it.legIndex } ?: emptyList() }.toSet()
+        val estByLeg = arrayOfNulls<LegEstimate>(j.legs.size)
         val legs = j.legs.mapIndexed { i, l ->
             if (l.mode != LegMode.TRANSIT) return@mapIndexed LegRealtime(null, null, null, null)
             var dep = l.expectedDeparture; var arr = l.expectedArrival
@@ -239,6 +271,7 @@ class JourneyPlanService(
             val incCtx = hit?.let { IncidentContext(hit.leg.serviceLabel ?: l.serviceLabel) }
                 ?: if (i in alertLegs) IncidentContext(l.serviceLabel) else null
             val est = estimateFor(l, incCtx)
+            estByLeg[i] = est
             LegRealtime(dep, dep?.let { mins(l.departure, it) }, arr, arr?.let { mins(l.arrival, it) },
                 estimatedDepartureDelayMinutes = est.departure?.let { Math.round(it.median * 10) / 10.0 },
                 estimatedArrivalDelayMinutes = est.arrival?.let { Math.round(it.median * 10) / 10.0 },
@@ -268,17 +301,80 @@ class JourneyPlanService(
         val incSuppressed = transit.mapNotNull { legs[it].incidentSuppressedStopRisk }.maxOrNull()
         val projDep = firstLeg?.projectedDeparture
         val projArr = lastLeg?.projectedArrival
+        val transfer = transferAggregate(j, legs, estByLeg)
         if (gtfs || ojp) {
             val src = if (gtfs) "GTFS_RT" else "OJP"
             return JourneyRealtime(legs, firstLeg?.expectedDeparture, firstLeg?.departureDelayMinutes, arrDelay?.let { j.arrival.plusMinutes(it.toLong()) }, arrDelay, src, null,
                 firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr,
-                estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount)
+                estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount,
+                transfer.missRisk, transfer.basis, transfer.detail, transfer.overrunMinutes)
         }
         val m = delay.forJourney(j) ?: return JourneyRealtime(legs, null, null, null, null, "NONE", null,
             firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr,
-            estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount)
+            estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount,
+            transfer.missRisk, transfer.basis, transfer.detail, transfer.overrunMinutes)
         return JourneyRealtime(legs, null, null, j.arrival.plusMinutes(m.minutes.toLong()), m.minutes, "DELAY_MODEL", m.samples,
             firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr,
-            estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount)
+            estBasis, incExtra, incCancelled, incSuppressed, incSamples, incCount,
+            transfer.missRisk, transfer.basis, transfer.detail, transfer.overrunMinutes)
+    }
+
+    private data class TransferAggregate(
+        val missRisk: Double?, val basis: String, val detail: List<TransferMissRisk>?, val overrunMinutes: Int?
+    )
+
+    /**
+     * Per consecutive TRANSIT pair: slack = next scheduled departure - this scheduled arrival, minus any WALK legs
+     * between them. The arrival-delay distribution of the FIRST leg answers P(delay > slack): KNOWN live overrun
+     * first, then the incident-conditioned median/p90, then the chronic bucket. Unknown stays null, never 0.
+     * The journey value is the maximum; its basis and overrun travel with it.
+     */
+    private fun transferAggregate(j: Journey, legs: List<LegRealtime>, ests: Array<LegEstimate?>): TransferAggregate {
+        val transit = j.legs.indices.filter { j.legs[it].mode == LegMode.TRANSIT }
+        if (transit.size < 2) return TransferAggregate(null, TRANSFER_RISK_BASIS_NONE, null, null)
+        val out = mutableListOf<TransferMissRisk>()
+        for (k in 0 until transit.size - 1) {
+            val i = transit[k]; val n = transit[k + 1]
+            val walkMinutes = (i + 1 until n).filter { j.legs[it].mode != LegMode.TRANSIT }
+                .sumOf { mins(j.legs[it].departure, j.legs[it].arrival) }
+            val slack = mins(j.legs[i].arrival, j.legs[n].departure) - walkMinutes
+            val est = ests[i]?.arrival
+            val incident = ests[i]?.incident
+            val conditionedRow = est != null && est.basis.endsWith("_INCIDENT")
+            val conditioned = est != null && (conditionedRow || incident?.extraMinutes != null)
+            val extra = incident?.extraMinutes ?: 0.0
+            var basis = TRANSFER_RISK_BASIS_NONE
+            var risk: Double? = null
+            var overrun: Int? = null
+            val knownDelay = legs[i].expectedArrival?.let { legs[i].arrivalDelayMinutes }
+            when {
+                knownDelay != null -> {
+                    basis = TRANSFER_RISK_BASIS_KNOWN
+                    risk = if (knownDelay > slack) 1.0 else 0.0
+                    overrun = knownDelay - slack
+                }
+                est != null && conditioned -> {
+                    basis = TRANSFER_RISK_BASIS_CONDITIONED_INCIDENT
+                    // A conditioned bucket is already shifted; only an unconditional median needs the extra added.
+                    val median = if (conditionedRow) est.median else est.median + extra
+                    val tail = if (conditionedRow) est.p90 else est.p90?.plus(extra)
+                    risk = missProbability(median, tail, slack)
+                    overrun = Math.round(median).toInt() - slack
+                }
+                est != null -> {
+                    basis = TRANSFER_RISK_BASIS_CHRONIC
+                    risk = missProbability(est.median, est.p90, slack)
+                    overrun = Math.round(est.median).toInt() - slack
+                }
+            }
+            if (risk != null) {
+                // A connection that is already impossible on paper is a sure miss whatever the distribution says.
+                if (slack < 0) risk = 1.0
+                out += TransferMissRisk(i, n, slack, risk, basis, overrun)
+            }
+        }
+        if (out.isEmpty()) return TransferAggregate(null, TRANSFER_RISK_BASIS_NONE, null, null)
+        val worst = out.maxByOrNull { it.missRisk }!!
+        return TransferAggregate(worst.missRisk, worst.basis, out, worst.overrunMinutes)
     }
 }

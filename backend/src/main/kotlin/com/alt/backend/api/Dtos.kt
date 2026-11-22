@@ -91,8 +91,16 @@ data class RealtimeDto(
     val projectedDeparture: String? = null, val projectedArrival: String? = null,
     val estimatedBasis: String = "NONE",
     val incidentExtraMinutes: Double? = null, val incidentCancellationRisk: Double? = null,
-    val incidentSuppressedStopRisk: Double? = null, val incidentSamples: Int? = null, val incidentCount: Int? = null
+    val incidentSuppressedStopRisk: Double? = null, val incidentSamples: Int? = null, val incidentCount: Int? = null,
+    /** Transfer-miss risk layer (docs/API_CONTRACT.md): max over transfers, its evidence basis and the per-transfer detail. */
+    val transferMissRisk: Double? = null, val transferRiskBasis: String = "NONE",
+    val transferRiskDetail: List<TransferRiskDto>? = null
 )
+
+/** One transfer that might be missed; [fromLeg] / [toLeg] index the journey's `legs`. */
+@Serializable
+data class TransferRiskDto(val fromLeg: Int, val toLeg: Int, val slackMinutes: Int, val missRisk: Double)
+
 
 @Serializable
 data class RiskDto(
