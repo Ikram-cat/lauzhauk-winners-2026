@@ -50,6 +50,25 @@ class ServiceAlertsTest {
     }
 
     @Test
+    fun `duplicates with the same title, either direction, and the same stations are merged`() {
+        fun alert(id: String, title: String, agency: String) =
+            ServiceAlert(id, listOf(start to end), emptyList(), listOf(agency), "CONSTRUCTION", null, mapOf("en" to title), emptyMap())
+        val morges = listOf(0 to "ch:1:sloid:1037")
+        val matches = listOf(
+            AlertMatch(alert("a", "Interrupted service: Renens VD - Allaman", "11"), morges),
+            AlertMatch(alert("b", "Interrupted service: Renens VD - Allaman", "29"), morges),
+            AlertMatch(alert("c", "Interrupted service: Allaman - Renens VD", "11"), morges),
+            AlertMatch(alert("d", "Limited service: Renens VD - Allaman", "11"), morges),
+            AlertMatch(alert("e", "Interrupted service: Renens VD - Allaman", "11"), listOf(0 to "ch:1:sloid:1120")))
+        val groups = ServiceAlertGrouper.group(matches)
+        assertEquals(3, groups.size)
+        val merged = groups.single { it.alerts.size == 3 }
+        assertEquals(listOf("a", "b", "c"), merged.alerts.map { it.id })
+        assertEquals(listOf("11", "29"), merged.operators)
+        assertEquals(listOf("Renens VD - Allaman", "Allaman - Renens VD"), merged.directions)
+    }
+
+    @Test
     fun `an active alert at Morges touches the IC 1 Lausanne - Geneva leg, not outside its period`() = runTest {
         val at = OffsetDateTime.parse("2026-11-22T08:00:00Z")
         val journeys = (DemoScenarioTransportProvider().search(SearchRequest("Lausanne", "Genève", at)) as ProviderResult.Success).journeys

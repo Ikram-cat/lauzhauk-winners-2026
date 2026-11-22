@@ -408,15 +408,17 @@ These values come from the backend test that replays Renens at 18:30 with a fake
 Every journey-impact response also carries `liveAlerts`. It lists the current GTFS-RT Service Alerts (`la/gtfs-sa`) that touch the planned journey, and is labelled **`dataStatus: "LIVE"`**, separately from the replayed `MOCK` impacts.
 - **Matching:** an alert touches the journey when one of its `informed_entity.stop_id` stop places (sloid, platform suffix removed) is boarded, passed or alighted by a transit leg, and one of its `active_period` windows contains `observedAt`. A replayed past `observedAt` therefore normally gives no live alert.
 - **`status`:** `OK`, `DISABLED` (no `GTFS_SA_API_KEY`) or `UNAVAILABLE` (feed not reachable). `fetchedAt` and `feedTimestamp` describe the snapshot, which is refreshed at most once a minute.
-- **Each alert:** `id` (UUID), `headerText` and `descriptionText` (language → SBB text, description truncated to 1,000 characters), `cause`, `effect`, `activePeriods` (`start`, `end`), `matchedStations` (`legIndex`, `sloid`, `uic`).
+- **Each entry:** `ids` (UUIDs of the merged feed alerts), `operators` (GTFS agency ids, `11` = SBB), `directions` (route part of each merged title, e.g. `Renens VD - Allaman`), `headerText` and `descriptionText` (language → SBB text of the first merged alert, description truncated to 1,000 characters), `cause`, `effect`, `activePeriods` (union, `start` and `end`), `matchedStations` (`legIndex`, `sloid`, `uic`).
 - **No prediction:** `prediction` is always `null`, and `predictionReason` explains why. The alert cause has no mapping to the SBB cause codes the model was trained on, `active_period` is a validity window rather than a verified announced end, and live alerts cannot yet be validated against known ends.
-- **Duplicates:** the feed can carry the same text several times (for example one alert per operator or direction). Clients may group alerts by `headerText`.
+- **Duplicates are merged by the backend.** The feed repeats the same text with different UUIDs, once per operator set and once per direction ("Renens VD - Allaman" / "Allaman - Renens VD"). Alerts are merged when they have the same title kind (text before `: `), the same two end stations in either order, and the same matched stations. On 2026-11-22, 9 matched alerts on Lausanne → Genève became 2 entries: "Interrupted service" and "Limited service".
 
 ```json
 "liveAlerts": {
   "dataStatus": "LIVE", "status": "OK", "source": "GTFS-RT Service Alerts, opentransportdata.swiss la/gtfs-sa",
   "fetchedAt": "2026-11-22T00:41:05Z", "feedTimestamp": "2026-11-21T23:38:59Z",
-  "alerts": [ { "id": "…", "headerText": { "en": "Interrupted service: Renens VD - Allaman", "fr": "…", "de": "…", "it": "…" },
+  "alerts": [ { "ids": ["441a1c3a-…", "54d7890e-…", "d90682fc-…"], "operators": ["11", "29", "74"],
+                "directions": ["Renens VD - Allaman", "Allaman - Renens VD"],
+                "headerText": { "en": "Interrupted service: Renens VD - Allaman", "fr": "…", "de": "…", "it": "…" },
                 "cause": "CONSTRUCTION", "effect": "UNKNOWN_EFFECT", "activePeriods": [ { "start": "…", "end": "…" } ],
                 "matchedStations": [ { "legIndex": 0, "sloid": "ch:1:sloid:1037", "uic": 8501037 } ],
                 "prediction": null, "predictionReason": "No duration is predicted for live alerts: …" } ]

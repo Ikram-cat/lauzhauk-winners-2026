@@ -138,6 +138,37 @@ object ServiceAlertMatcher {
     }
 }
 
+/** Alerts with the same title (direction ignored) and the same matched stations, merged. */
+data class AlertGroup(
+    val alerts: List<ServiceAlert>,
+    val stops: List<Pair<Int, String>>,
+    val operators: List<String>,
+    /** "A - B" route parts of the English (else any) titles, in feed order: one entry per direction seen. */
+    val directions: List<String>
+)
+
+object ServiceAlertGrouper {
+    private fun title(a: ServiceAlert) = a.header["en"] ?: a.header.values.firstOrNull() ?: ""
+
+    /** "Interrupted service: Allaman - Renens VD" and "...: Renens VD - Allaman" share one key. */
+    fun key(a: ServiceAlert, stops: List<Pair<Int, String>>): String {
+        val t = title(a)
+        val (kind, route) = if (": " in t) t.substringBefore(": ") to t.substringAfter(": ") else "" to t
+        val ends = route.split(" - ").map { it.trim() }.sorted().joinToString(" | ")
+        return "$kind#$ends#" + stops.map { it.second }.toSortedSet().joinToString(",")
+    }
+
+    fun group(matches: List<AlertMatch>): List<AlertGroup> =
+        matches.groupBy { key(it.alert, it.stops) }.values.map { same ->
+            AlertGroup(
+                alerts = same.map { it.alert },
+                stops = same.flatMap { it.stops }.distinct(),
+                operators = same.flatMap { it.alert.agencyIds }.distinct(),
+                directions = same.map { title(it.alert).substringAfter(": ") }.distinct()
+            )
+        }
+}
+
 /** la/gtfs-sa, fetched at most once per [ttlMs]; a snapshot stays usable for [staleMs]. The key is only a header. */
 class ServiceAlertsSource(
     private val fetch: suspend () -> ByteArray,

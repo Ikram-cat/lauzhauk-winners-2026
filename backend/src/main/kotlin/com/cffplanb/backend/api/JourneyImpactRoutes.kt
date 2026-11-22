@@ -6,6 +6,7 @@ import com.cffplanb.backend.service.SearchResult
 import com.cffplanb.backend.service.duration.DisruptionDurationEstimator
 import com.cffplanb.backend.service.impact.ImpactResult
 import com.cffplanb.backend.service.impact.JourneyImpactService
+import com.cffplanb.backend.service.impact.ServiceAlertGrouper
 import com.cffplanb.backend.service.impact.ServiceAlertMatcher
 import com.cffplanb.backend.service.impact.ServiceAlertsSource
 import io.ktor.http.*
@@ -107,15 +108,18 @@ private suspend fun liveAlerts(source: ServiceAlertsSource?, planned: com.cffpla
         status = "OK",
         fetchedAt = iso(snapshot.fetchedAt),
         feedTimestamp = iso(snapshot.feedTimestamp),
-        alerts = matches.map { m ->
+        alerts = ServiceAlertGrouper.group(matches).map { g ->
+            val first = g.alerts.first()
             LiveAlertDto(
-                id = m.alert.id,
-                headerText = m.alert.header,
-                descriptionText = m.alert.description.mapValues { it.value.take(1000) },
-                cause = m.alert.cause,
-                effect = m.alert.effect,
-                activePeriods = m.alert.periods.map { (s, e) -> ActivePeriodDto(iso(s), iso(e)) },
-                matchedStations = m.stops.map { (leg, sloid) ->
+                ids = g.alerts.map { it.id },
+                operators = g.operators,
+                directions = g.directions,
+                headerText = first.header,
+                descriptionText = first.description.mapValues { it.value.take(1000) },
+                cause = first.cause,
+                effect = first.effect,
+                activePeriods = g.alerts.flatMap { it.periods }.distinct().map { (s, e) -> ActivePeriodDto(iso(s), iso(e)) },
+                matchedStations = g.stops.map { (leg, sloid) ->
                     LiveAlertStopDto(leg, sloid, sloid.substringAfterLast(":").toIntOrNull()?.let { 8500000 + it })
                 }
             )

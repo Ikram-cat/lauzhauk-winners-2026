@@ -51,10 +51,18 @@ data class ActivePeriodDto(val start: String?, val end: String?)
 @Serializable
 data class LiveAlertStopDto(val legIndex: Int, val sloid: String, val uic: Int?)
 
-/** A live GTFS-RT Service Alert touching the journey. No duration is predicted for live alerts. */
+/**
+ * Live GTFS-RT Service Alerts touching the journey, merged when they share the title (direction ignored)
+ * and the matched stations. No duration is predicted for live alerts.
+ */
 @Serializable
 data class LiveAlertDto(
-    val id: String,
+    /** UUIDs of the merged feed alerts. */
+    val ids: List<String>,
+    /** GTFS agency ids (operators) named by the merged alerts, e.g. "11" = SBB. */
+    val operators: List<String>,
+    /** Route parts of the merged titles, one per direction seen, e.g. "Renens VD - Allaman". */
+    val directions: List<String>,
     val headerText: Map<String, String>,
     val descriptionText: Map<String, String>,
     val cause: String?,
