@@ -24,12 +24,11 @@ internal enum class Travelcard(val label: Copy) {
 }
 
 internal data class FareProfile(val firstClass: Boolean = false, val travelcard: Travelcard = Travelcard.STANDARD) {
-    // Search always requests second-class, undiscounted fares. The API also returns the other class/discount quotes.
+    // fares.catalogChf carries every class/discount combination regardless of what was requested.
     fun price(journey: Journey): Double? {
-        if (journey.fareStatus == "UNAVAILABLE" || journey.dataStatus == "MOCK") return null
         val amount = when (travelcard) {
-            Travelcard.STANDARD -> journey.fullFare(firstClass) ?: journey.fareChf.takeUnless { firstClass }
-            Travelcard.HALF_FARE -> if (firstClass) journey.firstClassHalfFareChf else journey.halfFareChf
+            Travelcard.STANDARD -> journey.catalogFare(firstClass, halfFare = false)
+            Travelcard.HALF_FARE -> journey.catalogFare(firstClass, halfFare = true)
             else -> null
         }
         return amount?.takeIf { it.isFinite() && it >= 0.0 }

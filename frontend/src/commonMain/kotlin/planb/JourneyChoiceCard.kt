@@ -14,7 +14,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +34,7 @@ internal fun JourneyChoiceCard(
     toggleDetails: () -> Unit,
     chooseJourney: () -> Unit,
     recommended: Boolean = false,
+    whyText: String? = null,
     fare: Double? = null,
     fullFare: Double? = null,
     fareLabel: String = "",
@@ -43,8 +43,8 @@ internal fun JourneyChoiceCard(
 ) {
     val copy = language::text
     val colors = MaterialTheme.colorScheme
-    val start = Instant.parse(journey.departure)
-    val end = Instant.parse(journey.arrival)
+    val start = journey.effectiveDeparture
+    val end = journey.effectiveArrival
     val startDay = start.toLocalDateTime(Zurich).date
     val endDay = end.toLocalDateTime(Zurich).date
     val transfer = if (journey.transfers == 0) copy(Copy.Direct)
@@ -56,8 +56,8 @@ internal fun JourneyChoiceCard(
         colors = CardDefaults.outlinedCardColors(containerColor = colors.surface)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            journey.why?.let { whyText ->
-                Text(whyText, color = colors.primary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+            whyText?.let {
+                Text(it, color = colors.primary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
             }
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) {
@@ -70,11 +70,15 @@ internal fun JourneyChoiceCard(
                         if (startDay == endDay) "$startDay · Europe/Zurich" else "$startDay - $endDay · Europe/Zurich",
                         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant
                     )
+                    Text(
+                        copy(if (journey.isLive) Copy.ExpectedTimeTag else Copy.ScheduledTimeTag),
+                        style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant
+                    )
                 }
                 Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = 126.dp)) {
                     Text(fare?.let(::chf) ?: fareLabel, style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold, color = if (fare == null) colors.onSurfaceVariant else colors.primary)
-                    if (fare != null) journey.fareSource?.let {
+                    if (fare != null) journey.fares?.source?.let {
                         Text(it, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     }
                 }
@@ -84,7 +88,7 @@ internal fun JourneyChoiceCard(
                 val lateMin = deadline?.let { (end - it).inWholeMinutes.coerceAtLeast(1) }
                 val lateLabel = if (lateMin != null) "${copy(Copy.ArrivesLateBy)}$lateMin min" else copy(Copy.MissesDeadline)
                 Text(lateLabel, color = colors.primary, fontWeight = FontWeight.SemiBold)
-            } else if (deadline != null && journey.why == null) {
+            } else if (deadline != null && whyText == null) {
                 val earlyMin = (deadline - end).inWholeMinutes.coerceAtLeast(0)
                 Text("${copy(Copy.ArrivesBeforeDeadlineBy)}$earlyMin min", color = colors.onSurfaceVariant)
             }
@@ -108,33 +112,48 @@ internal fun JourneyChoiceCard(
                 }
             }
             if (expanded) {
-                val risk = journey.lateArrivalProbability?.takeIf { it.isFinite() && it in 0.0..1.0 }
-                val riskLabel = when (journey.riskSource) {
-                    "corridor" -> journey.riskLabel?.let { "${copy(Copy.CorridorRisk)} $it" }
-                    "baseline" -> copy(Copy.HourRisk)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (journey.verified) CheckIcon(colors.primary) else InfoIcon(colors.onSurfaceVariant)
+                    Text(
+                        copy(if (journey.verified) Copy.LiveVerified else Copy.EstimateOnly),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (journey.verified) colors.primary else colors.onSurfaceVariant
+                    )
+                }
+                val risk = journey.risk
+                val pct = risk?.corridorIncidentRate?.takeIf { it.isFinite() && it in 0.0..1.0 }
+                val riskLabel = when (risk?.source) {
+                    "CORRIDOR" -> copy(Copy.CorridorRisk)
+                    "BASELINE" -> copy(Copy.HourRisk)
                     else -> null
                 }
-                if (risk != null && riskLabel != null && model?.modelVersion != null) {
-                    val tenths = (risk * 1000).let { kotlin.math.round(it).toInt() }
+                if (pct != null && riskLabel != null && model?.riskModel?.version != null) {
+                    val tenths = (pct * 1000).let { kotlin.math.round(it).toInt() }
                     val separator = if (language == Language.English) "." else ","
-                    val confidence = journey.riskConfidence?.let { " · $it" }.orEmpty()
+                    val confidence = risk.confidence?.lowercase()?.let { " · $it" }.orEmpty()
                     Text("${tenths / 10}$separator${tenths % 10}% $riskLabel$confidence",
-                        color = if (journey.riskConfidence == "very_low") colors.onSurfaceVariant else colors.onSurface)
-                    if (journey.riskBasis == "corridor_duration") journey.disruptionDurationMin?.let {
+                        color = if (risk.confidence == "VERY_LOW") colors.onSurfaceVariant else colors.onSurface)
+                    risk.typicalIncidentDurationMinutes?.let {
                         Text("${copy(Copy.TypicalDisruption)} · $it min")
                     }
-                    Text("${copy(Copy.DataModel)} · ${model.modelVersion}", style = MaterialTheme.typography.bodySmall)
+                    Text("${copy(Copy.DataModel)} · ${model.riskModel?.version}", style = MaterialTheme.typography.bodySmall)
                 } else if (journey.dataStatus == "LIVE_SCHEDULE") Text(copy(Copy.RiskUnknown), color = colors.onSurfaceVariant)
+                journey.maxOccupancy?.let { level ->
+                    occupancyLabel(level, language)?.let {
+                        Text("${copy(Copy.OccupancyLabel)} · $it", color = colors.onSurfaceVariant)
+                    }
+                }
             }
             if (expanded) for (leg in journey.legs) {
                 HorizontalDivider(color = colors.outlineVariant)
-                val departure = Instant.parse(leg.departure)
-                val arrival = Instant.parse(leg.arrival)
+                val departure = leg.expectedDeparture?.let(Instant::parse) ?: Instant.parse(leg.departure)
+                val arrival = leg.expectedArrival?.let(Instant::parse) ?: Instant.parse(leg.arrival)
                 fun label(instant: Instant) = if (startDay == endDay) time(instant)
                     else "${time(instant)} · ${instant.toLocalDateTime(Zurich).date}"
                 fun endpoint(value: String, fallback: Copy) =
                     if (leg.mode == "WALK" && isCoordinate(value)) copy(fallback) else localizedStationName(value, language)
                 Text("${label(departure)} ${endpoint(leg.origin, Copy.WalkFromAddress)} - ${label(arrival)} ${endpoint(leg.destination, Copy.WalkToAddress)}")
+                val occupancy = occupancyLabel(leg.occupancy?.secondClass, language)
                 val details = listOfNotNull(
                     when (leg.mode) {
                         "WALK" -> copy(Copy.Walking)
@@ -142,7 +161,8 @@ internal fun JourneyChoiceCard(
                         else -> leg.serviceLabel
                     },
                     leg.departurePlatform?.let { "${copy(Copy.BoardingPlatform)} $it" },
-                    leg.arrivalPlatform?.let { "${copy(Copy.ArrivalPlatform)} $it" }
+                    leg.arrivalPlatform?.let { "${copy(Copy.ArrivalPlatform)} $it" },
+                    occupancy?.let { "${copy(Copy.OccupancyLabel)} $it" }
                 )
                 if (details.isNotEmpty()) Text(details.joinToString(" · "), color = colors.onSurfaceVariant)
             }

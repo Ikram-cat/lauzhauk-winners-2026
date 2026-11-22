@@ -184,10 +184,45 @@ internal enum class Copy(val french: String, val english: String, val german: St
         "Permesso di localizzazione negato. Inserisci la stazione manualmente."
     ),
     Close("Fermer", "Close", "Schliessen", "Chiudi"),
-    NearestStationPending(
-        "Fonction en cours de développement : la recherche de la gare la plus proche n’est pas encore disponible.",
-        "Feature in development: nearest-station lookup is not yet available.",
-        "Funktion in Entwicklung: die Suche nach dem nächsten Bahnhof ist noch nicht verfügbar.",
-        "Funzionalità in sviluppo: la ricerca della stazione più vicina non è ancora disponibile."
-    )
+    LocationUnavailable(
+        "Position indisponible. Saisissez votre gare manuellement.",
+        "Location unavailable. Enter your station manually.",
+        "Standort nicht verfügbar. Bitte Bahnhof manuell eingeben.",
+        "Posizione non disponibile. Inserisci la stazione manualmente."
+    ),
+    NoStationNearby(
+        "Aucune gare trouvée à proximité.", "No nearby station found.",
+        "Keine Bahnhof in der Nähe gefunden.", "Nessuna stazione trovata nelle vicinanze."
+    ),
+
+    // Reason codes (reasons[].code from /api/journeys) — all client-side wording now, per MSG-0027.
+    ReasonPrimaryLegDelayed("Votre train habituel est retardé", "Your usual train is delayed",
+        "Ihr gewohnter Zug hat Verspätung", "Il tuo treno abituale è in ritardo"),
+    ReasonPrimaryLegCancelled("Votre train habituel est supprimé", "Your usual train is cancelled",
+        "Ihr gewohnter Zug fällt aus", "Il tuo treno abituale è soppresso"),
+    ReasonSuppressedStop("Cet arrêt est supprimé sur ce trajet", "This stop is skipped on this service",
+        "Dieser Halt wird auf dieser Verbindung nicht bedient", "Questa fermata viene saltata su questo servizio"),
+    ReasonEarlierArrival("Arrivée plus tôt", "Earlier arrival", "Frühere Ankunft", "Arrivo anticipato"),
+    ReasonFewerTransfers("Moins de correspondances", "Fewer transfers", "Weniger Umstiege", "Meno cambi"),
+    ReasonCheaper("Moins cher", "Cheaper", "Günstiger", "Più economico"),
+    ReasonDeadlineMet("Arrive avant votre heure limite", "Arrives before your deadline",
+        "Kommt vor Ihrer Frist an", "Arriva prima della tua scadenza"),
+    ReasonDeadlineMissed("N’arrive pas avant votre heure limite", "Does not arrive before your deadline",
+        "Kommt nicht vor Ihrer Frist an", "Non arriva prima della tua scadenza"),
+    ReasonRealtimeUnavailable("Données en direct indisponibles pour ce trajet", "Live data unavailable for this journey",
+        "Live-Daten für diese Verbindung nicht verfügbar", "Dati in tempo reale non disponibili per questo itinerario"),
+    ReasonStayFastest("Toujours votre option la plus rapide", "Still your fastest option",
+        "Immer noch Ihre schnellste Option", "È ancora la tua opzione più rapida"),
+    ReasonExpectedFasterBy("Généralement plus rapide de ", "Typically faster by ",
+        "Normalerweise schneller um ", "Generalmente più rapido di "),
+
+    // Realtime vs schedule, occupancy, verified badge
+    ScheduledTimeTag("prévu", "scheduled", "geplant", "previsto"),
+    ExpectedTimeTag("estimé en direct", "live estimate", "Live-Schätzung", "stima in tempo reale"),
+    LiveVerified("Vérifié en direct", "Live-verified", "Live geprüft", "Verificato in tempo reale"),
+    EstimateOnly("Estimation seulement", "Estimate only", "Nur Schätzung", "Solo stima"),
+    OccupancyLabel("Occupation", "Occupancy", "Auslastung", "Occupazione"),
+    OccupancyLow("Faible", "Low", "Niedrig", "Bassa"),
+    OccupancyMedium("Moyenne", "Medium", "Mittel", "Media"),
+    OccupancyHigh("Élevée", "High", "Hoch", "Alta")
 }
