@@ -2,37 +2,20 @@
 
 package alt
 
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlin.time.ExperimentalTime
-import kotlin.time.Instant
 
-val ZURICH = TimeZone.of("Europe/Zurich")
+internal fun p2(n: Int): String = if (n < 10) "0$n" else "$n"
 
-private fun p2(n: Int): String = if (n < 10) "0$n" else "$n"
+// Platform-specific Europe/Zurich conversions (kotlinx-datetime has no tz database on Wasm;
+// there we use the browser's Intl API instead).
+expect fun fmtZurich(iso: String, withDate: Boolean): String?
+expect fun localToInstantIso(localIso: String): String?
+expect fun todayZurichDate(): String
 
-@OptIn(ExperimentalTime::class)
-fun parseInstant(iso: String?): Instant? =
-    if (iso.isNullOrBlank()) null else runCatching { Instant.parse(iso) }.getOrNull()
+fun fmtTime(iso: String?): String = (iso?.let { fmtZurich(it, false) }) ?: "—"
 
-@OptIn(ExperimentalTime::class)
-fun LocalDateTime.toApiInstant(): String? = runCatching { toInstant(ZURICH).toString() }.getOrNull()
-
-fun fmtTime(iso: String?): String {
-    val inst = parseInstant(iso) ?: return "—"
-    val t = inst.toLocalDateTime(ZURICH)
-    return "${p2(t.hour)}:${p2(t.minute)}"
-}
-
-fun fmtDateTime(iso: String?): String {
-    val inst = parseInstant(iso) ?: return "—"
-    val t = inst.toLocalDateTime(ZURICH)
-    return "${p2(t.day)}.${p2(t.month.ordinal + 1)} ${p2(t.hour)}:${p2(t.minute)}"
-}
+fun fmtDateTime(iso: String?): String = (iso?.let { fmtZurich(it, true) }) ?: "—"
 
 fun fmtDuration(minutes: Int?): String {
     if (minutes == null) return "—"

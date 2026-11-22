@@ -1,5 +1,3 @@
-@file:OptIn(kotlin.time.ExperimentalTime::class)
-
 package alt
 
 import androidx.compose.runtime.getValue
@@ -9,8 +7,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.toLocalDateTime
 
 class AppState(private val scope: CoroutineScope) {
     val api = AltApi(defaultApiBase())
@@ -85,16 +81,17 @@ class AppState(private val scope: CoroutineScope) {
 
     private fun timestamp(date: String, time: String): String? {
         if (date.isBlank() && time.isBlank()) return null
-        if (date.isBlank() || time.isBlank()) return "INVALID"
+        if (time.isBlank()) return null
+        if (date.isBlank()) return "INVALID"
         val iso = "${date.trim()}T${time.trim()}"
-        return runCatching { LocalDateTime.parse(iso).toApiInstant() }.getOrNull() ?: "INVALID"
+        return localToInstantIso(iso) ?: "INVALID"
     }
 
     fun search(simulate: Boolean = false) {
         if (fromText.isBlank() || toText.isBlank()) { error = t("enterboth"); return }
         val dep = timestamp(dateText, timeText)
         if (dep == "INVALID") { error = t("badtime"); return }
-        val deadline = timestamp(dateText.ifBlank { todayText() }, deadlineText)
+        val deadline = timestamp(if (deadlineText.isBlank()) dateText else dateText.ifBlank { todayText() }, deadlineText)
         if (deadline == "INVALID") { error = t("badtime"); return }
 
         val q = SearchQuery(
@@ -142,11 +139,5 @@ class AppState(private val scope: CoroutineScope) {
 
     fun simulate() = search(simulate = true)
 
-    private fun todayText(): String {
-        val now = kotlin.time.Clock.System.now().toLocalDateTime(ZURICH)
-        val mn = now.month.ordinal + 1
-        val m = if (mn < 10) "0$mn" else "$mn"
-        val d = if (now.day < 10) "0${now.day}" else "${now.day}"
-        return "${now.year}-$m-$d"
-    }
+    private fun todayText(): String = todayZurichDate()
 }

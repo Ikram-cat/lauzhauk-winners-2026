@@ -287,7 +287,7 @@ private fun JourneyCard(
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(fmtTime(sched?.departure), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("  →  ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("  –  ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(fmtTime(sched?.arrival), fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(10.dp))
                 Column {
@@ -323,7 +323,7 @@ private fun JourneyCard(
                 Spacer(Modifier.weight(1f))
                 if (onToggle != null) {
                     TextButton(onClick = onToggle, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text(if (expanded) "▲" else "▼", fontSize = 12.sp)
+                        Text(if (expanded) "-" else "+", fontSize = 16.sp)
                     }
                 }
             }
@@ -380,7 +380,7 @@ private fun LegRow(st: AppState, leg: Leg, index: Int) {
         }
         Column(Modifier.weight(1f)) {
             Text(
-                "${leg.origin ?: "—"}  →  ${leg.destination ?: "—"}",
+                "${leg.origin ?: "—"}  –  ${leg.destination ?: "—"}",
                 fontSize = 12.sp, maxLines = 1,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

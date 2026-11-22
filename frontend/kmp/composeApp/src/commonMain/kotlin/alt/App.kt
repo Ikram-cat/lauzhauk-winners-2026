@@ -110,7 +110,7 @@ private fun SearchPanel(st: AppState) {
             )
             Column(Modifier.padding(top = 8.dp)) {
                 OutlinedButton(onClick = { st.swap() }, contentPadding = PaddingValues(horizontal = 12.dp)) {
-                    Text("⇅")
+                    Text("Swap")
                 }
             }
             LocationField(
