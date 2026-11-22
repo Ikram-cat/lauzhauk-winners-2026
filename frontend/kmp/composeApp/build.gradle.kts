@@ -15,6 +15,15 @@ kotlin {
         binaries.executable()
     }
 
+    // iOS (device + Apple-silicon simulator). Static framework consumed by frontend/kmp/iosApp (Xcode, generated
+    // with xcodegen). Kotlin/Native iOS targets only build on macOS; other hosts skip them with a warning.
+    listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
+        target.binaries.framework {
+            baseName = "ComposeApp"
+            isStatic = true
+        }
+    }
+
     sourceSets {
         val commonMain by getting {
             dependencies {
@@ -48,6 +57,10 @@ kotlin {
             dependencies {
                 implementation("io.ktor:ktor-client-js:3.3.3")
             }
+        }
+        // Convention accessor: iosMain comes from the default hierarchy template (created after the targets).
+        iosMain.dependencies {
+            implementation("io.ktor:ktor-client-darwin:3.3.3")
         }
     }
 }
