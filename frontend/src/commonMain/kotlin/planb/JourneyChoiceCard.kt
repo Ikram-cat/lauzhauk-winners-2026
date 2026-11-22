@@ -80,6 +80,24 @@ internal fun JourneyChoiceCard(
                 }
             }
             Text("${journey.durationMinutes} min · $transfer · ${copy(journey.provenance)}", color = colors.onSurfaceVariant)
+            if (journey.arrivalDelayMinutes != null && journey.arrivalDelayMinutes > 0) {
+                val sourceCopy = when (journey.realtimeSource) {
+                    "GTFS_RT" -> Copy.RealtimeSourceGtfs
+                    "DELAY_MODEL" -> Copy.RealtimeSourceModel
+                    else -> Copy.RealtimeSourceOjp
+                }
+                Text("${copy(Copy.EstimatedDelay)}+${journey.arrivalDelayMinutes} min · ${copy(sourceCopy)}",
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+            }
+            journey.maxOccupancy?.let { level ->
+                val levelCopy = when (level.uppercase()) {
+                    "LOW" -> Copy.OccupancyLow
+                    "MEDIUM" -> Copy.OccupancyMedium
+                    "HIGH" -> Copy.OccupancyHigh
+                    else -> null
+                }
+                levelCopy?.let { Text("${copy(Copy.OccupancyLabel)} · ${copy(it)}", color = colors.onSurfaceVariant) }
+            }
             if (journey.feasible == false) {
                 val lateMin = deadline?.let { (end - it).inWholeMinutes.coerceAtLeast(1) }
                 val lateLabel = if (lateMin != null) "${copy(Copy.ArrivesLateBy)}$lateMin min" else copy(Copy.MissesDeadline)

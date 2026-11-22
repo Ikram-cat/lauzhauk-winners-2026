@@ -8,68 +8,64 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FaresTest {
-    private fun body(fare: String, recommendations: String = "") = """
-        {"request":{"origin":"Bern","destination":"Basel SBB","preference":"CHEAPEST"},
-        "journeys":[{"id":"j1","departure":"2026-11-21T14:02:00+01:00","arrival":"2026-11-21T14:57:00+01:00",
-        "durationMinutes":55,"transfers":0,"dataStatus":"LIVE_SCHEDULE","futureField":true,
-        "legs":[{"mode":"TRANSIT","origin":"Bern","destination":"Basel SBB",
-        "departure":"2026-11-21T14:02:00+01:00","arrival":"2026-11-21T14:57:00+01:00"}]$fare}]$recommendations}
-    """.trimIndent()
+    private fun journey(fares: String) = parseEnvelope(
+        """
+        { "status": "NO_DISRUPTION", "action": "STAY",
+          "primaryJourney": { "id": "j1", "dataStatus": "LIVE_SCHEDULE", "futureField": true,
+            "schedule": { "departure": "2026-11-21T14:02:00+01:00", "arrival": "2026-11-21T14:57:00+01:00", "durationMinutes": 55, "transfers": 0 },
+            "fares": $fares,
+            "legs": [ { "mode": "TRANSIT", "origin": "Bern", "destination": "Basel SBB",
+                        "departure": "2026-11-21T14:02:00+01:00", "arrival": "2026-11-21T14:57:00+01:00" } ] } }
+        """.trimIndent()
+    ).journeys.single()
 
     @Test
-    fun parsesPricedFareAndRecommendations() {
-        val response = parseJourneys(body(
-            ""","estimatedFareChf":42.0,"halfFareChf":21.0,"firstClassFareChf":72.0,
-            "fareProduct":"Streckenbillett","fareSource":"NOVA","fareStatus":"PRICED"""",
-            ""","recommendations":{"fastest":"j1","cheapest":"j1","simplest":null}"""
-        ))
-        val journey = response.journeys.single()
-        assertEquals(42.0, journey.fare(firstClass = false, halfFare = false))
-        assertEquals(21.0, journey.fare(firstClass = false, halfFare = true))
-        assertEquals(72.0, journey.fare(firstClass = true, halfFare = false))
-        assertNull(journey.fare(firstClass = true, halfFare = true))
-        assertEquals("Streckenbillett", journey.fareProduct)
-        assertEquals("NOVA", journey.fareSource)
-        assertEquals("j1", response.recommendations?.id(Preference.CHEAPEST))
-        assertNull(response.recommendations?.id(Preference.SIMPLEST))
-        assertEquals("CHF 42.00", chf(journey.fare(false, false)!!))
-        assertEquals("CHF 21.50", chf(21.5))
-        assertEquals("CHF 7.05", chf(7.05))
-    }
-
-    @Test
-    fun nullOrUnavailableFareIsUnknown() {
-        val nulls = parseJourneys(body(""","estimatedFareChf":null,"halfFareChf":null,"fareStatus":null""")).journeys.single()
-        assertNull(nulls.fare(false, false))
-        assertNull(nulls.fare(false, true))
-        val unavailable = parseJourneys(body(""","estimatedFareChf":0,"halfFareChf":0,"fareStatus":"UNAVAILABLE"""")).journeys.single()
-        assertNull(unavailable.fare(false, false))
-        assertNull(unavailable.fare(false, true))
-        assertNull(unavailable.fullFare(false))
-        val v2Unavailable = parseJourneys(body(""","fareChf":null,"firstClassHalfFareChf":null,"fareStatus":"UNAVAILABLE"""")).journeys.single()
-        for (first in listOf(false, true)) for (half in listOf(false, true)) assertNull(v2Unavailable.fare(first, half))
-    }
-
-    @Test
-    fun missingFareFieldsAndRecommendationsAreTolerated() {
-        val response = parseJourneys(body(""))
-        assertNull(response.journeys.single().fare(false, false))
-        assertNull(response.recommendations)
-    }
-
-    @Test
-    fun allFourClassAndDiscountCombinationsPickTheirFare() {
-        val fares = ""","estimatedFareChf":42.0,"halfFareChf":21.0,"firstClassFareChf":77.0,"firstClassHalfFareChf":38.5,"fareStatus":"PRICED""""
-        val journey = parseJourneys(body(fares)).journeys.single()
+    fun parsesThePricedCatalogAndPicksEachClassAndDiscountCombination() {
+        val journey = journey(
+            """{ "status": "PRICED", "product": "Streckenbillett", "source": "NOVA",
+                 "catalogChf": { "secondClassFull": 42.0, "secondClassHalfFare": 21.0,
+                                 "firstClassFull": 77.0, "firstClassHalfFare": 38.5 } }"""
+        )
         assertEquals(42.0, journey.fare(firstClass = false, halfFare = false))
         assertEquals(21.0, journey.fare(firstClass = false, halfFare = true))
         assertEquals(77.0, journey.fare(firstClass = true, halfFare = false))
         assertEquals(38.5, journey.fare(firstClass = true, halfFare = true))
         assertEquals(42.0, journey.fullFare(firstClass = false))
         assertEquals("CHF 77.00", chf(journey.fullFare(firstClass = true)!!))
-        // Backend fareChf is the selected price and wins over the local mapping.
-        val selected = parseJourneys(body(fares + ""","fareChf":38.0""")).journeys.single()
-        assertEquals(38.0, selected.fare(firstClass = true, halfFare = true))
+        assertEquals("Streckenbillett", journey.fareProduct)
+        assertEquals("NOVA", journey.fareSource)
+        assertEquals("CHF 42.00", chf(journey.fare(false, false)!!))
+        assertEquals("CHF 21.50", chf(21.5))
+        assertEquals("CHF 7.05", chf(7.05))
+    }
+
+    @Test
+    fun selectedChfFallsBackOnlyForTheDefaultSelectionItWasComputedFor() {
+        val journey = journey(
+            """{ "status": "PRICED", "selectedChf": 38.0, "product": "Streckenbillett", "source": "NOVA",
+                 "catalogChf": { "secondClassHalfFare": 21.0 } }"""
+        )
+        assertEquals(38.0, journey.fare(firstClass = false, halfFare = false)) // catalog full price missing -> selected
+        assertEquals(21.0, journey.fare(firstClass = false, halfFare = true))  // catalog wins
+        assertNull(journey.fare(firstClass = true, halfFare = false))          // never the other class
+        assertNull(journey.fare(firstClass = true, halfFare = true))
+    }
+
+    @Test
+    fun nullOrUnavailableFareIsUnknown() {
+        val absent = journey("""{ }""")
+        assertNull(absent.fare(false, false))
+        assertNull(absent.fare(false, true))
+        assertNull(absent.fare(true, true))
+        assertNull(absent.fullFare(false))
+        assertNull(absent.fareProduct)
+        val unavailable = journey(
+            """{ "status": "UNAVAILABLE", "selectedChf": 0, "product": null, "source": "NOVA",
+                 "catalogChf": { "secondClassFull": 0, "secondClassHalfFare": 0 } }"""
+        )
+        assertNull(unavailable.fare(false, false))
+        assertNull(unavailable.fare(false, true))
+        assertNull(unavailable.fullFare(false))
     }
 
     @Test
@@ -89,10 +85,12 @@ class FaresTest {
     }
 
     @Test
-    fun passMenuUsesBackendQuotesForBothClassesWithoutApplyingTheStandardQuoteToHalfFare() {
-        val journey = parseJourneys(body(
-            ""","fareChf":42.0,"halfFareChf":21.0,"firstClassFareChf":72.0,"firstClassHalfFareChf":36.0,"fareStatus":"PRICED""""
-        )).journeys.single()
+    fun passMenuPricesBothClassesFromTheCatalogWithoutApplyingTheStandardQuoteToHalfFare() {
+        val journey = journey(
+            """{ "status": "PRICED", "product": "Streckenbillett", "source": "NOVA",
+                 "catalogChf": { "secondClassFull": 42.0, "secondClassHalfFare": 21.0,
+                                 "firstClassFull": 72.0, "firstClassHalfFare": 36.0 } }"""
+        )
         assertEquals(42.0, FareProfile().price(journey))
         assertEquals(21.0, FareProfile(travelcard = Travelcard.HALF_FARE).price(journey))
         assertEquals(72.0, FareProfile(firstClass = true).price(journey))

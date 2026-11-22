@@ -184,10 +184,15 @@ internal enum class Copy(val french: String, val english: String, val german: St
         "Permesso di localizzazione negato. Inserisci la stazione manualmente."
     ),
     Close("Fermer", "Close", "Schliessen", "Chiudi"),
-    NearestStationPending(
-        "Fonction en cours de développement : la recherche de la gare la plus proche n’est pas encore disponible.",
-        "Feature in development: nearest-station lookup is not yet available.",
-        "Funktion in Entwicklung: die Suche nach dem nächsten Bahnhof ist noch nicht verfügbar.",
-        "Funzionalità in sviluppo: la ricerca della stazione più vicina non è ancora disponibile."
-    )
+    ExpectedFaster("Habituellement plus rapide de ", "Usually faster by ", "Üblicherweise schneller um ", "Di solito più veloce di "),
+    AvoidsDisruption("Évite la perturbation · plus rapide de ", "Avoids the disruption · faster by ", "Umgeht die Störung · schneller um ", "Evita la perturbazione · più veloce di "),
+    FewerTransfersWhy("Économise des correspondances", "Saves transfers", "Ersparst Umstiege", "Risparmia cambi"),
+    OccupancyLabel("Affluence", "Occupancy", "Auslastung", "Affollamento"),
+    OccupancyLow("basse", "low", "niedrig", "bassa"),
+    OccupancyMedium("moyenne", "medium", "mittel", "media"),
+    OccupancyHigh("forte", "high", "hoch", "alta"),
+    LocationNoStation("Aucune gare trouvée à proximité.", "No stop found near you.", "Kein Bahnhof in der Nähe.", "Nessuna fermata nelle vicinanze."),
+    RealtimeSourceOjp("Temps réel fournisseur", "Provider realtime", "Echtzeit des Anbieters", "Tempo reale del fornitore"),
+    RealtimeSourceGtfs("Temps réel réseau", "Network realtime", "Netzwerk-Echtzeit", "Tempo reale di rete"),
+    RealtimeSourceModel("Retard habituel mesuré", "Measured typical delay", "Gemessene übliche Verspätung", "Ritardo tipico misurato")
 }

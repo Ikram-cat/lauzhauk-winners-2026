@@ -106,6 +106,10 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
     var fareProfile by remember { mutableStateOf(FareProfile()) }
     var showTravelcards by remember { mutableStateOf(false) }
     var request by remember { mutableStateOf<Job?>(null) }
+    // The recommendation's one-line reason is client-owned wording, so it is rebuilt when the language changes.
+    LaunchedEffect(language) {
+        redirectResponse = redirectResponse?.withWhy(language)
+    }
     val scroll = rememberScrollState()
     val visibleJourneys = remember(journeys, appliedOptions) { appliedOptions.applyTo(journeys) }
     fun search(rescue: Boolean) {
@@ -137,20 +141,9 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                 }
                 activeDeadline = deadline
                 val options = JourneyOptions(requestedDirectOnly, deadline.takeIf { source.demo })
-                val response = if (rescue) {
-                    val alt = source.alternatives(from, to, checkNotNull(start), deadline)
-                    RedirectResponse(
-                        situation = "UNKNOWN",
-                        recommendation = alt.journeys.firstOrNull(),
-                        alternatives = alt.journeys.drop(1).take(3),
-                        journeys = alt.journeys,
-                        latestFeasibleDeparture = alt.latestFeasibleDeparture,
-                        noFeasibleRoute = alt.noFeasibleRoute,
-                        advice = alt.advice
-                    )
-                } else source.search(from, to, start, preference = preference, deadline = deadline)
+                val response = source.search(from, to, start, preference = preference, deadline = deadline)
                 appliedOptions = options
-                redirectResponse = response
+                redirectResponse = response.withWhy(language)
                 val allJourneys = response.displayJourneys
                 journeys = allJourneys
                 expandedJourneyId = (options.applyTo(allJourneys).firstOrNull() ?: allJourneys.firstOrNull())?.id
@@ -244,10 +237,29 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                                 StationField(
                                                     copy(Copy.From), origin, language, source, { origin = it }, { search(false) }, Modifier.weight(1f),
                                                     trailing = {
-                                                        IconButton(onClick = {
-                                                            locationStatus = Copy.NearestStationPending
-                                                        }, modifier = Modifier.semantics { contentDescription = copy(Copy.UseMyLocation) }) {
-                                                            PinIcon(colors.primary)
+                                                        if (platformHasGeolocation) {
+                                                            IconButton(onClick = {
+                                                                locationStatus = Copy.LocatingYou
+                                                                currentLocation { position ->
+                                                                    scope.launch {
+                                                                        if (position == null) {
+                                                                            locationStatus = Copy.LocationPermissionDenied
+                                                                        } else try {
+                                                                            val station = source.locationsNear(position.first, position.second).firstOrNull()
+                                                                            if (station != null) {
+                                                                                origin = station.name
+                                                                                locationStatus = null
+                                                                            } else {
+                                                                                locationStatus = Copy.LocationNoStation
+                                                                            }
+                                                                        } catch (_: Exception) {
+                                                                            locationStatus = Copy.ServiceUnavailable
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }, modifier = Modifier.semantics { contentDescription = copy(Copy.UseMyLocation) }) {
+                                                                PinIcon(colors.primary)
+                                                            }
                                                         }
                                                     }
                                                 )
@@ -371,6 +383,11 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                                     disruption.serviceLabel?.let {
                                                         Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.error) {
                                                             Text(it, Modifier.padding(horizontal = 7.dp, vertical = 2.dp), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                        }
+                                                    }
+                                                    disruption.severity?.let {
+                                                        Surface(shape = RoundedCornerShape(4.dp), color = colors.surfaceVariant) {
+                                                            Text(it, Modifier.padding(horizontal = 7.dp, vertical = 2.dp), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                                         }
                                                     }
                                                     val routeInfo = listOfNotNull(disruption.from, disruption.to)

@@ -7,5 +7,17 @@
   <title>Plan B — Itinéraires en Suisse</title>
   <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f5f6f4}</style>
 </head>
-<body><script src="planb.js"></script></body>
+<body>
+<script>
+// Geolocation bridge for the Kotlin/Wasm "use my location" button: reports (lat, lon) or (null, null).
+window.__planbLocate = function (callback) {
+  if (typeof navigator === "undefined" || !navigator.geolocation) { callback(null, null); return; }
+  navigator.geolocation.getCurrentPosition(
+    function (position) { callback(position.coords.latitude, position.coords.longitude); },
+    function () { callback(null, null); },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+};
+</script>
+<script src="planb.js"></script>
+</body>
 </html>
