@@ -197,6 +197,15 @@ class RouteTest {
     }
 
     @Test
+    fun `journey rate limit preserves provider retry advice`() = customProviderTest(
+        failing(ProviderResult.RateLimited("OJP rate limit reached", "12"))
+    ) {
+        val response = client.get("/api/journeys?origin=A&destination=B")
+        assertError(response, HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", null)
+        assertEquals("12", response.headers[HttpHeaders.RetryAfter])
+    }
+
+    @Test
     fun `unresolvable location during search is 404 LOCATION_NOT_FOUND`() = customProviderTest(
         failing(ProviderResult.LocationResolutionError("Could not resolve stop 'UnknownStation'", "destination"))) {
         val r = client.get("/api/journeys?origin=A&destination=UnknownStation")

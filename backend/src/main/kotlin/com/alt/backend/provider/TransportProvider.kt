@@ -6,7 +6,7 @@ import com.alt.backend.domain.SearchRequest
 sealed class ProviderResult {
     data class Success(val journeys: List<Journey>) : ProviderResult()
     data class Timeout(val message: String) : ProviderResult()
-    data class RateLimited(val message: String) : ProviderResult()
+    data class RateLimited(val message: String, val retryAfter: String? = null) : ProviderResult()
     data class AuthError(val message: String) : ProviderResult()
     data class LocationResolutionError(val message: String, val field: String? = null) : ProviderResult()
     data class Failure(val message: String) : ProviderResult()
@@ -60,7 +60,7 @@ sealed class PlaceResult {
     data class Found(val place: ResolvedPlace) : PlaceResult()
     object NotFound : PlaceResult()
     data class Timeout(val message: String) : PlaceResult()
-    data class RateLimited(val message: String) : PlaceResult()
+    data class RateLimited(val message: String, val retryAfter: String? = null) : PlaceResult()
     data class Failure(val message: String) : PlaceResult()
 }
 
@@ -69,6 +69,6 @@ data class LocationSuggestion(val id: String, val name: String, val kind: String
 sealed class LocationsResult {
     data class Success(val locations: List<LocationSuggestion>) : LocationsResult()
     data class Timeout(val message: String) : LocationsResult()
-    data class RateLimited(val message: String) : LocationsResult()
+    data class RateLimited(val message: String, val retryAfter: String? = null) : LocationsResult()
     data class Failure(val message: String) : LocationsResult()
 }

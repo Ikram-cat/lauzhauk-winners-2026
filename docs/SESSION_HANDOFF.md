@@ -6,6 +6,32 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-22 · A/B · Rate-limit recovery and zero-delay badge
+
+- On `feat/frontened-mvp` at `0adedcc`, updated the OJP provider and search API to reuse station IDs returned by autocomplete and forward upstream `Retry-After`. The preview proxy preserves that header. The browser reuses recent autocomplete responses, falls back to the rail directory, and retries a short journey throttle once. Exact and rounded zero estimates omit the orange badge.
+- Backend Gradle suite on JDK 21 recorded 230 passed and 3 skipped, including the retry header and suggestion cache regressions. Node verified retry timing, caching, cancellation and preview proxy forwarding. Chrome verified fallback autocomplete, a simulated 503 followed by a live Lausanne–Renens result, and zero-badge suppression. `git diff --check` passed. The browser preview uses the live Railway backend. The backend changes are local and await deployment.
+
+## 2026-11-22 · A · Judge-path frontend and branding
+
+- Fast-forwarded `feat/frontened-mvp` to `origin/main` at `0adedcc`. Applied MSG-0047 and MSG-0048 in `frontend/web/`. Journey and leg displays include exact estimates, backend projections to the second, provenance and basis. Conditioned risk on an affected leg can also appear in the recommendation. The labelled simulation replays the submitted search with seed `12345` and can return to live results.
+- Replaced the shared SVG with ALT(2), removed the welcome logo tile, tapered the clock’s minute hand, and restored the near-black featured card in dark mode. Visual checks passed at 320, 390 and 1200 px.
+- Chrome verified a live scheduled Lausanne–Genève search, simulation, its label in result and details, and return to live on Railway. Incident fixtures verified exact values, source, basis, affected original leg citation, and evidence counts. JavaScript syntax and `git diff --check` passed. The frontend changes are local and uncommitted. The preview remains at `http://127.0.0.1:8790/`.
+
+## 2026-11-22 · A · Nearby railway stations and duplicate suggestions
+
+- On `feat/frontened-mvp` at `5f5b19a`, updated `frontend/web/` to rank verified Swiss railway stations by distance using a bundled SBB DiDok index. Requests a fresh high-accuracy position, rejects coarse fixes, and removes duplicate IDs or equivalent nearby labels from suggestions. Backend journey requests still use station SLOIDs.
+- Node checks verified Renens VD first near the station and deduplicated live Renens and Lausanne aliases while retaining distinct stops. Chrome geolocation emulation verified Renens VD first, duplicate removal, an actual Renens–Lausanne journey and recovery from an imprecise location. Syntax and `git diff --check` passed. Preview at `http://127.0.0.1:8790/`. Changes remain uncommitted.
+
+## 2026-11-22 · A · Arrival estimate totals and ALT logo
+
+- On `feat/frontened-mvp` at `5f5b19a`, updated `frontend/web/` to sum the available per-leg arrival estimates for every result before rounding. Backend projections and ranking remain unchanged. The new SVG serves as favicon and header mark and appears in black beside ALTERNATIVE during the welcome sequence. Moved the recommendation label to the upper left edge and used the incident-conditioned summary in place of the historical risk box.
+- The origin branches, available Git notes, and GitHub comments did not contain a newer frontend instruction than the supplied MSG-0046 contract. Used that contract for the replacement. Chrome verified mixed and missing leg estimates, decimal stability, the incident panel, favicon and wordmark at narrow widths, and badge placement. Node syntax and `git diff --check` passed. Preview at `http://127.0.0.1:8790/`. Changes remain uncommitted.
+
+## 2026-11-22 · A · Incident-conditioned delays MSG-0046
+
+- Fast-forwarded `feat/frontened-mvp` to `origin/main` at `5f5b19a`. Updated `frontend/web/{app.mjs,copy.mjs,style.css}` and the frontend specs to display incident-specific extra minutes, cancellation and skipped-stop risk, and the supplied evidence counts in details. The recommendation and combined times still come from the backend. Journey-level risk is labelled as the maximum observed across legs. Cancellation risk above 30% is highlighted.
+- Railway health showed 366 incident buckets. Chrome verified a deployed ordinary search and response variants for both incident bases, the 30% threshold, null versus zero, observation counts, unchanged projections, French localization, and mobile width. Node syntax and `git diff --check` passed. Preview at `http://127.0.0.1:8790/`. Frontend changes remain uncommitted and F1–F3 status is unchanged.
+
 ## 2026-11-22 · A · Compact delay indicators
 
 - On `feat/frontened-mvp` at `d20874c`, updated `frontend/web/{app.mjs,copy.mjs,style.css}` and the frontend design and feature specs. The featured card uses larger departure and arrival boxes and a smaller recommendation label. Red announced and orange estimated delay indicators have conditional legends. Estimate rounding is down for departure and up for arrival. Historical incident rates and estimate measurement notes are omitted from the display.

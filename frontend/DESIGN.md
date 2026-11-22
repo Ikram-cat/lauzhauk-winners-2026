@@ -21,10 +21,10 @@ The design borrows the numerical hierarchy and thin progress lines from the suns
 
 ## Branding and planner
 
-- Reuse the outlined square ALT mark beside the ALT wordmark on both desktop and mobile.
-- The welcome animation holds the square `ALT` mark, then widens its frame as a red rule and the `ERNATIVE` suffix reveal together. A red square punctuates the full wordmark before the opening layer lifts. Keyboard focus dismisses the decorative layer, and reduced-motion preferences show the planner immediately.
+- Use the supplied ALT symbol beside the ALT header wordmark and as the favicon.
+- The welcome animation holds the square `ALT` mark, then widens its frame as a red rule and the `ERNATIVE` suffix reveal together. The ALT symbol appears without a tile beside the full wordmark before the opening layer lifts. Keyboard focus dismisses the decorative layer, and reduced-motion preferences show the planner immediately.
 - Cycle the welcome heading through the nineteen localized phrases on page open or reload. Keep the same phrase when rerendering or changing language.
-- Place a large Swiss railway clock high in the masthead. Use sixty ticks, heavier hour markers, two dark hands, and a red paddle second hand. All hands follow current Europe/Zurich time. Format written times using 24-hour time.
+- Place a large Swiss railway clock high in the masthead. Use sixty ticks, heavier hour markers, a minute hand that narrows toward the tip, and a red paddle second hand. All hands follow current Europe/Zurich time. Format written times using 24-hour time.
 - Use the sunset reference’s soft horizon as inspiration for a page-wide gray gradient with a visible red glow that builds through the results area. Add a faint monochrome dot pattern to the page background. Keep form and result surfaces opaque in both themes.
 - Show FROM and TO together. Each uses a scrollable address and station autocomplete with an adjacent current-location button. Use regular weight for parenthesized locality details. Suggestions identify their type and show reliable straight-line distances when a reference exists.
 - The search rail keeps the departure date and time choice visible together. It starts on the current Swiss date with NOW selected. A scheduled departure shows a 24-hour time field next to the date controls.
@@ -33,11 +33,13 @@ The design borrows the numerical hierarchy and thin progress lines from the suns
 
 ## Results, details and settings
 
-- Keep the backend’s Most Recommended journey visually dominant above automatically visible alternatives. Anchor a small red label at the top left and give departure and arrival large timing boxes. Format alternatives as uniformly white bands in light mode with a consistent dark surface in dark mode.
+- Keep the backend’s Most Recommended journey visually dominant above automatically visible alternatives. Anchor a small red label at the top left, just past the card’s left edge, and give departure and arrival large timing boxes. Keep the featured card near-black in both themes. Format alternatives as uniformly white bands in light mode with a consistent dark surface in dark mode.
 - Put announced delay in a red badge at the upper right and estimated delay in an orange `rgb(255, 139, 86)` badge at the lower right. Display the signed minutes inside each badge and show the corresponding legend entry at the right of the featured card only when that kind of delay is present.
+- Keep the rounded estimate badges and show exact decimal estimates below the times. Show projected times to the second and place source, sample count, and estimate basis in compact chips.
+- Show incident-conditioned statistics in a separate panel. Use a red border and warning icon when the historical cancellation risk exceeds 30%. Keep additional incident minutes separate from the backend’s combined projection.
 - Place the status in a high-contrast rectangular panel directly above the recommendation. Use a neutral gradient and check icon when clear, and a red glow with a warning triangle for confirmed disruptions. Mention alternative routes only when supplied and omit the panel when conditions are unknown. Show journey durations as hours and two-digit minutes, such as `1h05`. Show nonzero delay labels and omit zero-minute annotations.
 - Use traveller-facing names for walking endpoints. Hide numeric coordinate strings and fall back to a named selected endpoint when known.
-- Label historical disruption rates as observations for the corridor or baseline. Show the time window, typical disruption duration and confidence when available.
+- Distinguish historical incident risk from live disruption status. In journey details, use an incident risk panel next to the fare when incident data is present.
 - Desktop keeps search controls beside results. On narrow screens a valid submission collapses search into an editable summary with FROM → TO, the ranking mode and departure. Reopen the form on a backend error and keep it open for local validation errors.
 - Offer English, Français, Italiano and Deutsch. Persist language and light, dark or system theme. Respect reduced motion through the operating system.
 

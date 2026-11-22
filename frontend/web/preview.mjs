@@ -9,6 +9,8 @@ const port = Number(process.env.ALT_PREVIEW_PORT ?? 8790);
 const files = new Map([
   ["/", ["index.html", "text/html"]],
   ["/style.css", ["style.css", "text/css"]],
+  ["/alt-logo.svg", ["alt-logo.svg", "image/svg+xml"]],
+  ["/rail-stations.json", ["rail-stations.json", "application/json"]],
   ["/swiss-boundary.geojson", ["swiss-boundary.geojson", "application/geo+json"]],
   ...["app", "api", "copy"].map(name => [`/${name}.mjs`, [`${name}.mjs`, "text/javascript"]]),
 ]);
@@ -17,15 +19,25 @@ createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   if (req.method !== "GET") return res.writeHead(405).end();
   if (["/api/locations", "/api/journeys"].includes(url.pathname)) {
+    const client = new AbortController();
+    res.on("close", () => { if (!res.writableEnded) client.abort(); });
     try {
       const response = await fetch(new URL(url.pathname + url.search, upstream), {
-        signal: AbortSignal.timeout(23000),
+        signal: AbortSignal.any([client.signal, AbortSignal.timeout(23000)]),
         headers: { accept: "application/json" },
       });
+      const headers = { "Content-Type":"application/json", "Cache-Control":"no-store" };
+      const retryAfter = response.headers.get("retry-after");
+      if (retryAfter) headers["Retry-After"] = retryAfter;
+      if (!response.headers.get("content-type")?.includes("application/json")) {
+        await response.body?.cancel();
+        if (response.status !== 429 && response.status !== 503) throw new Error("Invalid API response");
+        return res.writeHead(response.status, headers).end(JSON.stringify({error:{code:"UPSTREAM_RATE_LIMITED"}}));
+      }
       const body = await response.text();
-      if (!response.headers.get("content-type")?.includes("application/json")) throw new Error("Invalid API response");
-      return res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(body);
+      return res.writeHead(response.status, headers).end(body);
     } catch (error) {
+      if (client.signal.aborted) return;
       const timedOut = error.name === "TimeoutError";
       return res.writeHead(timedOut ? 504 : 502, { "Content-Type": "application/json" })
         .end(JSON.stringify({ error: { code: timedOut ? "UPSTREAM_TIMEOUT" : "UPSTREAM_ERROR" } }));
