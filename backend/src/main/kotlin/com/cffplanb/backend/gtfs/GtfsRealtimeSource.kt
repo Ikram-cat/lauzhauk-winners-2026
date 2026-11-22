@@ -43,6 +43,9 @@ class GtfsRealtimeSource(
 
     fun ageSeconds(): Long? = snapshot?.let { (nowMs() - it.fetchedAtMs) / 1000 }
 
+    /** DOWN without any snapshot, DEGRADED once it is older than two refresh intervals, else OK. Never fetches. */
+    fun health(): String { val a = ageSeconds() ?: return "DOWN"; return if (a * 1000 <= 2 * ttlMs) "OK" else "DEGRADED" }
+
     /** Wait for a running refresh (tests). */
     internal suspend fun settle() { inflight?.await() }
 

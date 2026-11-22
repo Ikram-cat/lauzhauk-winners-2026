@@ -72,6 +72,21 @@ class ResilientProvider(
             else delegate.searchLocations(query).also { record(it !is LocationsResult.Success) }
         }, { it is LocationsResult.Success })
 
+    override suspend fun searchNearby(lat: Double, lon: Double): LocationsResult =
+        cached("near:%.4f,%.4f".format(java.util.Locale.ROOT, lat, lon), locationTtlMs, {
+            if (isOpen()) LocationsResult.Failure(BREAKER_MESSAGE)
+            else delegate.searchNearby(lat, lon).also { record(it !is LocationsResult.Success) }
+        }, { it is LocationsResult.Success })
+
+    override suspend fun resolvePlace(input: String): PlaceResult = delegate.resolvePlace(input)
+
+    @Synchronized override fun feedStatus(): String = when {
+        delegate.feedStatus() == "DISABLED" -> "DISABLED"
+        isOpen() -> "DOWN"
+        failures > 0 -> "DEGRADED"
+        else -> "OK"
+    }
+
     // Cached per (stop, window start minute) for searchTtlMs. Failures never trip the breaker: detection is best-effort and must not take /api/journeys down.
     override suspend fun stopEvents(stop: String, from: java.time.OffsetDateTime, realtime: Boolean): StopEventsResult =
         cached(listOf("ev", realtime, stop.trim().lowercase(), from.toEpochSecond() / 60), searchTtlMs, {

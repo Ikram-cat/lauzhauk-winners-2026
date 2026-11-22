@@ -47,16 +47,61 @@ internal data class StationSuggestion(
     internal val searchTerms = listOfNotNull(name, address) + aliases
 }
 
+/**
+ * Canonical (French-form) station name -> its name in each UI language. Swiss stations are not
+ * literally translated on the real SBB/CFF/FFS site, but this app's users asked for city names to
+ * follow the selected language, so this table drives both display (localizedStationName) and
+ * autocomplete matching (every language form is also a search alias, see [stations]).
+ */
+private val stationNames: Map<String, Map<Language, String>> = mapOf(
+    "Lausanne" to mapOf(Language.French to "Lausanne", Language.English to "Lausanne", Language.German to "Lausanne", Language.Italian to "Lausanne"),
+    "Genève" to mapOf(Language.French to "Genève", Language.English to "Geneva", Language.German to "Genf", Language.Italian to "Ginevra"),
+    "Bern" to mapOf(Language.French to "Berne", Language.English to "Bern", Language.German to "Bern", Language.Italian to "Berna"),
+    "Zürich HB" to mapOf(Language.French to "Zurich HB", Language.English to "Zurich HB", Language.German to "Zürich HB", Language.Italian to "Zurigo HB"),
+    "Fribourg" to mapOf(Language.French to "Fribourg", Language.English to "Fribourg", Language.German to "Freiburg", Language.Italian to "Friburgo"),
+    "Biel/Bienne" to mapOf(Language.French to "Bienne", Language.English to "Biel/Bienne", Language.German to "Biel", Language.Italian to "Bienne"),
+    "Neuchâtel" to mapOf(Language.French to "Neuchâtel", Language.English to "Neuchâtel", Language.German to "Neuenburg", Language.Italian to "Neuchâtel"),
+    "Lugano" to mapOf(Language.French to "Lugano", Language.English to "Lugano", Language.German to "Lugano", Language.Italian to "Lugano"),
+    "Basel SBB" to mapOf(Language.French to "Bâle CFF", Language.English to "Basel SBB", Language.German to "Basel SBB", Language.Italian to "Basilea FFS"),
+    "Luzern" to mapOf(Language.French to "Lucerne", Language.English to "Lucerne", Language.German to "Luzern", Language.Italian to "Lucerna"),
+    "Sion" to mapOf(Language.French to "Sion", Language.English to "Sion", Language.German to "Sitten", Language.Italian to "Sion"),
+    "Montreux" to mapOf(Language.French to "Montreux", Language.English to "Montreux", Language.German to "Montreux", Language.Italian to "Montreux"),
+    "Yverdon-les-Bains" to mapOf(Language.French to "Yverdon-les-Bains", Language.English to "Yverdon-les-Bains", Language.German to "Yverdon-les-Bains", Language.Italian to "Yverdon-les-Bains"),
+    "Nyon" to mapOf(Language.French to "Nyon", Language.English to "Nyon", Language.German to "Nyon", Language.Italian to "Nyon")
+)
+
+/** Looks up [name] (any spelling/language) against [stationNames]; returns [name] unchanged for anything not in the table. */
+internal fun localizedStationName(name: String, language: Language): String {
+    val query = stationKey(name)
+    val entry = stationNames.entries.firstOrNull { (canonical, variants) ->
+        stationKey(canonical) == query || variants.values.any { stationKey(it) == query }
+    } ?: return name
+    return entry.value[language] ?: name
+}
+
+private fun StationSuggestion.withLocalizedAliases(): StationSuggestion {
+    val variants = stationNames[name]?.values.orEmpty()
+    return copy(aliases = (aliases + variants).distinct())
+}
+
 private val stations = listOf(
     // https://www.lausanne-tourisme.ch/en/explore/lausanne-railway-station/lausanne-railway-station/
     StationSuggestion("Lausanne", "Place de la Gare", listOf("Lausanne Gare", "Gare de Lausanne")),
     // https://www.sbb.ch/fr/informations-voyages/gares/trouver-gare/gare-de-geneve.html
-    StationSuggestion("Genève", "Place de Cornavin", listOf("Geneva", "Genf", "Genève Cornavin", "Cornavin")),
-    StationSuggestion("Bern", aliases = listOf("Berne")),
+    StationSuggestion("Genève", "Place de Cornavin", listOf("Genève Cornavin", "Cornavin")),
+    StationSuggestion("Bern"),
     StationSuggestion("Zürich HB", aliases = listOf("Zurich main station", "Zürich Hauptbahnhof")),
-    StationSuggestion("Fribourg", aliases = listOf("Freiburg")),
-    StationSuggestion("Biel/Bienne", aliases = listOf("Biel", "Bienne"))
-)
+    StationSuggestion("Fribourg"),
+    StationSuggestion("Biel/Bienne"),
+    StationSuggestion("Neuchâtel"),
+    StationSuggestion("Lugano"),
+    StationSuggestion("Basel SBB"),
+    StationSuggestion("Luzern"),
+    StationSuggestion("Sion"),
+    StationSuggestion("Montreux"),
+    StationSuggestion("Yverdon-les-Bains"),
+    StationSuggestion("Nyon")
+).map { it.withLocalizedAliases() }
 
 internal fun stationSuggestions(input: String): List<StationSuggestion> {
     val query = stationKey(input)
@@ -108,12 +153,13 @@ internal fun StationField(
     source: JourneySource,
     update: (String) -> Unit,
     search: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    trailing: (@Composable () -> Unit)? = null
 ) {
     var menuRequested by remember { mutableStateOf(false) }
     var remote by remember(value, source) { mutableStateOf(emptyList<StationSuggestion>()) }
     LaunchedEffect(value, menuRequested, source) {
-        if (!source.demo && menuRequested && value.trim().length >= 2) {
+        if (!source.demo && menuRequested && value.trim().length >= 1) {
             delay(300)
             remote = try {
                 source.locations(value.trim()).map { StationSuggestion(it.name, kind = it.kind) }.distinct()
@@ -124,11 +170,13 @@ internal fun StationField(
             }
         }
     }
-    val suggestions = if (source.demo) stationSuggestions(value).filterNot { it.name == value.trim() } else remote
+    val suggestions = if (source.demo)
+        stationSuggestions(value).filterNot { localizedStationName(it.name, language) == value.trim() }
+    else remote
     var highlighted by remember(value) { mutableIntStateOf(-1) }
     val expanded = menuRequested && suggestions.isNotEmpty()
     fun choose(station: StationSuggestion) {
-        update(station.name)
+        update(localizedStationName(station.name, language))
         menuRequested = false
         highlighted = -1
     }
@@ -182,6 +230,7 @@ internal fun StationField(
                 },
             label = { Text(label) },
             singleLine = true,
+            trailingIcon = trailing,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { submit() })
         )
@@ -192,9 +241,7 @@ internal fun StationField(
         ) {
             Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
                 Text(
-                    if (source.demo) {
-                        if (language == Language.French) "Suggestions de gares" else "Station suggestions"
-                    } else if (language == Language.French) "Gares et adresses" else "Stops and addresses",
+                    language.text(if (source.demo) Copy.StationSuggestions else Copy.StopsAndAddresses),
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         .semantics { liveRegion = LiveRegionMode.Polite },
                     style = MaterialTheme.typography.labelMedium,
@@ -205,10 +252,10 @@ internal fun StationField(
                     DropdownMenuItem(
                         text = {
                             Column {
-                                Text(station.name)
+                                Text(localizedStationName(station.name, language))
                                 val detail = station.address ?: when (station.kind) {
-                                    "address" -> if (language == Language.French) "Adresse" else "Address"
-                                    "stop" -> if (language == Language.French) "Arrêt" else "Stop"
+                                    "address" -> language.text(Copy.AddressWord)
+                                    "stop" -> language.text(Copy.StopWord)
                                     else -> null
                                 }
                                 detail?.let {

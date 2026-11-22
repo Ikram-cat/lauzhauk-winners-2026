@@ -34,7 +34,7 @@ class NovaFareProvider(
             client.get("$baseUrl/v1/connections") {
                 parameter("from", origin); parameter("to", destination); parameter("limit", 1)
                 parameter("date", local.format(DateTimeFormatter.ISO_LOCAL_DATE))
-                parameter("time", local.format(DateTimeFormatter.ofPattern("HH:mm")))
+                parameter("time", local.format(TIME_OF_DAY))
             }
         }?.let { json.parseToJsonElement(it).jsonObject["connections"]?.jsonArray?.firstOrNull() }
         if (conn == null) null else call("fare") {
@@ -68,5 +68,6 @@ class NovaFareProvider(
     companion object {
         const val TIMEOUT_MS = 3_000L
         private val ZURICH = ZoneId.of("Europe/Zurich")
+        private val TIME_OF_DAY = DateTimeFormatter.ofPattern("HH:mm")
     }
 }

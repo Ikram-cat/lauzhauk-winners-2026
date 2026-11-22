@@ -117,13 +117,17 @@ object GtfsDecoder {
 
 /** Rules for mapping an OJP line reference (and the trip's first-stop time) onto GTFS-RT ids. */
 object GtfsMatch {
+    private val LINE_REF = Regex("^ojp:(\\d{2})(\\d{3}):([A-Za-z0-9_]?)$")
+    private val SLOID = Regex("ch:1:sloid:(\\d+)")
+    private val BPUIC = Regex("^85(\\d{5})")
+
     /**
      * OJP line ref "ojp:91033:C" -> GTFS route base "91-33-C"; "ojp:91057:_" (no direction letter) -> "91-57".
      * Rule: ojp:<2-digit operator><3-digit line number>:<letter or _>; leading zeros of the line number are dropped.
      * Anything else (night lines "920N5", missing ref) gives null = no confident mapping.
      */
     fun routeKey(lineRef: String?): String? {
-        val m = Regex("^ojp:(\\d{2})(\\d{3}):([A-Za-z0-9_]?)$").matchEntire(lineRef?.trim() ?: return null) ?: return null
+        val m = LINE_REF.matchEntire(lineRef?.trim() ?: return null) ?: return null
         val suffix = m.groupValues[3].takeIf { it.isNotEmpty() && it != "_" }
         return listOfNotNull(m.groupValues[1], m.groupValues[2].toInt().toString(), suffix).joinToString("-")
     }
@@ -146,6 +150,6 @@ object GtfsMatch {
     }
 
     private fun place(id: String): String? =
-        Regex("ch:1:sloid:(\\d+)").find(id)?.groupValues?.get(1)?.trimStart('0')
-            ?: Regex("^85(\\d{5})").find(id)?.groupValues?.get(1)?.trimStart('0')
+        SLOID.find(id)?.groupValues?.get(1)?.trimStart('0')
+            ?: BPUIC.find(id)?.groupValues?.get(1)?.trimStart('0')
 }

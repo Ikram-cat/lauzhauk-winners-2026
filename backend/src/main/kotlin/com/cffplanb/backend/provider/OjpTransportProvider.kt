@@ -53,8 +53,8 @@ class OjpTransportProvider(
     private val timeoutMs = 8_000L
     private val suggestTimeoutMs = 4_000L
 
-    // In-memory cache: free-text name -> resolved sloid (e.g. "ch:1:sloid:1120")
-    private val stopCache = ConcurrentHashMap<String, String>()
+    // In-memory cache: free-text name (or stop id) -> (sloid, display name)
+    private val stopCache = ConcurrentHashMap<String, Pair<String, String?>>()
 
     // -------------------------------------------------------------------------
     // TransportProvider interface
@@ -67,7 +67,7 @@ class OjpTransportProvider(
         } catch (e: OjpAuthenticationException) {
             return ProviderResult.AuthError(e.message ?: "Provider authentication failed")
         } catch (e: OjpLocationResolutionException) {
-            return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve origin stop")
+            return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve origin stop", "origin")
         } catch (e: OjpRateLimitedException) {
             return ProviderResult.RateLimited("OJP rate limit reached")
         } catch (e: OjpTimeoutException) {
@@ -84,7 +84,7 @@ class OjpTransportProvider(
         } catch (e: OjpAuthenticationException) {
             return ProviderResult.AuthError(e.message ?: "Provider authentication failed")
         } catch (e: OjpLocationResolutionException) {
-            return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve destination stop")
+            return ProviderResult.LocationResolutionError(e.message ?: "Failed to resolve destination stop", "destination")
         } catch (e: OjpRateLimitedException) {
             return ProviderResult.RateLimited("OJP rate limit reached")
         } catch (e: OjpTimeoutException) {
@@ -138,23 +138,68 @@ class OjpTransportProvider(
     // Location resolution
     // -------------------------------------------------------------------------
 
-    /**
-     * Resolves a free-text stop name to a sloid via OJPLocationInformationRequest.
-     * Caches in memory. Throws typed exceptions on error.
-     */
+    /** Stop ids and "lat,lon" pass through; free text is resolved via OJPLocationInformationRequest (cached). Throws typed exceptions on error. */
     internal suspend fun resolveStopId(name: String): String {
-        stopCache[name]?.let { return it }
-
-        val body = postLocationRequest(buildLocationRequest(name, nowTs()), timeoutMs)
-
-        val sloid = parseLocationResponse(body)
-            ?: throw OjpLocationResolutionException("Could not resolve stop '$name' via OJP LocationInformationRequest")
-
-        stopCache[name] = sloid
-        log.info("Resolved stop '{}' -> '{}'", name, sloid)
-        return sloid
+        val n = name.trim()
+        if (SLOID.matches(n) || parseCoordinates(n) != null) return n
+        return resolveText(n).first
     }
 
+    private suspend fun resolveText(name: String): Pair<String, String?> {
+        stopCache[name]?.let { return it }
+        val body = postLocationRequest(buildLocationRequest(name, nowTs()), timeoutMs)
+        val found = parsePlaceResponse(body)
+            ?: throw OjpLocationResolutionException("Could not resolve stop '$name' via OJP LocationInformationRequest")
+        stopCache[name] = found
+        log.info("Resolved stop '{}' -> '{}'", name, found.first)
+        return found
+    }
+
+    override suspend fun resolvePlace(input: String): PlaceResult = try {
+        val n = input.trim()
+        val coords = parseCoordinates(n)
+        when {
+            coords != null -> PlaceResult.Found(ResolvedPlace(input, null, null, n))
+            SLOID.matches(n) -> {
+                // The id must name a real stop. OJP has no lookup by id, but a departure board for it exists only for real stops.
+                val known = stopCache[n]
+                val (usable, name) = if (known != null) true to known.second else parseStopPlaceName(postLocationRequest(buildStopEventRequest(n, n, OffsetDateTime.now(clock), nowTs(), false), stopEventTimeoutMs), n)
+                if (!usable) PlaceResult.NotFound else { stopCache[n] = n to name; PlaceResult.Found(ResolvedPlace(input, n, name, n)) }
+            }
+            else -> resolveText(n).let { (id, name) -> PlaceResult.Found(ResolvedPlace(input, id, name, id)) }
+        }
+    } catch (e: OjpLocationResolutionException) { PlaceResult.NotFound
+    } catch (e: OjpTimeoutException) { PlaceResult.Timeout("OJP did not respond within ${timeoutMs}ms")
+    } catch (e: OjpRateLimitedException) { PlaceResult.RateLimited("OJP rate limit reached")
+    } catch (e: OjpAuthenticationException) { PlaceResult.Failure(e.message ?: "Provider authentication failed")
+    } catch (e: CancellationException) { throw e
+    } catch (e: Exception) { PlaceResult.Failure("Place lookup failed: ${e.javaClass.simpleName}") }
+
+    // ojp is DISABLED only in the sense of mock mode, which uses another provider class; the breaker state lives in ResilientProvider.
+    override fun feedStatus() = "OK"
+
+    /** "lat,lon" in WGS84 degrees, or null. */
+    internal fun parseCoordinates(s: String): Pair<Double, Double>? {
+        val m = COORDS.matchEntire(s) ?: return null
+        val lat = m.groupValues[1].toDouble(); val lon = m.groupValues[2].toDouble()
+        return if (lat in -90.0..90.0 && lon in -180.0..180.0) lat to lon else null
+    }
+
+    /** PlaceRef body for a trip request: a stop id, or a GeoPosition for coordinates. */
+    private fun placeRef(p: String): String = parseCoordinates(p)?.let { (lat, lon) ->
+        "<GeoPosition><siri:Longitude>$lon</siri:Longitude><siri:Latitude>$lat</siri:Latitude></GeoPosition>\n            <Name><Text>$lat,$lon</Text></Name>"
+    } ?: "<siri:StopPointRef>${escapeXml(p)}</siri:StopPointRef>\n            <Name><Text>${escapeXml(p)}</Text></Name>"
+
+    /** (usable, name) for stop id [id] from its StopEvent response: usable = OJP found departures; name = the matching place's display name, if listed. */
+    internal fun parseStopPlaceName(xml: String, id: String): Pair<Boolean, String?> = try {
+        val doc = newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
+        val places = doc.getElementsByTagNameNS("*", "Place")
+        val name = (0 until places.length).mapNotNull { places.item(it) as? Element }.firstNotNullOfOrNull { pl ->
+            val ref = textContent(pl, "StopPlaceRef")
+            if (ref != null && (id == ref || id.startsWith("$ref:"))) textIn(pl, "StopPlaceName") else null
+        }
+        (doc.getElementsByTagNameNS("*", "StopEventResult").length > 0) to name
+    } catch (e: Exception) { false to null }
 
     private fun nowTs(): String =
         DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(OffsetDateTime.now(clock).withOffsetSameInstant(ZoneOffset.UTC))
@@ -195,7 +240,8 @@ class OjpTransportProvider(
 
     override suspend fun stopEvents(stop: String, from: OffsetDateTime, realtime: Boolean): StopEventsResult = try {
         val id = resolveStopId(stop)
-        StopEventsResult.Success(parseStopEvents(postLocationRequest(buildStopEventRequest(id, stop, from, nowTs(), realtime), stopEventTimeoutMs)))
+        val xml = postLocationRequest(buildStopEventRequest(id, stop, from, nowTs(), realtime), stopEventTimeoutMs)
+        StopEventsResult.Success(parseStopEvents(xml), parseSituations(xml))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -259,14 +305,53 @@ class OjpTransportProvider(
         }
     }
 
+    /** SIRI PtSituation blocks from an OJP response; tolerant: absent or malformed blocks are skipped and never fail the events. */
+    internal fun parseSituations(xml: String): List<PtSituation> = try {
+        val doc = newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
+        val els = doc.getElementsByTagNameNS("*", "PtSituation")
+        (0 until els.length).mapNotNull { i ->
+            val e = els.item(i) as? Element ?: return@mapNotNull null
+            val causeEl = e.getElementsByTagNameNS("*", "Cause").item(0) as? Element
+            PtSituation(
+                number = textContent(e, "SituationNumber") ?: "s-$i",
+                cause = causeEl?.let { textContent(it, "CauseCode") ?: textContent(it, "CauseDescription") } ?: textContent(e, "CauseCode"),
+                severity = textContent(e, "Severity")?.uppercase(),
+                summary = textIn(e, "Summary"),
+                lineRefs = e.getElementsByTagNameNS("*", "AffectedVehicleJourney").let { nl ->
+                    (0 until nl.length).mapNotNull { j -> (nl.item(j) as? Element)?.let { el -> textContent(el, "LineRef") } }
+                },
+                stopRefs = e.getElementsByTagNameNS("*", "AffectedStopPoint").let { nl ->
+                    (0 until nl.length).mapNotNull { j -> (nl.item(j) as? Element)?.let { el -> textContent(el, "StopPointRef") } }
+                },
+                validFrom = textContent(e, "StartTime")?.let { parseDateTimeOrNull(it) },
+                validUntil = textContent(e, "EndTime")?.let { parseDateTimeOrNull(it) }
+            )
+        }
+    } catch (e: Exception) {
+        log.error("OJP situation parse error: {}", e.javaClass.simpleName)
+        emptyList()
+    }
+
     // ---- Autocomplete ----
     private val suggestCache = ConcurrentHashMap<String, Pair<Instant, List<LocationSuggestion>>>()
+
+    override suspend fun searchNearby(lat: Double, lon: Double): LocationsResult = try {
+        LocationsResult.Success(parseLocationSuggestions(postLocationRequest(buildNearbyRequest(lat, lon, nowTs()), suggestTimeoutMs)))
+    } catch (e: OjpTimeoutException) {
+        LocationsResult.Timeout("Location lookup timed out")
+    } catch (e: OjpRateLimitedException) {
+        LocationsResult.RateLimited("Transport provider is rate limiting requests")
+    } catch (e: OjpAuthenticationException) {
+        LocationsResult.Failure(e.message ?: "Transport provider authentication failed")
+    } catch (e: OjpUpstreamException) {
+        LocationsResult.Failure("Location lookup failed")
+    }
 
     override suspend fun searchLocations(query: String): LocationsResult {
         val key = query.trim().lowercase()
         suggestCache[key]?.let { (at, v) -> if (Duration.between(at, Instant.now(clock)).toMinutes() < 10) return LocationsResult.Success(v) }
         return try {
-            val xml = postLocationRequest(buildLocationRequest(query, nowTs(), limit = 10, types = listOf("stop", "address")), suggestTimeoutMs)
+            val xml = postLocationRequest(buildLocationRequest(query, nowTs(), limit = 20, types = listOf("stop", "address")), suggestTimeoutMs)
             val found = parseLocationSuggestions(xml)
             if (suggestCache.size > 500) suggestCache.clear()
             suggestCache[key] = Instant.now(clock) to found
@@ -307,14 +392,17 @@ class OjpTransportProvider(
                 geo?.let { textContent(it, "Longitude")?.toDoubleOrNull() },
                 geo?.let { textContent(it, "Latitude")?.toDoubleOrNull() }
             )
-        }.take(10)
+        }.take(20)
     } catch (e: Exception) {
         log.error("OJP location suggestion parse error: {}", e.javaClass.simpleName)
         emptyList()
     }
 
-    internal fun buildLocationRequest(name: String, ts: String, limit: Int = 5, types: List<String> = listOf("stop")): String {
-        val escaped = escapeXml(name)
+    internal fun buildNearbyRequest(lat: Double, lon: Double, ts: String): String =
+        buildLocationRequest("", ts, limit = 50, initialInput = "<GeoPosition><siri:Longitude>$lon</siri:Longitude><siri:Latitude>$lat</siri:Latitude></GeoPosition>")
+
+    internal fun buildLocationRequest(name: String, ts: String, limit: Int = 5, types: List<String> = listOf("stop"),
+                                      initialInput: String = "<Name>${escapeXml(name)}</Name>"): String {
         return """<?xml version="1.0" encoding="UTF-8"?>
 <OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0">
   <OJPRequest>
@@ -324,7 +412,7 @@ class OjpTransportProvider(
       <OJPLocationInformationRequest>
         <siri:RequestTimestamp>$ts</siri:RequestTimestamp>
         <InitialInput>
-          <Name>$escaped</Name>
+          $initialInput
         </InitialInput>
         <Restrictions>
           ${types.joinToString("\n          ") { "<Type>$it</Type>" }}
@@ -340,33 +428,27 @@ class OjpTransportProvider(
      * Parses OJPLocationInformationDelivery and returns the best sloid.
      * Prefers the first PlaceResult containing a stop with a sloid id (format ch:1:sloid:<id>).
      */
-    internal fun parseLocationResponse(xml: String): String? {
+    internal fun parseLocationResponse(xml: String): String? = parsePlaceResponse(xml)?.first
+
+    /** (sloid, display name) of the best PlaceResult; the name is null when the response carries none. */
+    internal fun parsePlaceResponse(xml: String): Pair<String, String?>? {
         return try {
             val doc = newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
             val placeResults = doc.getElementsByTagNameNS("*", "PlaceResult")
 
             for (i in 0 until placeResults.length) {
                 val pr = placeResults.item(i) as? Element ?: continue
-
-                // Check StopPlace > StopPlaceRef
-                val stopPlaceRefs = pr.getElementsByTagNameNS("*", "StopPlaceRef")
-                for (j in 0 until stopPlaceRefs.length) {
-                    val ref = stopPlaceRefs.item(j)?.textContent?.trim() ?: continue
-                    if (ref.startsWith("ch:1:sloid:")) {
-                        return ref
-                    }
-                }
-
-                // Fall back to StopPoint > StopPointRef
-                val stopPointRefs = pr.getElementsByTagNameNS("*", "StopPointRef")
-                for (j in 0 until stopPointRefs.length) {
-                    val ref = stopPointRefs.item(j)?.textContent?.trim() ?: continue
-                    if (ref.startsWith("ch:1:sloid:")) {
-                        return ref
+                // OJP's fuzzy search always answers; its own score tells a real match from noise ("Nowhereville-XYZ" scores 0.33, real names 0.67+).
+                if ((textContent(pr, "Probability")?.toDoubleOrNull() ?: 1.0) < MIN_PLACE_PROBABILITY) continue
+                val name = textIn(pr, "StopPlaceName") ?: textIn(pr, "StopPointName")
+                for (tag in listOf("StopPlaceRef", "StopPointRef")) {
+                    val refs = pr.getElementsByTagNameNS("*", tag)
+                    for (j in 0 until refs.length) {
+                        val ref = refs.item(j)?.textContent?.trim() ?: continue
+                        if (ref.startsWith("ch:1:sloid:")) return ref to name
                     }
                 }
             }
-
             null
         } catch (e: Exception) {
             log.error("OJP location parse error: {}: {}", e.javaClass.simpleName, e.message)
@@ -394,15 +476,13 @@ class OjpTransportProvider(
         <siri:RequestTimestamp>$ts</siri:RequestTimestamp>
         <Origin>
           <PlaceRef>
-            <siri:StopPointRef>${escapeXml(originId)}</siri:StopPointRef>
-            <Name><Text>${escapeXml(originId)}</Text></Name>
+            ${placeRef(originId)}
           </PlaceRef>
           <DepArrTime>$depTs</DepArrTime>
         </Origin>
         <Destination>
           <PlaceRef>
-            <siri:StopPointRef>${escapeXml(destId)}</siri:StopPointRef>
-            <Name><Text>${escapeXml(destId)}</Text></Name>
+            ${placeRef(destId)}
           </PlaceRef>
         </Destination>
         <Params>
@@ -452,12 +532,21 @@ class OjpTransportProvider(
                     rawLegs.add(RawLeg(tl, trl, cl))
                 }
 
+                var leadingUntimed = 0 // walks before the first timed leg have no times of their own
                 for (raw in rawLegs) {
+                    val walk = raw.transferLeg ?: raw.continuousLeg
                     when {
                         raw.timedLeg != null -> parseTimedLeg(raw.timedLeg)?.let { legs.add(it) }
-                        raw.transferLeg != null -> parseWalkLeg(raw.transferLeg, legs)?.let { legs.add(it) }
-                        raw.continuousLeg != null -> parseWalkLeg(raw.continuousLeg, legs)?.let { legs.add(it) }
+                        walk != null -> parseWalkLeg(walk, legs)?.let {
+                            if (leadingUntimed == legs.size && textContent(walk, "TimeWindowStart") == null) leadingUntimed++
+                            legs.add(it)
+                        }
                     }
+                }
+                // Anchor them to the first timed leg instead of the parse time, so a cached or future search keeps a stable departure.
+                if (leadingUntimed in 1 until legs.size) for (k in leadingUntimed - 1 downTo 0) {
+                    val l = legs[k]
+                    legs[k] = l.copy(departure = legs[k + 1].departure.minus(Duration.between(l.departure, l.arrival)), arrival = legs[k + 1].departure)
                 }
 
                 if (legs.isEmpty()) continue
@@ -513,6 +602,7 @@ class OjpTransportProvider(
             val depPlatform = textIn(board, "PlannedQuay") ?: textIn(board, "EstimatedQuay")
             val arrPlatform = textIn(alight, "PlannedQuay") ?: textIn(alight, "EstimatedQuay")
 
+            val occ = occupancy(board)
             JourneyLeg(
                 mode = LegMode.TRANSIT,
                 origin = origin,
@@ -524,7 +614,11 @@ class OjpTransportProvider(
                 arrivalPlatform = arrPlatform,
                 originSloid = stopPlaceSloid(board),
                 destinationSloid = stopPlaceSloid(alight),
-                intermediateSloids = intermediates
+                intermediateSloids = intermediates,
+                expectedDeparture = estimatedAt(board, "ServiceDeparture"),
+                expectedArrival = estimatedAt(alight, "ServiceArrival"),
+                occupancyFirst = occ["firstClass"],
+                occupancySecond = occ["secondClass"]
             )
         } catch (e: Exception) {
             log.debug("Failed to parse TimedLeg: {}", e.message)
@@ -552,7 +646,7 @@ class OjpTransportProvider(
                 ?: Duration.ofMinutes(2)
 
             val depTime = windowStart
-                ?: (if (priorLegs.isNotEmpty()) priorLegs.last().arrival else OffsetDateTime.now(clock))
+                ?: (if (priorLegs.isNotEmpty()) priorLegs.last().arrival else OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS))
 
             val arrTime = windowEnd ?: depTime.plus(walkDuration)
 
@@ -610,6 +704,22 @@ class OjpTransportProvider(
         return parseDateTimeOrNull(text)
     }
 
+    private fun estimatedAt(parent: Element, containerLocalName: String): OffsetDateTime? =
+        firstChildElement(parent, containerLocalName)?.let { textContent(it, "EstimatedTime") }?.let { parseDateTimeOrNull(it) }
+
+    /** siri:ExpectedDepartureOccupancy entries -> {firstClass|secondClass: LOW|MEDIUM|HIGH}; unknown levels are left out. */
+    private fun occupancy(board: Element): Map<String, String> {
+        val nl = board.getElementsByTagNameNS("*", "ExpectedDepartureOccupancy")
+        return (0 until nl.length).mapNotNull { nl.item(it) as? Element }.mapNotNull { e ->
+            val cls = textContent(e, "FareClass") ?: return@mapNotNull null
+            val level = when (textContent(e, "OccupancyLevel")) {
+                "manySeatsAvailable" -> "LOW"; "fewSeatsAvailable" -> "MEDIUM"
+                "standingRoomOnly", "full", "notAcceptingPassengers" -> "HIGH"; else -> null
+            } ?: return@mapNotNull null
+            cls to level
+        }.toMap()
+    }
+
     private fun parseDateTimeOrNull(text: String): OffsetDateTime? = try {
         if (text.endsWith("Z") || text.contains("+") || text.matches(Regex(".*-\\d{2}:\\d{2}$"))) {
             OffsetDateTime.parse(text)
@@ -637,6 +747,9 @@ class OjpTransportProvider(
         try { Duration.parse(iso) } catch (e: Exception) { Duration.ofMinutes(2) }
 
     companion object {
+        private const val MIN_PLACE_PROBABILITY = 0.5
+        private val SLOID = Regex("ch:1:sloid:\\d+(:\\d+)*")
+        private val COORDS = Regex("(-?\\d{1,3}(?:\\.\\d+)?)\\s*,\\s*(-?\\d{1,3}(?:\\.\\d+)?)")
         fun defaultClient(): HttpClient = HttpClient(CIO) {
             engine {
                 requestTimeout = 10_000

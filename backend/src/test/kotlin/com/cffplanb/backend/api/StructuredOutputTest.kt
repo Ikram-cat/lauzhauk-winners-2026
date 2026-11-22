@@ -34,47 +34,39 @@ class StructuredOutputTest {
     }
     private fun get(path: String, js: List<Journey> = all, block: suspend (HttpStatusCode, JsonObject) -> Unit) = testApplication {
         application { install(ContentNegotiation) { json(Json { encodeDefaults = true }) }; configureRoutes(JourneySearchService(Fake(js)), clock) }
-        val r = client.get(path); block(r.status, Json.parseToJsonElement(r.bodyAsText()).jsonObject)
+        val r = client.get(path); block(r.status, parse(r.bodyAsText()))
     }
-    private val paths = listOf("/api/journeys?origin=A&destination=B", "/api/redirect?origin=A&destination=B")
-    private fun JsonObject.ids(k: String) = this[k]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }
+    private val base = "/api/journeys?origin=A&destination=B"
+    private fun JsonObject.altIds() = a("alternatives").map { it.obj().str("id") }
 
-    @Test fun `default output has no prose anywhere`() = paths.forEach { p -> get(p) { s, j ->
-        assertEquals(HttpStatusCode.OK, s)
-        val text = j.toString()
-        for (k in listOf("advice", "message", "why", "reasons", "recommendationIds")) assertFalse("\"$k\"" in text, "$p leaks $k")
-        assertTrue("fareStatus" in text || "expectedArrival" in text) // per-journey fields stay
-    } }
-
-    @Test fun `includeText brings the prose back`() = paths.forEach { p -> get("$p&includeText=true") { _, j ->
-        assertTrue(j["advice"]!!.jsonPrimitive.content.isNotBlank()); assertTrue(j["recommendationIds"] != null)
-        assertTrue((j["journeys"]!!.jsonArray[0].jsonObject["reasons"] != null))
-        if ("redirect" in p) assertTrue(j["message"]!!.jsonPrimitive.content.isNotBlank() && j["recommendation"]!!.jsonObject["why"] != null)
-    } }
-
-    @Test fun `limit caps journeys and defaults to 3`() = paths.forEach { p ->
-        get(p) { _, j -> assertEquals(3, j.ids("journeys").size) }
-        get("$p&limit=2") { _, j -> assertEquals(2, j.ids("journeys").size) }
-        get("$p&limit=10") { _, j -> assertEquals(5, j.ids("journeys").size) }
+    @Test fun `primary follows the preference and alternatives are sorted by it, excluding the recommendation`() {
+        get(base) { _, j -> assertEquals("FAST", j.o("primaryJourney").str("id")); assertEquals(listOf("SIMPLE", "P1", "P2"), j.altIds()) }
+        get("$base&preference=SIMPLEST&limit=10") { _, j -> assertEquals("SIMPLE", j.o("primaryJourney").str("id")); assertEquals(listOf("P1", "P2", "P3", "FAST"), j.altIds()) }
     }
 
-    @Test fun `limit out of range or not a number is 400`() = paths.forEach { p ->
-        for (v in listOf("0", "11", "-1", "x", "")) get("$p&limit=$v") { s, j -> assertEquals(HttpStatusCode.BadRequest, s, v); assertEquals("INVALID_REQUEST", j["error"]!!.jsonObject["code"]!!.jsonPrimitive.content) }
-    }
-
-    @Test fun `recommendations are full journeys independent of preference`() = paths.forEach { p ->
-        for (pref in listOf("FASTEST", "CHEAPEST", "SIMPLEST")) get("$p&preference=$pref&limit=1") { _, j ->
-            val r = j["recommendations"]!!.jsonObject
-            assertEquals("FAST", r["fastest"]!!.jsonObject["id"]!!.jsonPrimitive.content)
-            assertEquals("SIMPLE", r["simplest"]!!.jsonObject["id"]!!.jsonPrimitive.content)
-            assertTrue(r["fastest"]!!.jsonObject["legs"]!!.jsonArray.size == 2) // a full journey, not an id
+    @Test fun `highlights name the best of the journeys shown regardless of preference`() {
+        for (pref in listOf("FASTEST", "SIMPLEST")) get("$base&preference=$pref&limit=10") { _, j ->
+            val h = j.o("highlights")
+            assertEquals("FAST", h.str("fastestId")); assertEquals("SIMPLE", h.str("simplestId"))
+            assertEquals(JsonNull, h["cheapestId"]) // fare lookup is off: nothing to be cheapest
+        }
+        get("$base&limit=1") { _, j -> // ids always refer to a journey in the payload
+            val shown = (listOf(j.o("primaryJourney"), j.o("recommendedJourney")) + j.a("alternatives").map { it.obj() }).map { it.str("id") }.toSet()
+            assertTrue(j.o("highlights").values.all { it is JsonNull || it.jsonPrimitive.content in shown })
         }
     }
 
-    @Test fun `recommendations are null when there is no route`() = paths.forEach { p -> get(p, js = emptyList()) { s, j ->
+    @Test fun `no route is action NONE with null journeys and an empty list`() = get(base, js = emptyList()) { s, j ->
         assertEquals(HttpStatusCode.OK, s)
-        val r = j["recommendations"]!!.jsonObject
-        assertEquals(JsonNull, r["fastest"]); assertEquals(JsonNull, r["simplest"])
-        assertTrue(j["journeys"]!!.jsonArray.isEmpty())
-    } }
+        assertEquals("NONE", j.str("action")); assertEquals(JsonNull, j["primaryJourney"]); assertEquals(JsonNull, j["recommendedJourney"])
+        assertEquals(0, j.a("alternatives").size); assertEquals(0, j.a("reasons").size)
+        assertEquals(JsonNull, j.o("highlights")["fastestId"])
+    }
+
+    @Test fun `realtime and legs are null not zero when nothing is known`() = get(base) { _, j ->
+        val p = j.o("primaryJourney")
+        assertEquals("NONE", p.o("realtime").str("source")); assertEquals(JsonNull, p.o("realtime")["arrivalDelayMinutes"])
+        for (l in p.a("legs")) { assertEquals(JsonNull, l.obj()["departureDelayMinutes"]); assertEquals(JsonNull, l.obj()["expectedArrival"]) }
+        assertEquals("15:05", p.o("schedule").str("departure").substring(11, 16)) // scheduled values untouched
+    }
 }

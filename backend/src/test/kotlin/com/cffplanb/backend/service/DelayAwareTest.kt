@@ -59,58 +59,39 @@ class DelayAwareTest {
     private val early = journey("EARLY", leg("IR 90", "Lausanne", "Genève", "15:10", "16:00")) // usually ~7 min late
     private fun later(arr: String) = journey("LATE", leg("IC 5", "Lausanne", "Genève", "15:20", arr)) // station row: on time
 
-    private fun api(js: List<Journey>, m: RealtimeDelayModel, path: String = "/api/redirect?origin=Lausanne&destination=Gen%C3%A8ve&includeText=true", block: (JsonObject) -> Unit) = testApplication {
+    private fun api(js: List<Journey>, m: RealtimeDelayModel, path: String = "/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve", block: (JsonObject) -> Unit) = testApplication {
         application { install(ContentNegotiation) { json(Json { encodeDefaults = true }) }; configureRoutes(JourneySearchService(Fake(js)), clock, delay = m) }
         block(Json.parseToJsonElement(client.get(path).bodyAsText()).jsonObject)
     }
     private fun JsonObject.str(k: String) = get(k)!!.jsonPrimitive.content
     private fun JsonObject.obj(k: String) = get(k)!!.jsonObject
 
-    @Test fun `expected arrival switches the recommendation and why says so`() = api(listOf(early, later("16:06")), model) { j ->
-        val r = j.obj("recommendation")
-        assertEquals("LATE", r.str("id"))
-        assertEquals("arrives 6 min later on paper but is usually on time, while the earlier one runs ~7 min late here", r.str("why"))
-        assertEquals("2026-11-21T16:06:00Z", r.str("expectedArrival")); assertEquals("0", r.str("expectedDelayMin")); assertEquals("station", r.str("delaySource")); assertEquals("120", r.str("delaySamples"))
-        val alt = j["alternatives"]!!.jsonArray[0].jsonObject
-        assertEquals("2026-11-21T16:07:00Z", alt.str("expectedArrival")); assertEquals("7", alt.str("expectedDelayMin")); assertEquals("line", alt.str("delaySource"))
-        assertEquals("2026-11-21T16:00:00Z", alt.str("arrival")) // scheduled values untouched
+    @Test fun `statistical delay is reported as DELAY_MODEL realtime without touching the schedule`() = api(listOf(early), model) { j ->
+        val p = j.obj("primaryJourney"); val rt = p.obj("realtime")
+        assertEquals("DELAY_MODEL", rt.str("source")); assertEquals("7", rt.str("arrivalDelayMinutes")); assertEquals("40", rt.str("sampleCount"))
+        assertEquals("2026-11-21T16:07:00Z", rt.str("expectedArrival"))
+        assertEquals(JsonNull, rt["expectedDeparture"]); assertEquals(JsonNull, rt["departureDelayMinutes"]) // the model only knows arrivals
+        assertEquals("2026-11-21T16:00:00Z", p.obj("schedule").str("arrival"))
     }
 
-    @Test fun `tie tolerance of 2 min prefers fewer delay-prone legs, beyond it the earlier expected arrival wins`() {
-        api(listOf(early, later("16:08")), model) { assertEquals("LATE", it.obj("recommendation").str("id")) }   // 16:07 vs 16:08: tie, LATE has no prone leg
-        api(listOf(early, later("16:11")), model) { assertEquals("EARLY", it.obj("recommendation").str("id")) }  // 16:07 vs 16:11: not a tie
+    @Test fun `the detector reported UNKNOWN so the model stays out of status but still fills realtime`() = api(listOf(early), model) { j ->
+        assertEquals("UNKNOWN", j.str("status")); assertEquals("STAY", j.str("action"))
     }
 
-    @Test fun `no delay data behaves exactly as before`() {
-        api(listOf(early, later("16:06")), RealtimeDelayModel(null)) { j ->
-            val r = j.obj("recommendation")
-            assertEquals("EARLY", r.str("id")); assertEquals("fastest", r.str("why"))
-            assertEquals(JsonNull, r["expectedDelayMin"]); assertEquals("none", r.str("delaySource")); assertEquals(JsonNull, r["delaySamples"])
-            assertEquals(r.str("arrival"), r.str("expectedArrival"))
-        }
+    @Test fun `no delay data means source NONE with nulls`() = api(listOf(early), RealtimeDelayModel(null)) { j ->
+        val rt = j.obj("primaryJourney").obj("realtime")
+        assertEquals("NONE", rt.str("source")); assertEquals(JsonNull, rt["expectedArrival"]); assertEquals(JsonNull, rt["arrivalDelayMinutes"]); assertEquals(JsonNull, rt["sampleCount"])
     }
 
-    @Test fun `journeys endpoint and model endpoint carry the delay fields`() = testApplication {
+    @Test fun `alternatives carry their own delay-model realtime`() = api(listOf(early, later("16:30")), model, "/api/journeys?origin=A&destination=B&preference=SIMPLEST") { j ->
+        val all = listOf(j.obj("primaryJourney")) + j["alternatives"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(setOf("EARLY", "LATE"), all.map { it.str("id") }.toSet())
+        assertEquals(setOf("7", "0"), all.map { it.obj("realtime").str("arrivalDelayMinutes") }.toSet())
+    }
+
+    @Test fun `model endpoint reports the delay artifact`() = testApplication {
         application { install(ContentNegotiation) { json(Json { encodeDefaults = true }) }; configureRoutes(JourneySearchService(Fake(listOf(early))), clock, delay = model) }
-        val j = Json.parseToJsonElement(client.get("/api/journeys?origin=A&destination=B").bodyAsText()).jsonObject["journeys"]!!.jsonArray[0].jsonObject
-        assertEquals("7", j.str("expectedDelayMin")); assertEquals("2026-11-21T16:00:00Z", j.str("arrival")); assertEquals("2026-11-21T16:07:00Z", j.str("expectedArrival"))
-        val m = Json.parseToJsonElement(client.get("/api/model").bodyAsText()).jsonObject
-        assertEquals("fixture-delays-1", m.str("delayModelVersion")); assertEquals("5", m.str("delayPortions")); assertEquals("2", m.str("delayLines")); assertEquals("ok", m.str("delayArtifactStatus"))
-    }
-
-    // ---- incident chain reaction ----
-
-    private fun trip(start: String, cancelled: Boolean = false, delaySec: Int? = null) =
-        GtfsTrip("t$start", "91-33-C-j26-1", "20261121", start, cancelled, false, listOf(GtfsStopUpdate("8501120", delaySec, false)))
-    private fun snap(vararg t: GtfsTrip) = GtfsSnapshot(0, t.toList(), t.size, t.count { it.cancelled }, 0, 0)
-    private val planned = StopEvent("IC 5", "ojp:91033:C", t("15:20"), null, false, null, originDeparture = t("15:00"))
-
-    @Test fun `upstream incident needs an earlier cancelled or late trip on the same route and direction`() {
-        assertTrue(upstreamIncident(snap(trip("15:45:00", cancelled = true)), planned)!!.contains("cancelled")) // 15:45 local = 14:45Z, 15 min earlier
-        assertTrue(upstreamIncident(snap(trip("15:45:00", delaySec = 480)), planned)!!.contains("8 min late"))
-        assertNull(upstreamIncident(snap(trip("15:45:00", delaySec = 60)), planned))  // small delay
-        assertNull(upstreamIncident(snap(trip("16:30:00", cancelled = true)), planned)) // later trip
-        assertNull(upstreamIncident(snap(trip("13:00:00", cancelled = true)), planned)) // more than 90 min earlier
-        assertNull(upstreamIncident(snap(trip("15:45:00", cancelled = true)), planned.copy(lineRef = "ojp:91033:_"))) // no direction known
+        val d = Json.parseToJsonElement(client.get("/api/model").bodyAsText()).jsonObject.obj("delayModel")
+        assertEquals("fixture-delays-1", d.str("version")); assertEquals("OK", d.str("status")); assertEquals("5", d.obj("counts").str("portions")); assertEquals("2", d.obj("counts").str("lines"))
     }
 }

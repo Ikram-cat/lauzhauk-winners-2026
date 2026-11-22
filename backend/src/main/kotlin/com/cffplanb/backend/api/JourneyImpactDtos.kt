@@ -22,7 +22,7 @@ data class MatchedStationDto(
 )
 
 @Serializable
-data class AlternativeDto(val status: String, val journey: JourneyDto?)
+data class AlternativeDto(val status: String, val journey: ImpactJourneyDto?)
 
 @Serializable
 data class JourneyDisruptionImpactDto(
@@ -39,7 +39,7 @@ data class JourneyDisruptionImpactDto(
 data class JourneyImpactResponseDto(
     val dataStatus: String,
     val observedAt: String,
-    val journey: JourneyDto?,
+    val journey: ImpactJourneyDto?,
     val affected: Boolean,
     val impacts: List<JourneyDisruptionImpactDto>,
     val liveAlerts: LiveAlertsDto = LiveAlertsDto.disabled()
@@ -90,3 +90,23 @@ data class LiveAlertsDto(
         fun disabled() = LiveAlertsDto(status = "DISABLED")
     }
 }
+
+/** Plain journey shape of /api/journeys/impact (scheduled times and stop sloids), independent of /api/journeys. */
+@Serializable
+data class ImpactLegDto(
+    val mode: String, val origin: String, val destination: String, val departure: String, val arrival: String,
+    val serviceLabel: String?, val originSloid: String?, val destinationSloid: String?
+)
+
+@Serializable
+data class ImpactJourneyDto(
+    val id: String, val departure: String, val arrival: String, val durationMinutes: Int, val transfers: Int,
+    val dataStatus: String, val legs: List<ImpactLegDto>
+)
+
+internal fun com.cffplanb.backend.domain.Journey.toImpactDto() = ImpactJourneyDto(
+    id, RFC3339_FORMATTER.format(departure), RFC3339_FORMATTER.format(arrival), durationMinutes, transfers, dataStatus.name,
+    legs.map { l ->
+        ImpactLegDto(l.mode.name, l.origin, l.destination, RFC3339_FORMATTER.format(l.departure), RFC3339_FORMATTER.format(l.arrival),
+            l.serviceLabel, l.originSloid, l.destinationSloid)
+    })

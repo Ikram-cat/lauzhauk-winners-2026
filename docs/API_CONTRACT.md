@@ -60,7 +60,6 @@ Use a currently valid departure, or omit `departure`, when verifying the live pr
 | `departure`, `arrival` | Offset timestamp strings | Scheduled times at the leg endpoints. |
 | `serviceLabel` | String or null | Provider-supplied service label when available. |
 | `departurePlatform`, `arrivalPlatform` | Strings or null | Platform labels as supplied. Preserve letters and leading zeroes. |
-| `originSloid`, `destinationSloid` | Strings or null | Additive, optional. Stop-place sloid of the boarding and alighting stop (`ch:1:sloid:<n>`, platform suffix removed) when the provider supplies one. The mock provider leaves them null. Clients that do not know the fields ignore them. |
 
 Nullable fields may be omitted by a serializer. Clients interpret a missing nullable field like `null`. All other fields are required. Compare timestamps as instants and display them in `Europe/Zurich`. A leg's arrival is at or after its departure, and every leg after the first starts at or after the previous leg's arrival. The journey endpoints match the first and last leg times as instants.
 
@@ -339,7 +338,7 @@ These rules remove the flip-flops when the detour cost is close to the P50. On t
 The backend implements this check in `POST /api/journeys/impact` (see below).
 
 A journey is affected when one of its legs boards, alights or passes through a station in `affected.stations`, or runs on a line listed in `affected.lines`.
-- **Match on `sloid`.** OJP returns `StopPointRef` / `StopPlaceRef` values such as `ch:1:sloid:7000` or, for a platform, `ch:1:sloid:7000:2:3`. Compare the first four `:`-separated parts. `JourneyLegDto` now carries `originSloid` and `destinationSloid`, and the backend also reads the OJP intermediate stops when they are present. Matching on names is a weaker fallback, used for the mock provider.
+- **Match on `sloid`.** OJP returns `StopPointRef` / `StopPlaceRef` values such as `ch:1:sloid:7000` or, for a platform, `ch:1:sloid:7000:2:3`. Compare the first four `:`-separated parts. The backend keeps these sloids on its internal legs (boarding, alighting and OJP intermediate stops). `POST /api/journeys/impact` returns them in its own journey shape (`legs[].originSloid`, `legs[].destinationSloid`). `GET /api/journeys` keeps the strict leg contract of `main` without them; adding them there is role B's decision. Matching on names is a weaker fallback, used for the mock provider.
 - **Intermediate stations.** A section gives only its two ends. A leg passing through the middle of the section matches only if the client also checks the leg's intermediate stops, which OJP can return.
 - **Accuracy of the sloid rule.** It was checked against all 32,911 Swiss service points of the opentransportdata.swiss `service-points-actual-date` export (2026-06-30): 100% match. Of the 257 UIC codes in VIA, 224 are in that export; the 33 others are foreign stations without a Swiss sloid.
 

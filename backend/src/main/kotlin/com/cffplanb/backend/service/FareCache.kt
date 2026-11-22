@@ -23,6 +23,10 @@ class FareCache(
     private class Entry(var expires: Long, val value: CompletableDeferred<FareQuote?>)
     private val mutex = Mutex()
     private val entries = LinkedHashMap<String, Entry>() // insertion order = eviction order
+    @Volatile private var failStreak = 0
+
+    /** From the last lookups only: no failures OK, 1-2 in a row DEGRADED, 3+ DOWN. */
+    fun status() = when { failStreak == 0 -> "OK"; failStreak < 3 -> "DEGRADED"; else -> "DOWN" }
 
     suspend fun quote(origin: String, destination: String, departure: OffsetDateTime): FareQuote? {
         val key = "${origin.trim().lowercase()}|${destination.trim().lowercase()}"
@@ -41,6 +45,7 @@ class FareCache(
             var q: FareQuote? = null
             try { q = provider.quote(origin, destination, departure) } finally {
                 entry.value.complete(q) // waiters never hang, even if this caller is cancelled
+                failStreak = if (q == null) failStreak + 1 else 0
                 if (q == null) withContext(NonCancellable) { mutex.withLock { entry.expires = minOf(entry.expires, nowMs() + negativeTtlMs) } }
             }
         }

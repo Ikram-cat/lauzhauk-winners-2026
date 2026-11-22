@@ -76,4 +76,57 @@ class JourneySourceTest {
             server.stop(0)
         }
     }
+
+    @Test
+    fun queriesRedirectEndpointAndDecodesDisruptionAndRecommendation() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/api/redirect") { exchange ->
+            val body = """
+                {
+                  "situation": "DISRUPTION_DETECTED",
+                  "disruption": {
+                    "serviceLabel": "RE33",
+                    "from": "Renens VD",
+                    "to": "Genève",
+                    "scheduledDeparture": "2026-11-21T20:33:00Z",
+                    "delayMinutes": 22,
+                    "cancelled": false,
+                    "confidence": "high",
+                    "cause": "Panne de signalisation"
+                  },
+                  "recommendation": {
+                    "id": "rec-1",
+                    "departure": "2026-11-21T20:40:00Z",
+                    "arrival": "2026-11-21T21:20:00Z",
+                    "durationMinutes": 40,
+                    "transfers": 0,
+                    "dataStatus": "MOCK",
+                    "legs": [],
+                    "why": "Fewest changes"
+                  },
+                  "alternatives": [],
+                  "message": "Direct train RE33 is delayed 22 min. Take the 20:40 replacement instead."
+                }
+            """.trimIndent().encodeToByteArray()
+            exchange.responseHeaders.set("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+        val source = JourneySource("http://127.0.0.1:${server.address.port}")
+        try {
+            val response = runBlocking { source.search("Renens VD", "Genève", null) }
+            assertEquals("DISRUPTION_DETECTED", response.situation)
+            assertEquals("RE33", response.disruption?.serviceLabel)
+            assertEquals(22, response.disruption?.delayMinutes)
+            assertEquals(false, response.disruption?.cancelled)
+            assertEquals("Panne de signalisation", response.disruption?.cause)
+            assertEquals("rec-1", response.recommendation?.id)
+            assertEquals("Fewest changes", response.recommendation?.why)
+            assertEquals("Direct train RE33 is delayed 22 min. Take the 20:40 replacement instead.", response.message)
+        } finally {
+            source.close()
+            server.stop(0)
+        }
+    }
 }

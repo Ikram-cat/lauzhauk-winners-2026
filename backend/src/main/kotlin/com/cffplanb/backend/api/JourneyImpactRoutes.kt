@@ -69,7 +69,7 @@ fun Route.journeyImpactRoutes(
                 call.respond(HttpStatusCode.OK, JourneyImpactResponseDto(
                     dataStatus = if (mock) "MOCK" else result.planned?.dataStatus?.name ?: impact.dataStatus,
                     observedAt = ISO.format(observedAt),
-                    journey = result.planned?.toDto(),
+                    journey = result.planned?.toImpactDto(),
                     affected = result.impacts.isNotEmpty(),
                     liveAlerts = live,
                     impacts = result.impacts.map { i ->
@@ -84,7 +84,7 @@ fun Route.journeyImpactRoutes(
                             matchedLines = i.match.lines,
                             detourExtraMinutes = i.detourExtraMinutes,
                             alternative = AlternativeDto(if (i.alternative != null) "FOUND" else "NONE_UNAFFECTED",
-                                i.alternative?.toDto()),
+                                i.alternative?.toImpactDto()),
                             outlook = d.context?.let { buildOutlook(estimator, it, observedAt, i.detourExtraMinutes) }
                                 ?: DisruptionOutlookResponseDto(
                                     status = "UNAVAILABLE", remainingMinutes = null, expectedEndAt = null,

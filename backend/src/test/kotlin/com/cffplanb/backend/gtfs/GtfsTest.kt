@@ -111,13 +111,13 @@ class GtfsTest {
         assertEquals(4, h.disruption.delayMinutes); assertEquals(DisruptionBasis.REALTIME_ESTIMATE, h.disruption.basis)
         assertEquals(l.departure.plusSeconds(294), h.disruption.estimatedDeparture)
         // 54 s at Lausanne is below the threshold: GTFS says the train is fine
-        assertSame(LegCheck.Clear, classifyLegGtfs(0, l, ev("RE33", "21:20", "ojp:91033:C", "20:35", "ch:1:sloid:1120:0:840061"), snap()))
+        assertIs<LegCheck.Clear>(classifyLegGtfs(0, l, ev("RE33", "21:20", "ojp:91033:C", "20:35", "ch:1:sloid:1120:0:840061"), snap()))
     }
 
     @Test fun `delays under 3 minutes are not a disruption`() {
         fun trip(delay: Int) = GtfsTrip(".x", "91-33-C-j26-1", "20261121", "21:35:00", false, false, listOf(GtfsStopUpdate("ch:1:sloid:1200:1:1", delay, false)))
         val l = leg("RE33", "Montreux", "21:20", "22:10"); val p = ev("RE33", "21:20", "ojp:91033:C", "20:35", "ch:1:sloid:1200:0:9")
-        for (d in listOf(60, 119, 179)) assertSame(LegCheck.Clear, classifyLegGtfs(0, l, p, GtfsSnapshot(0, listOf(trip(d)), 1, 0, 0, 0)))
+        for (d in listOf(60, 119, 179)) assertEquals(LegCheck.Clear(d / 60, true), classifyLegGtfs(0, l, p, GtfsSnapshot(0, listOf(trip(d)), 1, 0, 0, 0)))
         assertEquals(3, ((classifyLegGtfs(0, l, p, GtfsSnapshot(0, listOf(trip(180)), 1, 0, 0, 0))) as LegCheck.Hit).disruption.delayMinutes)
     }
 
@@ -200,7 +200,7 @@ class GtfsTest {
         override suspend fun stopEvents(stop: String, from: OffsetDateTime, realtime: Boolean) = StopEventsResult.Success(if (realtime) live else plan)
     }
 
-    @Test fun `redirect uses the GTFS cancellation and reroutes, model shows the counters`() = testApplication {
+    @Test fun `journeys reroute on the GTFS cancellation, health shows the counters`() = testApplication {
         val alt = journey("ALT", leg("IC 5", "Lausanne", "20:50", "21:40"))
         val planned = ev("IR7", "20:40", "ojp:91007:J", "20:26", "ch:1:sloid:1120:0:1")
         val altEv = ev("IC 5", "20:50", "ojp:91005:A", "20:50", "ch:1:sloid:1120:0:2")
@@ -209,19 +209,18 @@ class GtfsTest {
             install(ContentNegotiation) { json(Json { encodeDefaults = true }) }
             configureRoutes(JourneySearchService(Fake(listOf(jr, alt), listOf(planned, altEv), listOf(planned.copy(estimated = planned.scheduled), altEv.copy(estimated = altEv.scheduled)))), clock, gtfs = src)
         }
-        val j = Json.parseToJsonElement(client.get("/api/redirect?origin=Lausanne&destination=Gen%C3%A8ve").bodyAsText()).jsonObject
-        assertEquals("DISRUPTION_DETECTED", j["situation"]!!.jsonPrimitive.content)
+        val j = Json.parseToJsonElement(client.get("/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve").bodyAsText()).jsonObject
+        assertEquals("DISRUPTION_DETECTED", j["status"]!!.jsonPrimitive.content); assertEquals("REROUTE", j["action"]!!.jsonPrimitive.content)
         val d = j["disruption"]!!.jsonObject
         assertEquals("CANCELLED_FLAG", d["basis"]!!.jsonPrimitive.content); assertEquals("true", d["cancelled"]!!.jsonPrimitive.content); assertEquals(JsonNull, d["delayMinutes"])
-        assertEquals("ALT", j["recommendation"]!!.jsonObject["id"]!!.jsonPrimitive.content)
-        val m = Json.parseToJsonElement(client.get("/api/model").bodyAsText()).jsonObject
-        assertEquals("true", m["gtfsRtEnabled"]!!.jsonPrimitive.content); assertEquals("4", m["gtfsRtTripUpdates"]!!.jsonPrimitive.content); assertEquals("1", m["gtfsRtCancelled"]!!.jsonPrimitive.content)
-        assertNotEquals(JsonNull, m["gtfsRtAgeSeconds"])
-    }
-
-    @Test fun `model reports GTFS-RT disabled when there is no source`() = testApplication {
-        application { install(ContentNegotiation) { json(Json { encodeDefaults = true }) }; configureRoutes(JourneySearchService(MockTransportProvider()), clock) }
-        val m = Json.parseToJsonElement(client.get("/api/model").bodyAsText()).jsonObject
-        assertEquals("false", m["gtfsRtEnabled"]!!.jsonPrimitive.content); assertEquals("0", m["gtfsRtCancelled"]!!.jsonPrimitive.content)
+        assertEquals("HIGH", d["confidence"]!!.jsonPrimitive.content)
+        assertEquals("J", j["primaryJourney"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("ALT", j["recommendedJourney"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("PRIMARY_LEG_CANCELLED", j["reasons"]!!.jsonArray[0].jsonObject["code"]!!.jsonPrimitive.content)
+        assertTrue(j["alternatives"]!!.jsonArray.none { it.jsonObject["id"]!!.jsonPrimitive.content == "J" }) // the cancelled trip is dropped
+        val g = Json.parseToJsonElement(client.get("/health").bodyAsText()).jsonObject["feeds"]!!.jsonObject["gtfsRt"]!!.jsonObject
+        assertEquals("true", g["enabled"]!!.jsonPrimitive.content); assertEquals("OK", g["status"]!!.jsonPrimitive.content)
+        assertEquals("4", g["activeTripUpdates"]!!.jsonPrimitive.content); assertEquals("1", g["cancelledTrips"]!!.jsonPrimitive.content)
+        assertNotEquals(JsonNull, g["ageSeconds"])
     }
 }
