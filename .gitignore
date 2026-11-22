@@ -95,4 +95,3 @@ model/
 # iOS host: generated Xcode project and local demo recordings
 frontend/kmp/iosApp/iosApp.xcodeproj/
 *.xcresult/
-*.mp4
