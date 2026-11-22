@@ -1,201 +1,171 @@
 package alt
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 
-@Composable
-fun ResultsPane(st: AppState) {
-    val res = st.result
-    when {
-        st.loading -> Column(
-            Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(12.dp))
-            Text(st.t("loading"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        st.error != null -> Column(
-            Modifier.fillMaxSize().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                Column(Modifier.padding(20.dp)) {
-                    Text(st.t("error"), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
-                    Spacer(Modifier.height(6.dp))
-                    Text(st.error ?: "", fontSize = 13.sp, color = MaterialTheme.colorScheme.onErrorContainer)
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { st.retry() }) { Text(st.t("retry")) }
-                }
-            }
-        }
-
-        res == null -> Column(
-            Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text("Search a Swiss connection to see journeys, delays and alternatives.", fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        else -> ResultsList(st, res)
-    }
-}
+/* ------------------------------------------------------------------ page */
 
 @Composable
-private fun ResultsList(st: AppState, res: JourneyResponse) {
+fun ResultsPage(st: AppState, pal: AltPalette, modifier: Modifier) {
+    val res = st.result ?: return
     val recommended = res.recommendedJourney
-    val primary = res.primaryJourney
-    val alternatives = res.alternatives
-    var expandedIds by remember(res) { mutableStateOf(setOf(recommended?.id ?: "")) }
+    val others = buildList {
+        res.primaryJourney?.let { if (it.id != recommended?.id) add(it) }
+        addAll(res.alternatives.filter { it.id != recommended?.id })
+    }.distinctBy { it.id }.take(5)
+    var expanded by remember(res) { mutableStateOf<Set<String>>(emptySet()) }
 
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    Column(
+        modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp),
     ) {
-        item("status") { StatusBanner(st, res) }
-        item("sim") {
-            if (res.demoPerturbation?.active == true) SimulationBanner(st, res.demoPerturbation)
-        }
-        item("deadline") {
-            if (res.deadlineSummary != null) DeadlineBanner(st, res)
-        }
-        if (recommended != null) {
-            item("rec") {
-                JourneyCard(
-                    st, recommended,
-                    badges = buildList {
-                        add(st.t("recommended"))
-                        if (recommended.id == res.highlights?.fastestId) add(st.t("fastest"))
-                        if (recommended.id == res.highlights?.simplestId) add(st.t("simplest"))
-                        if (recommended.id == res.highlights?.cheapestId) add(st.t("cheapest"))
-                    },
-                    expanded = true,
-                    onToggle = null,
+        Column(
+            Modifier.widthIn(max = 920.dp).fillMaxWidth()
+                .align(Alignment.CenterHorizontally)
+                .padding(top = 32.dp, bottom = 56.dp),
+        ) {
+            Eyebrow(st.t("results"), pal)
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    st.fromText + "  -  " + st.toText,
+                    fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp,
+                    color = pal.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    (if (st.arriveBy) st.t("arrive") else st.t("depart")) + " · " +
+                        (if (st.timeText.isBlank()) st.t("now") else st.timeText) + " · " +
+                        st.t(if (st.preference == "SIMPLEST") "easiest" else "fastest"),
+                    fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
+                    color = pal.muted,
                 )
             }
-        }
-        if (primary != null && primary.id != recommended?.id) {
-            item("primary") {
-                Column {
-                    Text(st.t("primary"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(4.dp))
-                    JourneyCard(
-                        st, primary,
-                        badges = listOfNotNull(
-                            if (primary.id == res.highlights?.fastestId) st.t("fastest") else null,
-                            if (primary.id == res.highlights?.simplestId) st.t("simplest") else null,
-                            if (primary.id == res.highlights?.cheapestId) st.t("cheapest") else null,
-                        ),
-                        expanded = expandedIds.contains(primary.id),
-                        onToggle = { expandedIds = toggle(expandedIds, primary.id) },
-                    )
+            Spacer(Modifier.height(20.dp))
+
+            StatusPanel(st, res, pal)
+            if (res.demoPerturbation?.active == true) {
+                Spacer(Modifier.height(12.dp))
+                SimulationBanner(st, res.demoPerturbation, pal)
+            }
+            if (res.deadlineSummary != null) {
+                Spacer(Modifier.height(12.dp))
+                DeadlineBanner(st, res, pal)
+            }
+
+            Spacer(Modifier.height(20.dp))
+            if (recommended != null) {
+                FeatureCard(st, recommended, pal)
+            } else {
+                Text(st.t("noresults"), fontSize = 14.sp, color = pal.muted)
+            }
+
+            if (others.isNotEmpty()) {
+                Spacer(Modifier.height(36.dp))
+                Eyebrow(st.t("otheroptions"), pal)
+                Spacer(Modifier.height(12.dp))
+                Column(Modifier.fillMaxWidth().border(1.dp, pal.ink)) {
+                    others.forEachIndexed { i, j ->
+                        Band(st, j, pal, expanded.contains(j.id), i == 0 && j.id == res.primaryJourney?.id) {
+                            expanded = if (expanded.contains(j.id)) expanded - j.id else expanded + j.id
+                        }
+                    }
                 }
-            }
-        }
-        if (alternatives.isNotEmpty()) {
-            item("alts") {
-                Text(st.t("alternatives"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            }
-            alternatives.forEach { j ->
-                item("alt-" + j.id) {
-                    JourneyCard(
-                        st, j,
-                        badges = listOfNotNull(
-                            if (j.id == res.highlights?.fastestId) st.t("fastest") else null,
-                            if (j.id == res.highlights?.simplestId) st.t("simplest") else null,
-                            if (j.id == res.highlights?.cheapestId) st.t("cheapest") else null,
-                        ),
-                        expanded = expandedIds.contains(j.id),
-                        onToggle = { expandedIds = toggle(expandedIds, j.id) },
-                    )
-                }
-            }
-        }
-        if (recommended == null && primary == null && alternatives.isEmpty()) {
-            item("empty") {
-                Text(st.t("noresults"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
 
-private fun toggle(set: Set<String>, id: String): Set<String> =
-    if (set.contains(id)) set - id else set + id
+/* ---------------------------------------------------------------- status */
 
 @Composable
-private fun StatusBanner(st: AppState, res: JourneyResponse) {
-    val status = res.status
-    val (bg, fg, title) = when (status) {
-        "DISRUPTION_DETECTED" -> Triple(
-            MaterialTheme.colorScheme.errorContainer,
-            MaterialTheme.colorScheme.onErrorContainer,
-            st.t("disruption"),
-        )
-        "NO_DISRUPTION" -> Triple(
-            MaterialTheme.colorScheme.secondaryContainer,
-            MaterialTheme.colorScheme.onSecondaryContainer,
-            st.t("allclear"),
-        )
-        else -> Triple(
-            MaterialTheme.colorScheme.surfaceVariant,
-            MaterialTheme.colorScheme.onSurfaceVariant,
-            st.t("unknown"),
-        )
-    }
-    Card(colors = CardDefaults.cardColors(containerColor = bg), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = fg)
-                Spacer(Modifier.width(8.dp))
-                if (res.action == "REROUTE") {
-                    Surface(color = fg.copy(alpha = 0.15f), shape = RoundedCornerShape(50)) {
-                        Text("REROUTE — " + st.t("reroute"), fontSize = 10.sp, color = fg,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+private fun StatusPanel(st: AppState, res: JourneyResponse, pal: AltPalette) {
+    when (res.status) {
+        "DISRUPTION_DETECTED" -> {
+            Box(
+                Modifier.fillMaxWidth()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(pal.red.copy(alpha = 0.14f), Color.Transparent),
+                        ),
+                    )
+                    .border(1.dp, pal.red).padding(14.dp),
+            ) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Text("▲", fontSize = 16.sp, color = pal.red, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            st.t("status.bad").uppercase(), fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, color = pal.ink,
+                        )
+                        val notes = buildList {
+                            res.reasons.forEach { add(reasonText(it, st)) }
+                            res.disruption?.let { d ->
+                                val parts = buildList {
+                                    d.serviceLabel?.let { add(it) }
+                                    if (d.from != null && d.to != null) add(d.from + " - " + d.to)
+                                    d.delayMinutes?.let { add("+" + it.toInt() + " min") }
+                                    if (d.cancelled == true) add("cancelled")
+                                    d.cause?.let { add(it) }
+                                }
+                                if (parts.isNotEmpty()) add(parts.joinToString(" · "))
+                            }
+                        }
+                        if (notes.isNotEmpty()) {
+                            Spacer(Modifier.height(5.dp))
+                            notes.take(4).forEach {
+                                Text("• " + it, fontSize = 12.sp, color = pal.ink)
+                            }
+                        }
+                    }
+                    if (res.action == "REROUTE") {
+                        Box(Modifier.background(pal.red).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            Text(st.t("reroute").uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp, color = Color.White)
+                        }
                     }
                 }
-                if (res.status == "NO_DISRUPTION" && res.action == "STAY") {
-                    Spacer(Modifier.weight(1f))
-                    Text(st.t("stay"), fontSize = 11.sp, color = fg)
-                }
-            }
-            if (res.reasons.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                res.reasons.forEach { r ->
-                    Text("• " + reasonText(r, st), fontSize = 12.sp, color = fg)
-                }
-            }
-            val d = res.disruption
-            if (d != null) {
-                Spacer(Modifier.height(6.dp))
-                val parts = buildList {
-                    d.serviceLabel?.let { add(it) }
-                    if (d.from != null && d.to != null) add("${d.from} → ${d.to}")
-                    d.delayMinutes?.let { add("+${it.toInt()} min") }
-                    if (d.cancelled == true) add("cancelled")
-                    d.cause?.let { add(it) }
-                }
-                if (parts.isNotEmpty()) Text(parts.joinToString(" · "), fontSize = 11.sp, color = fg.copy(alpha = 0.85f))
             }
         }
+
+        "NO_DISRUPTION" -> {
+            Row(
+                Modifier.fillMaxWidth().background(pal.surface).border(1.dp, pal.rule)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(22.dp).border(1.dp, pal.ink),
+                    contentAlignment = Alignment.Center,
+                ) { Box(Modifier.size(10.dp).background(pal.ink)) }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(st.t("status.ok").uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.1.sp, color = pal.ink)
+                    Text(st.t("status.ok.line"), fontSize = 12.sp, color = pal.muted)
+                }
+            }
+        }
+
+        else -> Unit // UNKNOWN: omit the panel entirely (DESIGN.md)
     }
 }
 
@@ -212,7 +182,7 @@ private fun reasonText(r: Reason, st: AppState): String {
         "EARLIER_DEPARTURE_CANCELLED" -> "An earlier departure is cancelled"
         "EXPECTED_FASTER" -> "Alternative expected ${s ?: 0} min faster"
         "FEWER_TRANSFERS" -> "${r.savedTransfers ?: 0} fewer transfers"
-        "CHEAPER" -> "Cheaper by ${fmtChf(r.savedChf) ?: ""}"
+        "CHEAPER" -> "Cheaper by " + (fmtChf(r.savedChf) ?: "")
         "STAY_FASTEST" -> "This route is still the fastest option"
         "DEADLINE_MET" -> "Arrives ${r.marginMinutes?.toInt() ?: 0} min before your deadline"
         "DEADLINE_MISSED" -> "Misses your deadline by ${r.marginMinutes?.toInt() ?: 0} min"
@@ -223,193 +193,370 @@ private fun reasonText(r: Reason, st: AppState): String {
 }
 
 @Composable
-private fun SimulationBanner(st: AppState, dp: DemoPerturbation) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(st.t("simchip"), fontWeight = FontWeight.Black, fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer)
-                Spacer(Modifier.width(8.dp))
-                Text("${st.t("demo.seed")} ${dp.seed ?: "—"}", fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer)
-            }
-            if (dp.applied.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Text(st.t("simapplied") + " " + dp.applied.joinToString("; "), fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeadlineBanner(st: AppState, res: JourneyResponse) {
-    val ds = res.deadlineSummary ?: return
-    val feasible = ds.feasible
-    val bg = if (feasible == false) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
-    val fg = if (feasible == false) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
-    Card(colors = CardDefaults.cardColors(containerColor = bg), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text(
-                when (feasible) {
-                    true -> st.t("deadlinemet")
-                    false -> st.t("nofeasible")
-                    else -> ""
-                },
-                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = fg,
-            )
-            if (ds.latestFeasibleDeparture != null) {
-                Text("${st.t("latestdeparture")} ${fmtTime(ds.latestFeasibleDeparture)}",
-                    fontSize = 11.sp, color = fg)
-            }
-        }
-    }
-}
-
-@Composable
-private fun JourneyCard(
-    st: AppState,
-    j: Journey,
-    badges: List<String>,
-    expanded: Boolean,
-    onToggle: (() -> Unit)?,
-) {
-    val sched = j.schedule
-    val rt = j.realtime
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(fmtTime(sched?.departure), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("  –  ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(fmtTime(sched?.arrival), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(10.dp))
-                Column {
-                    Text(fmtDuration(sched?.durationMinutes), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        if ((sched?.transfers ?: 0) == 0) st.t("direct")
-                        else "${sched?.transfers} ${st.t("transfers")}",
-                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                Column(horizontalAlignment = Alignment.End) {
-                    val fare = j.fares?.selectedChf
-                    Text(
-                        fmtChf(fare) ?: if (j.fares?.status == "DISABLED" || j.fares?.status == "UNAVAILABLE") st.t("fare.unavailable") else "—",
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                    )
-                    j.fares?.product?.let {
-                        Text(it, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                badges.forEach { Chip(it, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer) }
-                if (j.dataStatus == "MOCK") Chip(st.t("mock"), MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-                if (j.verified == false) Chip(st.t("unverified"), MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                j.maxOccupancy?.let { occ ->
-                    Chip("${st.t("occupancy")}: ${st.t(occ.lowercase())}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (j.feasible == false) Chip(st.t("deadlinemissed"), MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
-                Spacer(Modifier.weight(1f))
-                if (onToggle != null) {
-                    TextButton(onClick = onToggle, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text(if (expanded) "-" else "+", fontSize = 16.sp)
-                    }
-                }
-            }
-
-            if (expanded) {
-                Spacer(Modifier.height(6.dp))
-                if (j.legs.isEmpty()) {
-                    Text("—", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                j.legs.forEachIndexed { i, leg ->
-                    LegRow(st, leg, i)
-                }
-                Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val risk = j.risk
-                    if (risk?.corridorIncidentRate != null) {
-                        Chip(
-                            "${st.t("risk")} ${fmtRate(risk.corridorIncidentRate)} (${risk.level ?: "?"})",
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    risk?.typicalIncidentDurationMinutes?.let {
-                        Text("typ. disruption ${fmtDuration(it)}", fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.weight(1f))
-                    rt?.estimatedSource?.let { src ->
-                        Text("est. ${src.lowercase()}", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LegRow(st: AppState, leg: Leg, index: Int) {
-    val isWalk = leg.mode == "WALK"
+private fun SimulationBanner(st: AppState, dp: DemoPerturbation, pal: AltPalette) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        Modifier.fillMaxWidth().background(pal.surface).border(1.dp, pal.orange)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.width(74.dp)) {
-            Text(fmtTime(leg.projectedDeparture ?: leg.expectedDeparture ?: leg.departure),
-                fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text(fmtTime(leg.projectedArrival ?: leg.expectedArrival ?: leg.arrival),
-                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(st.t("simchip"), fontSize = 10.sp, fontWeight = FontWeight.Black,
+            letterSpacing = 1.sp, color = pal.orange)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            st.t("demo.seed") + " " + (dp.seed ?: "—") +
+                if (dp.applied.isNotEmpty()) " · " + dp.applied.joinToString("; ") else "",
+            fontSize = 11.sp, color = pal.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun DeadlineBanner(st: AppState, res: JourneyResponse, pal: AltPalette) {
+    val ds = res.deadlineSummary ?: return
+    val bad = ds.feasible == false
+    Row(
+        Modifier.fillMaxWidth().background(pal.surface)
+            .border(1.dp, if (bad) pal.red else pal.rule)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            when (ds.feasible) {
+                true -> st.t("deadlinemet")
+                false -> st.t("nofeasible")
+                else -> ""
+            },
+            fontSize = 12.sp, fontWeight = FontWeight.Bold,
+            color = if (bad) pal.red else pal.ink, modifier = Modifier.weight(1f),
+        )
+        ds.latestFeasibleDeparture?.let {
+            Text(st.t("latestdeparture") + " " + fmtTime(it), fontSize = 11.sp, color = pal.muted)
         }
-        Column(Modifier.width(56.dp)) {
-            if (isWalk) Chip("walk", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-            else Chip(leg.serviceLabel ?: "train", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                "${leg.origin ?: "—"}  –  ${leg.destination ?: "—"}",
-                fontSize = 12.sp, maxLines = 1,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                fmtDelay(leg.departureDelayMinutes)?.let {
-                    Chip("$it ${st.t("live")}", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+    }
+}
+
+/* ----------------------------------------------------------- recommended */
+
+@Composable
+private fun FeatureCard(st: AppState, j: Journey, pal: AltPalette) {
+    val sched = j.schedule
+    val knownDep = fmtDelay(j.realtime?.departureDelayMinutes)
+    val knownArr = fmtDelay(j.realtime?.arrivalDelayMinutes, roundUp = true)
+    val estDep = fmtEstimate(j.realtime?.estimatedDepartureDelayMinutes)
+    val estArr = fmtEstimate(j.realtime?.estimatedArrivalDelayMinutes)
+
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(Modifier.width(5.dp).fillMaxHeight().background(pal.red))
+        Column(
+            Modifier.weight(1f).background(pal.featureBg).padding(24.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.background(pal.action).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text(
+                        st.t("recommended").uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.4.sp, color = Color.White,
+                    )
                 }
-                fmtEstimate(leg.estimatedDepartureDelayMinutes)?.let {
-                    Chip("≈$it ${st.t("estimated")}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                fmtPct(leg.incidentCancellationRisk)?.let {
-                    Chip("${st.t("cancelrisk")} $it", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
-                }
-                fmtPct(leg.incidentSuppressedStopRisk)?.let {
-                    Chip("${st.t("suppressed")} $it", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-                }
-                fmtPct(leg.transferMissRisk)?.let {
-                    Chip("${st.t("missrisk")} $it", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    fmtDuration(sched?.durationMinutes) + "  ·  " +
+                        (if ((sched?.transfers ?: 0) == 0) st.t("direct")
+                        else "${sched?.transfers} " + st.t("transfers")),
+                    fontSize = 12.sp, fontWeight = FontWeight.Bold, color = pal.featureMuted,
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth()) {
+                FeatureTime(
+                    label = st.t("depart.label"),
+                    time = fmtTime(sched?.departure),
+                    known = knownDep, est = estDep,
+                    pal = pal, modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(10.dp))
+                FeatureTime(
+                    label = st.t("arrive.label"),
+                    time = fmtTime(sched?.arrival),
+                    known = knownArr, est = estArr,
+                    pal = pal, modifier = Modifier.weight(1f),
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(pal.featureRule))
+            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                Fact(st.t("duration"), fmtDuration(sched?.durationMinutes), pal, Modifier.weight(1f))
+                Fact(st.t("connections"),
+                    if ((sched?.transfers ?: 0) == 0) st.t("direct") else "${sched?.transfers}",
+                    pal, Modifier.weight(1f))
+                Fact(st.t("price"),
+                    fmtChf(j.fares?.selectedChf) ?: "—", pal, Modifier.weight(1f))
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(pal.featureRule))
+
+            Spacer(Modifier.height(14.dp))
+            Text(st.t("itinerary").uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp, color = pal.featureMuted)
+            Spacer(Modifier.height(6.dp))
+            if (j.legs.isEmpty()) {
+                Text("—", fontSize = 12.sp, color = pal.featureMuted)
+            }
+            j.legs.forEach { leg -> FeatureLeg(st, leg, pal) }
+
+            val tags = buildList {
+                if (j.dataStatus == "MOCK") add(st.t("mock"))
+                if (j.verified == false) add(st.t("unverified"))
+                j.maxOccupancy?.let { add(st.t("occupancy") + " " + st.t(it.lowercase())) }
+                if (j.feasible == false) add(st.t("deadlinemissed"))
+            }
+            if (tags.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tags.forEach {
+                        Box(Modifier.border(1.dp, pal.featureRule).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                            Text(it.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp, color = pal.featureMuted)
+                        }
+                    }
                 }
             }
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            leg.departurePlatform?.let {
-                Text("${st.t("platform")} $it", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            }
-            leg.occupancy?.let { o ->
-                val occ = if (st.firstClass) o.firstClass else o.secondClass
-                if (occ != null) Text(occ.lowercase(), fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            if (knownDep != null || knownArr != null || estDep != null || estArr != null) {
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    if (knownDep != null || knownArr != null) {
+                        LegendDot(pal.red, st.t("legend.known"), pal.featureMuted)
+                    }
+                    if (estDep != null || estArr != null) {
+                        LegendDot(pal.orange, st.t("legend.est"), pal.featureMuted)
+                    }
+                }
             }
         }
     }
-    if (index < 0) Text("")
+}
+
+@Composable
+private fun FeatureTime(
+    label: String,
+    time: String,
+    known: String?,
+    est: String?,
+    pal: AltPalette,
+    modifier: Modifier,
+) {
+    Column(
+        modifier.background(pal.featureTimeBg).border(1.dp, pal.featureRule).padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
+            Text(label.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp, color = pal.featureMuted, modifier = Modifier.weight(1f))
+            if (known != null) {
+                Box(Modifier.background(pal.action).padding(horizontal = 6.dp, vertical = 3.dp)) {
+                    Text(known, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text(time, fontSize = 44.sp, fontWeight = FontWeight.Bold, letterSpacing = (-2).sp,
+            color = pal.featureInk, maxLines = 1)
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth()) {
+            if (est != null) {
+                Box(
+                    Modifier.align(Alignment.CenterEnd).background(pal.orange)
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                ) {
+                    Text("≈" + est, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF101010))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Fact(label: String, value: String, pal: AltPalette, modifier: Modifier) {
+    Column(modifier) {
+        Text(label.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+            letterSpacing = 1.1.sp, color = pal.featureMuted)
+        Spacer(Modifier.height(3.dp))
+        Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = pal.featureInk)
+    }
+}
+
+@Composable
+private fun FeatureLeg(st: AppState, leg: Leg, pal: AltPalette) {
+    val isWalk = leg.mode == "WALK"
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            fmtTime(leg.departure) + " - " + fmtTime(leg.arrival),
+            fontSize = 12.sp, fontWeight = FontWeight.Bold, color = pal.featureInk,
+            modifier = Modifier.width(96.dp), maxLines = 1,
+        )
+        Box(Modifier.width(58.dp)) {
+            if (isWalk) Text("WALK", fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp, color = pal.featureMuted)
+            else Text(leg.serviceLabel ?: "—", fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                color = pal.red, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(
+            (leg.origin ?: "-") + "  -  " + (leg.destination ?: "-"),
+            fontSize = 12.sp, color = pal.featureInk, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+        )
+        leg.departurePlatform?.let {
+            Text(st.t("platform") + " " + it, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                color = pal.featureMuted)
+        }
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, label: String, textColor: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(color))
+        Spacer(Modifier.width(7.dp))
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = textColor)
+    }
+}
+
+/* ----------------------------------------------------------- alternatives */
+
+@Composable
+private fun Band(
+    st: AppState,
+    j: Journey,
+    pal: AltPalette,
+    expanded: Boolean,
+    isPlanned: Boolean,
+    onToggle: () -> Unit,
+) {
+    val sched = j.schedule
+    val known = fmtDelay(j.realtime?.departureDelayMinutes)
+    val est = fmtEstimate(j.realtime?.estimatedDepartureDelayMinutes)
+
+    Column(Modifier.fillMaxWidth().background(pal.canvas)) {
+        Row(
+            Modifier.fillMaxWidth().clickable { onToggle() }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(fmtTime(sched?.departure), fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = (-1).sp, color = pal.ink)
+                    Text("  –  ", fontSize = 16.sp, color = pal.muted)
+                    Text(fmtTime(sched?.arrival), fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = (-1).sp, color = pal.ink)
+                    if (isPlanned) {
+                        Spacer(Modifier.width(10.dp))
+                        Box(Modifier.border(1.dp, pal.rule).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                            Text(st.t("primary").uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp, color = pal.muted)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    fmtDuration(sched?.durationMinutes) + "  ·  " +
+                        (if ((sched?.transfers ?: 0) == 0) st.t("direct")
+                        else "${sched?.transfers} " + st.t("transfers")) + "  ·  " +
+                        (fmtChf(j.fares?.selectedChf) ?: "—"),
+                    fontSize = 12.sp, color = pal.muted,
+                )
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                if (known != null) {
+                    Box(Modifier.background(pal.action).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text(known, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                    Spacer(Modifier.height(3.dp))
+                }
+                if (est != null) {
+                    Box(Modifier.background(pal.orange).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text("≈" + est, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                            color = Color(0xFF101010))
+                    }
+                }
+            }
+            Spacer(Modifier.width(14.dp))
+            Text(if (expanded) "−" else "+", fontSize = 18.sp, color = pal.muted,
+                textAlign = TextAlign.Center, modifier = Modifier.width(16.dp))
+        }
+
+        if (expanded) {
+            Column(Modifier.fillMaxWidth().background(pal.canvas).padding(horizontal = 16.dp)) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(pal.rule))
+                j.legs.forEach { leg -> BandLeg(st, leg, pal) }
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    j.risk?.corridorIncidentRate?.let {
+                        Text(st.t("risk") + " " + fmtRate(it) + " (" + (j.risk?.level ?: "?") + ")",
+                            fontSize = 10.sp, color = pal.muted)
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    j.risk?.typicalIncidentDurationMinutes?.let {
+                        Text("typ. " + fmtDuration(it), fontSize = 10.sp, color = pal.muted)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    j.realtime?.estimatedSource?.let {
+                        Text("est. " + it.lowercase(), fontSize = 9.sp, color = pal.muted)
+                    }
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(pal.ink))
+    }
+}
+
+@Composable
+private fun BandLeg(st: AppState, leg: Leg, pal: AltPalette) {
+    val isWalk = leg.mode == "WALK"
+    Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                fmtTime(leg.projectedDeparture ?: leg.expectedDeparture ?: leg.departure) + " - " +
+                    fmtTime(leg.projectedArrival ?: leg.expectedArrival ?: leg.arrival),
+                fontSize = 12.sp, fontWeight = FontWeight.Bold, color = pal.ink,
+                modifier = Modifier.width(100.dp),
+            )
+            Box(Modifier.width(56.dp)) {
+                Text(
+                    if (isWalk) "WALK" else (leg.serviceLabel ?: "—"),
+                    fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.6.sp, color = if (isWalk) pal.muted else pal.red,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                (leg.origin ?: "-") + "  -  " + (leg.destination ?: "-"),
+                fontSize = 12.sp, color = pal.ink, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            leg.departurePlatform?.let {
+                Text(st.t("platform") + " " + it, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                    color = pal.muted)
+            }
+        }
+        val chips = buildList {
+            fmtDelay(leg.departureDelayMinutes)?.let { add(it + " " + st.t("live")) }
+            fmtEstimate(leg.estimatedDepartureDelayMinutes)?.let { add("≈" + it + " " + st.t("estimated")) }
+            fmtPct(leg.incidentCancellationRisk)?.let { add(st.t("cancelrisk") + " " + it) }
+            fmtPct(leg.incidentSuppressedStopRisk)?.let { add(st.t("suppressed") + " " + it) }
+            fmtPct(leg.transferMissRisk)?.let { add(st.t("missrisk") + " " + it) }
+        }
+        if (chips.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.padding(start = 100.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                chips.forEach { c ->
+                    Box(Modifier.border(1.dp, pal.rule).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text(c, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = pal.muted)
+                    }
+                }
+            }
+        }
+    }
+    if (abs(0) < 0) Text("")
 }

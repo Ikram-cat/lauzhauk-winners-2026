@@ -8,11 +8,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+const val PAGE_SEARCH = 0
+const val PAGE_RESULTS = 1
+
 class AppState(private val scope: CoroutineScope) {
     val api = AltApi(defaultApiBase())
 
     var lang by mutableStateOf(Lang.EN)
     var dark by mutableStateOf(false)
+    var page by mutableStateOf(PAGE_SEARCH)
 
     var fromText by mutableStateOf("Lausanne")
     var toText by mutableStateOf("Genève")
@@ -21,9 +25,9 @@ class AppState(private val scope: CoroutineScope) {
     var fromSug by mutableStateOf<List<Location>>(emptyList())
     var toSug by mutableStateOf<List<Location>>(emptyList())
 
-    var dateText by mutableStateOf("")
+    var dateText by mutableStateOf(todayZurichDate())
     var timeText by mutableStateOf("")
-    var deadlineText by mutableStateOf("")
+    var arriveBy by mutableStateOf(false)
 
     var preference by mutableStateOf("FASTEST")
     var firstClass by mutableStateOf(false)
@@ -89,17 +93,16 @@ class AppState(private val scope: CoroutineScope) {
 
     fun search(simulate: Boolean = false) {
         if (fromText.isBlank() || toText.isBlank()) { error = t("enterboth"); return }
-        val dep = timestamp(dateText, timeText)
-        if (dep == "INVALID") { error = t("badtime"); return }
-        val deadline = timestamp(if (deadlineText.isBlank()) dateText else dateText.ifBlank { todayText() }, deadlineText)
-        if (deadline == "INVALID") { error = t("badtime"); return }
+        val ts = timestamp(dateText, timeText)
+        if (ts == "INVALID") { error = t("badtime"); return }
+        if (arriveBy && ts == null) { error = t("badtime"); return }
 
         val q = SearchQuery(
             origin = fromText.trim(),
             destination = toText.trim(),
-            departure = dep.takeIf { it != null },
-            arrivalDeadline = deadline.takeIf { it != null },
-            preference = preference,
+            departure = if (!arriveBy) ts else null,
+            arrivalDeadline = if (arriveBy) ts else null,
+            preference = if (preference == "CHEAPEST") "FASTEST" else preference,
             firstClass = firstClass,
             halfFare = halfFare,
             demoPerturbation = if (simulate) 12345L else null,
@@ -113,6 +116,7 @@ class AppState(private val scope: CoroutineScope) {
                 val res = api.search(q)
                 result = res
                 simActive = res.demoPerturbation?.active == true
+                page = PAGE_RESULTS
             } catch (e: ApiException) {
                 error = "${e.code} — ${e.userMessage}"
             } catch (e: Throwable) {
@@ -123,13 +127,18 @@ class AppState(private val scope: CoroutineScope) {
         }
     }
 
+    fun goBack() { page = PAGE_SEARCH }
+
     fun retry() {
         val q = lastQuery
         if (q != null) {
             loading = true; error = null
             searchJob?.cancel()
             searchJob = scope.launch {
-                try { result = api.search(q); simActive = result?.demoPerturbation?.active == true }
+                try {
+                    result = api.search(q); simActive = result?.demoPerturbation?.active == true
+                    page = PAGE_RESULTS
+                }
                 catch (e: ApiException) { error = "${e.code} — ${e.userMessage}" }
                 catch (e: Throwable) { error = e.message ?: "Network error" }
                 finally { loading = false }
