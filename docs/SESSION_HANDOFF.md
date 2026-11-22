@@ -6,6 +6,11 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-22 · C · Option A applied, live mode ready but not implemented
+
+- **Option A (chosen by the user).** `analytics/duration_model.py` keeps its public interface (`load_versions`, `build_snapshots`, `chrono_split`, `train_models`, `evaluate`, `predict_remaining`, `advice`, …) and now imports from `sbb_duration` the feature lists, the text-flag rules, the `P50 ≤ P80` guarantee (`finalize`) and the advice thresholds (same three messages). The colleague's snapshot code, `announced_end`, `build_artifacts.py`, `predict_duration.py` and their tests are untouched; `python -m pytest analytics` gives 38 passed, 3 skipped.
+- **Live mode: ready to be done, not implemented.** The Service Alerts endpoint is `https://api.opentransportdata.swiss/la/gtfs-sa` (`401` without a key) and the key variable is `GTFS_RT_API_KEY`, but `.env` is still empty (0 bytes) and the variable is not set, so access could not be tested. Needed next: save the key, check `la/gtfs-sa`, write a separate decoder for `alert` (`active_period`, `informed_entity`, `cause`), and verify the mapping to our features (analytics README, Live mode).
+
 ## 2026-11-21 · C · Merge of main, comparison of the two duration models, GTFS
 
 **Branch and commits**
