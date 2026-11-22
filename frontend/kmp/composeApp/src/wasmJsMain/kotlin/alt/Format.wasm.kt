@@ -84,3 +84,5 @@ actual fun zurichSecondsOfDay(): Double = jsZurichSeconds()
 actual fun prefersReducedMotion(): Boolean = jsReduced()
 actual fun kvGet(key: String, session: Boolean): String = jsKvGet(key, session)
 actual fun kvSet(key: String, value: String, session: Boolean) = jsKvSet(key, value, session)
+
+actual val canLoadSvgResources: Boolean = true

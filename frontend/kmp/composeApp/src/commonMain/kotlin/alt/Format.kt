@@ -67,3 +67,6 @@ expect fun zurichSecondsOfDay(): Double
 expect fun prefersReducedMotion(): Boolean
 expect fun kvGet(key: String, session: Boolean): String
 expect fun kvSet(key: String, value: String, session: Boolean)
+
+// Compose Multiplatform's resource loader can't decode SVG drawables on Android.
+expect val canLoadSvgResources: Boolean

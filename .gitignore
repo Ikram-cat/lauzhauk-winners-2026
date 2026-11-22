@@ -96,3 +96,6 @@ model/
 frontend/kmp/iosApp/iosApp.xcodeproj/
 *.xcresult/
 *.mp4
+
+# Android: machine-specific SDK path
+local.properties
