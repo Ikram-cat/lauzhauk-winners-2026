@@ -14,11 +14,11 @@ Depth: backend fully read (routes, OJP provider, resilience/caches, GTFS-RT/aler
 | 5 | LOW | Privacy | `OjpTransportProvider.resolveText` | Logged the user's search text at INFO, against AGENTS "personal query inputs out of routine logs". | FIXED: DEBUG, id only. |
 | 6 | LOW | Reliability | `RealtimeDelayModel`, `DelayEstimateModel` `refresh()` | `loaded = null` before parsing opened a window on every mtime change where concurrent requests saw all delays/estimates as unknown. (`ArtifactRiskEstimator` already did it right.) | FIXED: old model serves until the new one is built; null only on missing/unreadable. |
 | 7 | LOW | Simplicity | `GtfsRealtimeSource`, `ServiceAlerts` | Deprecated `HttpResponse.readBytes()`; only compiler warnings in the build. | FIXED: `readRawBytes()`. |
-| 8 | MED | Coherence (docs) | `docs/API_CONTRACT.md` "Additional endpoints" | Said unknown params return 400 (tests assert they are ignored), `/api/locations` returns `x,y` (actually `coordinates{lat,lon}`), `/api/model` flat (actually `riskModel`/`delayModel`), and listed `/api/alternatives` (route removed; `smoke.sh` expects 404). | FIXED for those four rows. The rest of that section: see DECISION 1. |
-| 9 | MED | Reliability | `ServiceAlertsSource.current` (`ServiceAlerts.kt:184`) | Holds a mutex across the whole fetch (client timeout 30 s). Once the 60 s TTL lapses, every `POST /api/journeys/impact` queues behind a slow feed for up to 30 s. `GtfsRealtimeSource` avoids this with background refresh. | DECISION 2 |
-| 10 | MED | Security | `JourneyImpactRoutes.kt:36`, `DisruptionRoutes.kt:34` | POST bodies have no size cap; `journeyId`, `reasonCode`, `summaryEn` are unbounded strings. | DECISION 3 |
-| 11 | MED | Security | `Plugins.kt:52` | CORS falls back to `anyHost()` when `CORS_ALLOWED_ORIGINS` is empty. AGENTS says validate exact origins. | DECISION 4 |
-| 12 | LOW | Security | `OjpTransportProvider.kt:118,222` | Public `502` message names the env var (`Check OJP_API_KEY configuration`). | DECISION 5 (wire text) |
+| 8 | MED | Coherence (docs) | `docs/API_CONTRACT.md` "Additional endpoints" | Said unknown params return 400 (tests assert they are ignored), `/api/locations` returns `x,y` (actually `coordinates{lat,lon}`), `/api/model` flat (actually `riskModel`/`delayModel`), and listed `/api/alternatives` (route removed; `smoke.sh` expects 404). | FIXED for those four rows. The rest of that section: see DECISION 1 (APPLIED, 52164f0). |
+| 9 | MED | Reliability | `ServiceAlertsSource.current` (`ServiceAlerts.kt:184`) | Holds a mutex across the whole fetch (client timeout 30 s). Once the 60 s TTL lapses, every `POST /api/journeys/impact` queues behind a slow feed for up to 30 s. `GtfsRealtimeSource` avoids this with background refresh. | APPLIED, see DECISION 2 (c7a53a7) |
+| 10 | MED | Security | `JourneyImpactRoutes.kt:36`, `DisruptionRoutes.kt:34` | POST bodies have no size cap; `journeyId`, `reasonCode`, `summaryEn` are unbounded strings. | APPLIED, see DECISION 3 (be4d179) |
+| 11 | MED | Security | `Plugins.kt:52` | CORS falls back to `anyHost()` when `CORS_ALLOWED_ORIGINS` is empty. AGENTS says validate exact origins. | DEFERRED-LEAD, see DECISION 4 |
+| 12 | LOW | Security | `OjpTransportProvider.kt:118,222` | Public `502` message names the env var (`Check OJP_API_KEY configuration`). | APPLIED, see DECISION 5 (f2604d1) |
 | 13 | LOW | Coherence | `JourneyImpactRoutes.kt:45` vs `Routes.kt` `Parameters.text` | Impact route checks `String.length` (UTF-16), journeys/locations check code points. | Not changed (would alter accept/reject edge). |
 | 14 | LOW | Coherence | `JourneyPlanService.kt:88` | `ESTIMATE_OVERLAP` read from `System.getenv` in a default parameter, bypassing `AppConfig`. | Not changed. |
 | 15 | LOW | Simplicity | `Plugins.kt:~100-125` | Three copies of "explicit path, else copy classpath resource to a temp file". | Not changed (works; extraction is cosmetic). |
@@ -31,11 +31,13 @@ Depth: backend fully read (routes, OJP provider, resilience/caches, GTFS-RT/aler
 
 ## DECISIONS
 
-1. **Reconcile the rest of the "Additional journey fields" section of `API_CONTRACT.md`.** It still describes a flat journey (`riskSource`, `estimatedFareChf`, `fareChf`, `reasons` as strings) while the wire is nested (`risk{}`, `fares{}`, `reasons` as objects). Rewriting it is a contract authoring change. *Recommend:* integration owner regenerates that section from the DTOs in `api/Dtos.kt`.
-2. **Make `ServiceAlertsSource` non-blocking** (serve the stale snapshot while one background fetch runs, as `GtfsRealtimeSource` does), or at least bound the fetch with `withTimeoutOrNull(~5 s)`. Either changes when `liveAlerts` flips to `UNAVAILABLE`. *Recommend:* stale-while-revalidate.
-3. **Cap request bodies and string fields** on the two POST routes (e.g. 64 KiB, `journeyId`/`reasonCode` ≤ 120, `summaryEn` ≤ 2000) returning `400 INVALID_REQUEST`. *Recommend:* yes; additive validation, but it is new 400 behavior.
-4. **CORS `anyHost()` fallback.** Safe only while the API is public, read-only and cookieless. *Recommend:* require `CORS_ALLOWED_ORIGINS` outside local dev (fail fast or default to none) and set it on Railway before the demo.
-5. **Generic auth-failure message** (drop the env var name from the public error). *Recommend:* yes, and keep the detail in the server log, which already records the HTTP status.
+1. **APPLIED (52164f0).** **Reconcile the rest of the "Additional journey fields" section of `API_CONTRACT.md`.** It still describes a flat journey (`riskSource`, `estimatedFareChf`, `fareChf`, `reasons` as strings) while the wire is nested (`risk{}`, `fares{}`, `reasons` as objects). Rewriting it is a contract authoring change. *Recommend:* integration owner regenerates that section from the DTOs in `api/Dtos.kt`.
+2. **APPLIED (c7a53a7, test added).** **Make `ServiceAlertsSource` non-blocking** (serve the stale snapshot while one background fetch runs, as `GtfsRealtimeSource` does), or at least bound the fetch with `withTimeoutOrNull(~5 s)`. Either changes when `liveAlerts` flips to `UNAVAILABLE`. *Recommend:* stale-while-revalidate.
+3. **APPLIED (be4d179, test added).** **Cap request bodies and string fields** on the two POST routes (e.g. 64 KiB, `journeyId`/`reasonCode` ≤ 120, `summaryEn` ≤ 2000) returning `400 INVALID_REQUEST`. *Recommend:* yes; additive validation, but it is new 400 behavior.
+4. **DEFERRED-LEAD, deliberately not applied; CORS code untouched.** **CORS `anyHost()` fallback.** Safe only while the API is public, read-only and cookieless. *Recommend:* require `CORS_ALLOWED_ORIGINS` outside local dev (fail fast or default to none) and set it on Railway before the demo.
+5. **APPLIED (f2604d1).** **Generic auth-failure message** (drop the env var name from the public error). *Recommend:* yes, and keep the detail in the server log, which already records the HTTP status.
+
+Notes on the applied decisions: (3) bodies over 64 KiB, or `journeyId`/`reasonCode`/`durationType`/origin/destination over 120 code points, or `summaryEn` over 2000, return `400 INVALID_REQUEST` with `field` set (`body` for size); the impact route's existing origin/destination 400 now also carries `field`. (1) The contract's v1 base description of the journey search response (the `journeys[]` array and its field tables near the top of the file) is still the original v1 text and also differs from the wire; only the "Additional journey fields" section and its adjacent examples were regenerated.
 
 ## PHASE 2 NOTES — demo-perturbation provider wrapper
 
@@ -59,9 +61,10 @@ Backend, fresh runs (`cd backend && JAVA_HOME=$HOME/.local/jdk/jdk-21.0.13.1+2 .
 | Run | Tests | Failures |
 |---|---|---|
 | Baseline (before changes) | 213 | 0 |
-| After fixes (final) | 215 | 0 |
+| After first fix batch | 215 | 0 |
+| After follow-up decisions 5, 3, 2, 1 | 217 | 0 |
 
-The two added tests: DOCTYPE refusal (`OjpProviderTest`) and `URLDecodeException` to 400 (`RouteTest`). One intermediate run failed (my first draft of the 400 test could not send a bad escape through the Ktor test client); it was rewritten and the final run is green.
+Follow-up added two tests: bounded POST bodies/fields (`DisruptionRouteTest`) and stale-while-revalidate for alerts (`ServiceAlertsTest`). The first batch added two tests: DOCTYPE refusal (`OjpProviderTest`) and `URLDecodeException` to 400 (`RouteTest`). One intermediate run failed (my first draft of the 400 test could not send a bad escape through the Ktor test client); it was rewritten and the final run is green.
 
 Analytics, from repo root (`~/code/venv-analytics/bin/python -m pytest analytics -q`): 41 passed, 4 skipped, unchanged (no analytics files modified).
 
