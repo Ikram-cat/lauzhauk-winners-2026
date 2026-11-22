@@ -4,7 +4,7 @@
 
 ## 1. Creative direction
 
-A **Swiss editorial / experimental minimalism** aesthetic: strong typography, precise grids, thin rules, utilitarian transit information, geometric controls, and intentional white space. Combine the calm, information-dense feel of the supplied sunset UI with the high-contrast modular grid and experimental typographic hierarchy of the other three references.
+A **Swiss editorial / experimental minimalism** aesthetic: strong **Helvetica** typography, precise grids, thin rules, utilitarian transit information, geometric controls, and intentional white space. Combine the calm, information-dense feel of the supplied sunset UI with the high-contrast modular grid and experimental typographic hierarchy of the other three references.
 
 **Hard color rule: ONLY red, gray, white, and black.** No blue, orange, yellow, pink, green, violet, gradients introducing other hues, or default system-blue controls. Neutral gray gradients are allowed; a red-to-dark-red gradient is allowed only if both endpoints remain red.
 
@@ -56,14 +56,17 @@ These four uploaded images are the **visual moodboard**; they are not screens to
 
 No status should rely on color alone; include warning triangle, severity text, or a clear icon.
 
-### Typography
+### Typography — Helvetica (the Swiss typeface)
 
-- **Display:** modern bold grotesk (e.g. Inter / system sans), 44–64 sp on mobile, larger on desktop; very tight tracking for hero titles.
-- **Headings:** 24–32 sp, medium/bold; maintain clear hierarchy.
-- **Body:** 15–17 sp, high readability.
-- **Data numbers:** 30–48 sp, tabular numerals for arrival time, delays, and prices.
-- **Micro labels:** 10–12 sp, uppercase, tracking +1.2–2 px; avoid micro labels for essential accessible information.
-- Use a single font family if assets/licensing or performance are constrained; do not ship the fonts from reference images.
+**One family: Helvetica** — the typeface of the International Typographic Style this design comes from. Every element (display, headings, body, data, labels, chips, buttons) is set in it; hierarchy comes from weight and size only — never a second font, never italics.
+
+- Stack (web/wasm): `font-family: "Helvetica Now", "Helvetica Neue", Helvetica, Arial, sans-serif;` — fallbacks must stay grotesk; never a serif or a geometric sans.
+- **Display:** Helvetica Bold/Black, 44–64 sp on mobile, larger on desktop; very tight tracking for hero titles.
+- **Headings:** 24–32 sp Bold; maintain clear hierarchy.
+- **Body:** 15–17 sp Regular, high readability.
+- **Data numbers:** 30–48 sp Bold, tabular numerals for arrival time, delays, and prices.
+- **Micro labels:** 10–12 sp Bold, uppercase, tracking +1.2–2 px; avoid micro labels for essential accessible information.
+- Licensing/performance: system Helvetica (macOS, iOS, most desktops) covers most targets; a licensed **Helvetica Now** may be bundled for brand-critical surfaces only. Where Helvetica is unavailable, the Arial fallback preserves the grotesk character. Do not ship fonts taken from the reference images.
 
 ### Geometry and spacing
 
