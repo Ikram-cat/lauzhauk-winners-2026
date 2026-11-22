@@ -2,7 +2,7 @@
 
 ## Direction
 
-ALT uses a Swiss editorial grid, Helvetica with Arial and sans-serif fallbacks, precise one-pixel rules, generous whitespace, and bold tabular journey times. Use red, neutral gray, white, and black in both themes. Reserve red for actions, focus, disruption outlines and the railway clock’s second hand. Include readable status text and identifiable symbols.
+ALT uses a Swiss editorial grid, Helvetica with Arial and sans-serif fallbacks, precise one-pixel rules, generous whitespace, and bold tabular journey times. Use red, neutral gray, white, and black in both themes, with orange reserved for estimated delay. Include readable status text and identifiable symbols.
 
 | Role | Light | Dark |
 | --- | --- | --- |
@@ -33,7 +33,8 @@ The design borrows the numerical hierarchy and thin progress lines from the suns
 
 ## Results, details and settings
 
-- Keep the backend’s Most Recommended journey visually dominant above automatically visible alternatives. Use a large red pill for the recommendation label and visibly space the hour, colon and minute. Format alternatives as uniformly white bands in light mode with a consistent dark surface in dark mode.
+- Keep the backend’s Most Recommended journey visually dominant above automatically visible alternatives. Anchor a small red label at the top left and give departure and arrival large timing boxes. Format alternatives as uniformly white bands in light mode with a consistent dark surface in dark mode.
+- Put announced delay in a red badge at the upper right and estimated delay in an orange `rgb(255, 139, 86)` badge at the lower right. Display the signed minutes inside each badge and show the corresponding legend entry at the right of the featured card only when that kind of delay is present.
 - Place the status in a high-contrast rectangular panel directly above the recommendation. Use a neutral gradient and check icon when clear, and a red glow with a warning triangle for confirmed disruptions. Mention alternative routes only when supplied and omit the panel when conditions are unknown. Show journey durations as hours and two-digit minutes, such as `1h05`. Show nonzero delay labels and omit zero-minute annotations.
 - Use traveller-facing names for walking endpoints. Hide numeric coordinate strings and fall back to a named selected endpoint when known.
 - Label historical disruption rates as observations for the corridor or baseline. Show the time window, typical disruption duration and confidence when available.
