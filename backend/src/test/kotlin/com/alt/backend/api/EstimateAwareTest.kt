@@ -85,7 +85,8 @@ class EstimateAwareTest {
         val p = j.obj("primaryJourney")
         assertEquals(setOf("expectedDeparture", "departureDelayMinutes", "expectedArrival", "arrivalDelayMinutes", "source", "sampleCount",
             "estimatedDepartureDelayMinutes", "estimatedArrivalDelayMinutes", "estimatedSource", "estimatedSamples", "projectedDeparture", "projectedArrival",
-            "estimatedBasis", "incidentExtraMinutes", "incidentCancellationRisk", "incidentSuppressedStopRisk", "incidentSamples", "incidentCount"),
+            "estimatedBasis", "incidentExtraMinutes", "incidentCancellationRisk", "incidentSuppressedStopRisk", "incidentSamples", "incidentCount",
+            "transferMissRisk", "transferRiskBasis", "transferRiskDetail"),
             p.obj("realtime").keys)
         assertEquals(setOf("mode", "origin", "destination", "departure", "arrival", "expectedDeparture", "departureDelayMinutes", "expectedArrival", "arrivalDelayMinutes",
             "serviceLabel", "departurePlatform", "arrivalPlatform", "occupancy",
@@ -98,6 +99,10 @@ class EstimateAwareTest {
         for (k in listOf("incidentExtraMinutes", "incidentCancellationRisk", "incidentSuppressedStopRisk", "incidentSamples", "incidentCount")) {
             assertEquals(JsonNull, leg[k], k); assertEquals(JsonNull, p.obj("realtime")[k], k)
         }
+        // single-leg journeys have no transfer: the transfer-miss layer stays null and NONE
+        assertEquals(JsonNull, p.obj("realtime")["transferMissRisk"])
+        assertEquals(JsonNull, p.obj("realtime")["transferRiskDetail"])
+        assertEquals("NONE", p.obj("realtime").str("transferRiskBasis"))
     }
 
     @Test fun `known_wins overlap keeps the estimate visible but out of the projection`() = testApplication {

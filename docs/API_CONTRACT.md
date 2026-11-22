@@ -488,7 +488,7 @@ These fields and endpoints were added during implementation. All are additive: a
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `code` | String | `REALTIME_UNAVAILABLE`, `PRIMARY_LEG_CANCELLED`, `SUPPRESSED_STOP`, `PRIMARY_LEG_DELAYED`, `EARLIER_ARRIVAL`, `EARLIER_DEPARTURE_CANCELLED`, `EXPECTED_FASTER`, `FEWER_TRANSFERS`, `CHEAPER`, `STAY_FASTEST`, `DEADLINE_MET`, `DEADLINE_MISSED`. |
+| `code` | String | `REALTIME_UNAVAILABLE`, `PRIMARY_LEG_CANCELLED`, `SUPPRESSED_STOP`, `PRIMARY_LEG_DELAYED`, `EARLIER_ARRIVAL`, `EARLIER_DEPARTURE_CANCELLED`, `EXPECTED_FASTER`, `TRANSFER_MISS_RISK`, `FEWER_TRANSFERS`, `CHEAPER`, `STAY_FASTEST`, `DEADLINE_MET`, `DEADLINE_MISSED`. |
 | `serviceLabel` | String | Line the reason is about. |
 | `delayMinutes` | Integer | Measured delay of that leg. |
 | `savedMinutes` | Integer | Minutes the recommendation saves versus the primary journey. |
@@ -589,6 +589,31 @@ Lookup order when a disruption is active: `linesIncident` (line × 4-hour block,
 Conditioned numbers are measured only on trips that ran and reported: cancelled trips are excluded from the delay medians but are counted in the `incidentCancellationRisk` and `incidentSuppressedStopRisk` denominators, which are ALL planned stops matching the station/window, including cancelled and skipped ones. This survivor bias is deliberate — the delay distribution describes trains that operated, the risk shares describe what happened to the planned ones. A zero share is a measured zero, not fabricated.
 
 Incidents are reconstructed from the SBB public liveticker audit trail: window start is the first source record, end the first `ENDED` version (the `duration_from` column is empty for almost every incident). A train trip is in scope when its folded stop sequence shares at least two stations with the incident corridor and the measurement's scheduled time lies inside the window. The Phase-1 unconditional tables are untouched: the conditioned ones are separate top-level arrays in the same artifact.
+
+### Transfer-miss risk (`transferMissRisk`)
+
+A predicted arrival delay — chronic or, more sharply, incident-conditioned — can be large enough that the traveller probably misses the next connection. That risk is exposed next to the estimate and drives the recommendation. All fields are additive and nullable; the older fields keep their exact meaning.
+
+Applies to `journeys[].realtime` (not to `legs[]`):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `transferMissRisk` | 0..1 or null | The maximum probability over consecutive TRANSIT leg pairs that the arrival delay of the first leg exceeds the connection slack. Null when the journey has fewer than two transit legs or every transfer is unknown — never a fabricated 0. |
+| `transferRiskBasis` | `KNOWN` \| `CONDITIONED_INCIDENT` \| `CHRONIC` \| `NONE` | Which evidence answered for the worst transfer: a measured live arrival, the incident-conditioned bucket, the chronic bucket, or nothing. |
+| `transferRiskDetail` | Array or null | One entry per transfer, `{fromLeg, toLeg, slackMinutes, missRisk}`, where `fromLeg` / `toLeg` index the journey's `legs`. Null when there are no transfers. Kept small: the indices, the slack and the probability only. |
+
+**Slack.** `slackMinutes = scheduled departure of the next transit leg − scheduled arrival of the previous one`, in instants, minus the duration of any WALK legs between them. A negative slack means the connection is already impossible on paper and the risk is `1.0`.
+
+**Probability.** The arrival-delay distribution of the earlier leg answers `P(delay > slack)`, in this priority order:
+
+1. `KNOWN`: a measured live arrival (`expectedArrival` on that leg). A known overrun past the slack is `1.0` — OJP validated the connection at search time, so a live overrun means reality broke it afterwards.
+2. `CONDITIONED_INCIDENT`: while an active disruption touches the leg, the conditioned median answers (and an unconditional median is shifted by `incidentExtraMinutes`, with the p90 shifted by the same amount).
+3. `CHRONIC`: the unconditional bucket's median and p90.
+4. No estimate and no known delay → `null` and `NONE`.
+
+From the (median, p90) anchors the probability is a documented approximation, **not a measured probability**: `1.0` when `slack ≤ median`, `0.1` when `slack ≥ p90`, linear in between, clamped to `[0, 1]`. A missing p90 (the live sampler only reports a median) uses a nominal `median + 10` minutes as the tail.
+
+**Recommendation.** `transferMissRisk` is computed for every candidate before the recommendation is chosen. When the current pick is at **≥ 0.5** and another candidate is at **< 0.2** (a journey with no transfer counts as `0` — there is no connection to miss), the safer candidate becomes `recommendedJourney` with `reasons[].code = TRANSFER_MISS_RISK` and `delayMinutes` set to the predicted overrun past the slack. This switch does **not** need the 5-minute arrival gain the other reroute rules require: the benefit is not arriving earlier but arriving at all. The risky journey stays visible in `alternatives` with its own `transferMissRisk`; the ranking comparator is unchanged, and when every risk is null the payload is identical to one without this layer.
 
 ### `demoPerturbation` query parameter (DEMO ONLY, `/api/journeys` and `/api/journeys/impact`)
 
