@@ -29,3 +29,14 @@ actual fun todayZurichDate(): String {
     val mn = now.month.ordinal + 1
     return "${now.year}-${p2(mn)}-${p2(now.day)}"
 }
+
+actual fun zurichSecondsOfDay(): Double {
+    val t = Clock.System.now().toLocalDateTime(ZURICH)
+    return t.hour * 3600.0 + t.minute * 60 + t.second + t.nanosecond / 1e9
+}
+
+actual fun prefersReducedMotion(): Boolean = false
+
+private val kv = HashMap<String, String>()
+actual fun kvGet(key: String, session: Boolean): String = kv[key] ?: ""
+actual fun kvSet(key: String, value: String, session: Boolean) { kv[key] = value }

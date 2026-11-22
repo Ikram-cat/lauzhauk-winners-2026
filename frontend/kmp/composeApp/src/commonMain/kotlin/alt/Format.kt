@@ -61,3 +61,9 @@ fun fmtRate(v: Double?): String? {
     val p = v * 100
     return if (p >= 1) "${p.roundToInt()}%" else "<1%"
 }
+
+// Platform hooks for the animations/welcome copy.
+expect fun zurichSecondsOfDay(): Double
+expect fun prefersReducedMotion(): Boolean
+expect fun kvGet(key: String, session: Boolean): String
+expect fun kvSet(key: String, value: String, session: Boolean)

@@ -1,6 +1,6 @@
 package alt
 
-enum class Lang { EN, FR }
+enum class Lang { EN, FR, IT }
 
 private val EN = mapOf(
     "app.title" to "ALT — Swiss journey planner",
@@ -96,6 +96,9 @@ private val EN = mapOf(
     "sameod" to "Origin and destination are the same place — pick two different stations.",
     "lessinfo" to "Less info",
     "search.sub" to "Live timetable, delays and alternatives",
+    "info.easiest" to "Easiest prioritizes journeys with the fewest transfers, making your trip simpler and more convenient.",
+    "info.fastest" to "Fastest prioritizes journeys that get you to your destination as early as possible.",
+    "info.label" to "More about this option",
 )
 
 private val FR = mapOf(
@@ -191,7 +194,142 @@ private val FR = mapOf(
     "sameod" to "Départ et arrivée identiques — choisissez deux gares différentes.",
     "lessinfo" to "Moins d'infos",
     "search.sub" to "Horaire en direct, retards et alternatives",
+    "info.easiest" to "« Le plus simple » privilégie les trajets avec le moins de correspondances, pour un voyage plus simple et plus confortable.",
+    "info.fastest" to "« Le plus rapide » privilégie les trajets qui vous amènent à destination le plus tôt possible.",
+    "info.label" to "En savoir plus sur cette option",
 )
 
+private val IT = mapOf(
+    "app.title" to "ALT — pianificatore di viaggi svizzero",
+    "app.sub" to "Viaggi FFS attenti alle perturbazioni",
+    "from" to "Da",
+    "to" to "A",
+    "swap" to "Inverti",
+    "from.ph" to "Stazione o indirizzo",
+    "to.ph" to "Stazione o indirizzo",
+    "date" to "Data (AAAA-MM-GG)",
+    "time" to "Ora (HH:MM)",
+    "deadline" to "Arrivo entro (HH:MM)",
+    "depart" to "Partenza",
+    "now" to "Adesso",
+    "preference" to "Preferenza",
+    "fastest" to "Più veloce",
+    "cheapest" to "Più economico",
+    "simplest" to "Più semplice",
+    "half" to "Metà prezzo",
+    "first" to "1ª classe",
+    "search" to "Cerca viaggi",
+    "simulate" to "Simula una perturbazione",
+    "simulate.hint" to "Demo: inserisce un incidente sintetico segnalato",
+    "loading" to "Ricerca dei viaggi…",
+    "noresults" to "Nessun viaggio trovato per questa ricerca.",
+    "error" to "Qualcosa è andato storto",
+    "retry" to "Riprova",
+    "recommended" to "Consigliato",
+    "primary" to "Il tuo viaggio previsto",
+    "alternatives" to "Alternative",
+    "transfers" to "cambi",
+    "direct" to "diretto",
+    "live" to "in tempo reale",
+    "estimated" to "stimato",
+    "projected" to "previsto",
+    "platform" to "Bin.",
+    "occupancy" to "Occupazione",
+    "low" to "bassa",
+    "medium" to "media",
+    "high" to "alta",
+    "disruption" to "Perturbazione rilevata",
+    "allclear" to "Nessuna perturbazione segnalata sul tuo percorso",
+    "reroute" to "Cambio di percorso consigliato",
+    "stay" to "Resta sul tuo percorso",
+    "unknown" to "Stato in tempo reale non disponibile",
+    "simchip" to "SIMULAZIONE",
+    "simapplied" to "Applicato in questa simulazione:",
+    "deadlinemet" to "Arriva entro il tuo limite",
+    "deadlinemissed" to "Supera il tuo limite",
+    "latestdeparture" to "Ultima partenza che rispetta il limite:",
+    "nofeasible" to "Nessun percorso rispetta il limite — mostrato il migliore senza vincolo.",
+    "cancelrisk" to "Rischio di soppressione",
+    "suppressed" to "Rischio di fermata soppressa",
+    "missrisk" to "Rischio di coincidenza persa",
+    "fare" to "Prezzo",
+    "fare.unavailable" to "Prezzo non disponibile",
+    "mock" to "DATI FITTIZI",
+    "verified" to "verificato",
+    "unverified" to "non verificato",
+    "risk" to "Rischio di perturbazione",
+    "min" to "min",
+    "hour" to "h",
+    "enterboth" to "Inserisci una partenza e una destinazione.",
+    "badtime" to "Controlla il formato di data e ora.",
+    "dark" to "Scuro",
+    "light" to "Chiaro",
+    "theme" to "Tema",
+    "lang" to "Lingua",
+    "delayknown" to "ritardo noto",
+    "api.source" to "API",
+    "demo.seed" to "seme",
+    "planner.eyebrow" to "Pianificatore svizzero",
+    "planner.title" to "Pianifica il tuo viaggio",
+    "planner.sub" to "Collegamenti attenti alle perturbazioni in tutta la Svizzera.",
+    "arrive" to "Arrivo entro",
+    "easiest" to "Più semplice",
+    "results" to "Risultati",
+    "otheroptions" to "Altre opzioni",
+    "back" to "Modifica ricerca",
+    "legend.known" to "ritardo annunciato",
+    "legend.est" to "ritardo stimato",
+    "status.ok" to "Nessuna perturbazione segnalata",
+    "status.bad" to "Perturbazione rilevata",
+    "status.ok.line" to "Il tuo viaggio procede secondo l'orario.",
+    "depart.label" to "Partenza",
+    "arrive.label" to "Arrivo",
+    "price" to "Prezzo",
+    "duration" to "Durata",
+    "connections" to "Coincidenze",
+    "itinerary" to "Itinerario",
+    "moreinfo" to "Più informazioni",
+    "sameod" to "Partenza e arrivo coincidono — scegli due stazioni diverse.",
+    "lessinfo" to "Meno informazioni",
+    "search.sub" to "Orario in tempo reale, ritardi e alternative",
+    "info.easiest" to "«Più semplice» privilegia i viaggi con meno cambi, rendendo il tuo viaggio più semplice e comodo.",
+    "info.fastest" to "«Più veloce» privilegia i viaggi che ti portano a destinazione il prima possibile.",
+    "info.label" to "Maggiori informazioni su questa opzione",
+)
+
+val WELCOME_EN = listOf(
+    "Where are we going?", "What's your next stop?", "Ready for your next adventure?", "Where to next?",
+    "Got somewhere to be?", "Let's get you moving!", "Where's the journey taking you?", "Shall we get going?",
+    "What's your destination?", "Your next journey starts here.", "Going somewhere?", "Next stop: anywhere?",
+    "Where to today?", "Let's hit the rails!", "Adventure calling?", "Where shall we take you?",
+    "Got a train to catch?", "Ready to roll?", "Where will today take you?", "Let's go places!",
+)
+private val WELCOME_FR = listOf(
+    "Où allons-nous ?", "Quel est votre prochain arrêt ?", "Prêt pour votre prochaine aventure ?", "Prochaine destination ?",
+    "Un rendez-vous quelque part ?", "En route !", "Où votre voyage vous mène-t-il ?", "On y va ?",
+    "Quelle est votre destination ?", "Votre prochain voyage commence ici.", "Un petit voyage en vue ?", "Prochain arrêt : n'importe où ?",
+    "Où allez-vous aujourd'hui ?", "En voiture, sur les rails !", "L'aventure vous appelle ?", "Où souhaitez-vous aller ?",
+    "Un train à prendre ?", "Prêt à partir ?", "Où vous mènera cette journée ?", "Partons à la découverte !",
+)
+private val WELCOME_IT = listOf(
+    "Dove andiamo?", "Qual è la tua prossima fermata?", "Pronto per la tua prossima avventura?", "Prossima destinazione?",
+    "Hai un appuntamento da qualche parte?", "Mettiamoci in moto!", "Dove ti porta il viaggio?", "Partiamo?",
+    "Qual è la tua destinazione?", "Il tuo prossimo viaggio inizia qui.", "Vai da qualche parte?", "Prossima fermata: ovunque?",
+    "Dove vai oggi?", "Si parte, sui binari!", "L'avventura chiama?", "Dove ti portiamo?",
+    "Hai un treno da prendere?", "Pronto a partire?", "Dove ti porterà la giornata?", "Andiamo alla scoperta!",
+)
+
+fun welcomeText(i: Int, lang: Lang): String =
+    when (lang) { Lang.FR -> WELCOME_FR; Lang.IT -> WELCOME_IT; else -> WELCOME_EN }[i]
+
+/** Random welcome index, different from the previous page load's when possible. */
+fun pickWelcome(): Int {
+    val last = kvGet("alt-welcome", false).toIntOrNull() ?: -1
+    var i = WELCOME_EN.indices.random()
+    if (i == last) i = (i + 1 + (WELCOME_EN.size - 1).let { (0 until it).random() }) % WELCOME_EN.size
+    kvSet("alt-welcome", i.toString(), false)
+    return i
+}
+
 fun s(key: String, lang: Lang): String =
-    if (lang == Lang.FR) FR[key] ?: EN[key] ?: key else EN[key] ?: key
+    (when (lang) { Lang.FR -> FR; Lang.IT -> IT; else -> EN })[key] ?: EN[key] ?: key

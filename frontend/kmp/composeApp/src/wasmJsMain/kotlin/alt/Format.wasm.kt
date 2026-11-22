@@ -59,3 +59,28 @@ actual fun localToInstantIso(localIso: String): String? {
 }
 
 actual fun todayZurichDate(): String = jsToday()
+
+@JsFun(
+    """
+    () => {
+      const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Zurich', hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date());
+      const g = (t) => { const x = p.find((q) => q.type === t); return x ? +x.value : 0; };
+      return g('hour') * 3600 + g('minute') * 60 + g('second') + (Date.now() % 1000) / 1000;
+    }
+    """
+)
+private external fun jsZurichSeconds(): Double
+
+@JsFun("() => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)")
+private external fun jsReduced(): Boolean
+
+@JsFun("(k, s) => { try { const v = (s ? sessionStorage : localStorage).getItem(k); return v === null ? '' : v; } catch (e) { return ''; } }")
+private external fun jsKvGet(key: String, session: Boolean): String
+
+@JsFun("(k, v, s) => { try { (s ? sessionStorage : localStorage).setItem(k, v); } catch (e) {} }")
+private external fun jsKvSet(key: String, value: String, session: Boolean)
+
+actual fun zurichSecondsOfDay(): Double = jsZurichSeconds()
+actual fun prefersReducedMotion(): Boolean = jsReduced()
+actual fun kvGet(key: String, session: Boolean): String = jsKvGet(key, session)
+actual fun kvSet(key: String, value: String, session: Boolean) = jsKvSet(key, value, session)

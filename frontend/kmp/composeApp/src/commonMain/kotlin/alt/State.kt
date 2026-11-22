@@ -18,6 +18,7 @@ class AppState(private val scope: CoroutineScope) {
     val api = AltApi(defaultApiBase())
 
     var lang by mutableStateOf(Lang.EN)
+    val welcome = pickWelcome()
     var dark by mutableStateOf(false)
     var page by mutableStateOf(PAGE_SEARCH)
 
