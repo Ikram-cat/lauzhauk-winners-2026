@@ -12,7 +12,8 @@ Emitted bucketType values: HOUR (hourBucket 0-23) and BLOCK4 (hourBucket = block
 0, 4, 8, 12, 16, 20). Only buckets with >= MIN_SAMPLES real measurements are emitted;
 thin weekday rows still reach the ladder through their pooled ANY / ANY+BLOCK4 rows.
 
-Delay = prognosis - scheduled, signed, in whole minutes (the feed is minute-granular).
+Delay = prognosis - scheduled, signed, computed in SECONDS (the REAL prognosis carries
+seconds) and emitted as MINUTES rounded to 1 decimal place.
 
 Usage:
   ~/code/venv-analytics/bin/python analytics/scripts/build_delay_estimates.py \
@@ -77,7 +78,7 @@ def _norm_label(s: str) -> str:
 
 
 def _parse_dt(s: str):
-    """'01.09.2026 06:30' -> (days since 2020-01-01, minute of day); hours >=24 stay valid."""
+    """'01.09.2026 06:30[:51]' -> (days since 2020-01-01, seconds of day); hours >=24 stay valid."""
     s = s.strip()
     if len(s) < 16:
         return None
@@ -85,9 +86,10 @@ def _parse_dt(s: str):
         d = date(int(s[6:10]), int(s[3:5]), int(s[0:2]))
         h = int(s[11:13])
         m = int(s[14:16])
+        sec = int(s[17:19]) if len(s) >= 19 and s[16] == ":" and s[17:19].isdigit() else 0
     except ValueError:
         return None
-    return ((d - date(2020, 1, 1)).days, h * 60 + m)
+    return ((d - date(2020, 1, 1)).days, h * 3600 + m * 60 + sec)
 
 
 def _weekday_class(op_day: date) -> str:
@@ -114,10 +116,10 @@ def _stats(counter: Counter):
     if n == 0:
         return {"median": None, "p90": None, "shareLate": None, "samples": 0}
     items = sorted(counter.items())
-    late = sum(c for d, c in items if d >= 3)
+    late = sum(c for d, c in items if d >= 180)  # seconds: 3 minutes
     return {
-        "median": _percentile(items, 0.5),
-        "p90": _percentile(items, 0.9),
+        "median": round(_percentile(items, 0.5) / 60.0, 1),
+        "p90": round(_percentile(items, 0.9) / 60.0, 1),
         "shareLate": round(late / n, 3),
         "samples": n,
     }
@@ -164,9 +166,9 @@ def rows_from_day(zf: zipfile.ZipFile, name: str, agg: Agg, state: dict):
                 sch = _parse_dt(row["ABFAHRTSZEIT"])
                 prog = _parse_dt(row["AB_PROGNOSE"])
                 if sch and prog:
-                    dm = (prog[0] - sch[0]) * 1440 + (prog[1] - sch[1])
-                    if abs(dm) <= MAX_ABS_DELAY:
-                        hour = (sch[1] // 60) % 24
+                    dm = (prog[0] - sch[0]) * 86400 + (prog[1] - sch[1])
+                    if abs(dm) <= MAX_ABS_DELAY * 60:
+                        hour = (sch[1] // 3600) % 24
                         _add(agg, 0, label, station, wd, hour, dm)
                         state["dep_samples"] += 1
 
@@ -175,9 +177,9 @@ def rows_from_day(zf: zipfile.ZipFile, name: str, agg: Agg, state: dict):
                 sch = _parse_dt(row["ANKUNFTSZEIT"])
                 prog = _parse_dt(row["AN_PROGNOSE"])
                 if sch and prog:
-                    dm = (prog[0] - sch[0]) * 1440 + (prog[1] - sch[1])
-                    if abs(dm) <= MAX_ABS_DELAY:
-                        hour = (sch[1] // 60) % 24
+                    dm = (prog[0] - sch[0]) * 86400 + (prog[1] - sch[1])
+                    if abs(dm) <= MAX_ABS_DELAY * 60:
+                        hour = (sch[1] // 3600) % 24
                         _add(agg, 1, label, station, wd, hour, dm)
                         state["arr_samples"] += 1
 

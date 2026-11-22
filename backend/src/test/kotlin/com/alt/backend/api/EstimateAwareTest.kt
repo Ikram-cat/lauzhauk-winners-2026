@@ -56,8 +56,8 @@ class EstimateAwareTest {
         val p = j.obj("primaryJourney")
         val rt = p.obj("realtime")
         val leg = p["legs"]!!.jsonArray[0].jsonObject
-        assertEquals("3", leg.str("estimatedDepartureDelayMinutes"))   // IR 90 @ Lausanne, SAT, local h16
-        assertEquals("2", leg.str("estimatedArrivalDelayMinutes"))     // IR 90 @ Genève, SAT, local h17
+        assertEquals("3.0", leg.str("estimatedDepartureDelayMinutes"))   // IR 90 @ Lausanne, SAT, local h16
+        assertEquals("2.0", leg.str("estimatedArrivalDelayMinutes"))     // IR 90 @ Genève, SAT, local h17
         assertEquals("HISTORICAL_ACTUALS", leg.str("estimatedSource"))
         assertEquals("40", leg.str("estimatedSamples"))
         assertEquals("2", leg.str("departureDelayMinutes"))            // known layer untouched
@@ -67,8 +67,8 @@ class EstimateAwareTest {
         assertEquals("2026-11-21T16:04:00Z", leg.str("projectedArrival"))   // 16:00 + 2 + 2
         assertEquals("2026-11-21T15:15:00Z", rt.str("projectedDeparture"))
         assertEquals("2026-11-21T16:04:00Z", rt.str("projectedArrival"))
-        assertEquals("3", rt.str("estimatedDepartureDelayMinutes"))
-        assertEquals("2", rt.str("estimatedArrivalDelayMinutes"))
+        assertEquals("3.0", rt.str("estimatedDepartureDelayMinutes"))
+        assertEquals("2.0", rt.str("estimatedArrivalDelayMinutes"))
         assertEquals("HISTORICAL_ACTUALS", rt.str("estimatedSource"))
         assertEquals("OJP", rt.str("source")) // the known layer still reports the provider source
     }
@@ -98,7 +98,7 @@ class EstimateAwareTest {
         val first = search.search(SearchRequest("Lausanne", "Genève", t("15:00"), 2, Discount.NONE)) as SearchResult.Success
         val plan = kotlinx.coroutines.runBlocking { planner.plan(first.primaryRequest(), Preference.FASTEST, null, first) }
         val leg = plan.realtime.getValue("J").legs[0]
-        assertEquals(3, leg.estimatedDepartureDelayMinutes) // reported for transparency
+        assertEquals(3.0, leg.estimatedDepartureDelayMinutes) // reported for transparency
         assertEquals(t("15:12"), leg.projectedDeparture)     // but only the known +2 is applied
         assertEquals(t("16:02"), leg.projectedArrival)
     }

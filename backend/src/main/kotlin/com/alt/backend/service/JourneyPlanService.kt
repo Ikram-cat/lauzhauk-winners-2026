@@ -32,7 +32,7 @@ data class Reason(
  */
 data class LegRealtime(
     val expectedDeparture: OffsetDateTime?, val departureDelayMinutes: Int?, val expectedArrival: OffsetDateTime?, val arrivalDelayMinutes: Int?,
-    val estimatedDepartureDelayMinutes: Int? = null, val estimatedArrivalDelayMinutes: Int? = null,
+    val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
     val estimatedSource: String = SOURCE_NONE, val estimatedSamples: Int? = null,
     val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null
 )
@@ -41,7 +41,7 @@ data class LegRealtime(
 data class JourneyRealtime(
     val legs: List<LegRealtime>, val expectedDeparture: OffsetDateTime?, val departureDelayMinutes: Int?,
     val expectedArrival: OffsetDateTime?, val arrivalDelayMinutes: Int?, val source: String, val sampleCount: Int?,
-    val estimatedDepartureDelayMinutes: Int? = null, val estimatedArrivalDelayMinutes: Int? = null,
+    val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
     val estimatedSource: String = SOURCE_NONE, val estimatedSamples: Int? = null,
     val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null
 )
@@ -180,16 +180,17 @@ class JourneyPlanService(
         return LegEstimate(dep, arr)
     }
 
-    /** scheduled + known + estimated (the estimate is dropped when ESTIMATE_OVERLAP=known_wins and live is known). */
+    /** scheduled + known + estimated (the estimate is dropped when ESTIMATE_OVERLAP=known_wins and live is known).
+     *  Composed in seconds so the decimal estimate survives into the projected timestamps. */
     private fun project(scheduled: OffsetDateTime, known: OffsetDateTime?, est: SideEstimate?): OffsetDateTime? {
-        val knownMin = known?.let { mins(scheduled, it) }
-        if (knownMin == null && est == null) return null
-        val applied = when {
-            est == null -> 0
-            estimateOverlap.equals(OVERLAP_KNOWN_WINS, ignoreCase = true) && knownMin != null -> 0
-            else -> Math.round(est.median).toInt()
+        val knownSec = known?.let { Duration.between(scheduled, it).seconds }
+        if (knownSec == null && est == null) return null
+        val appliedSec = when {
+            est == null -> 0L
+            estimateOverlap.equals(OVERLAP_KNOWN_WINS, ignoreCase = true) && knownSec != null -> 0L
+            else -> Math.round(est.median * 60)
         }
-        return scheduled.plusMinutes((knownMin ?: 0).toLong() + applied.toLong())
+        return scheduled.plusSeconds((knownSec ?: 0L) + appliedSec)
     }
 
     /**
@@ -215,8 +216,8 @@ class JourneyPlanService(
             }
             val est = estimateFor(l)
             LegRealtime(dep, dep?.let { mins(l.departure, it) }, arr, arr?.let { mins(l.arrival, it) },
-                estimatedDepartureDelayMinutes = est.departure?.let { Math.round(it.median).toInt() },
-                estimatedArrivalDelayMinutes = est.arrival?.let { Math.round(it.median).toInt() },
+                estimatedDepartureDelayMinutes = est.departure?.let { Math.round(it.median * 10) / 10.0 },
+                estimatedArrivalDelayMinutes = est.arrival?.let { Math.round(it.median * 10) / 10.0 },
                 estimatedSource = est.source, estimatedSamples = est.samples,
                 projectedDeparture = project(l.departure, dep, est.departure),
                 projectedArrival = project(l.arrival, arr, est.arrival))

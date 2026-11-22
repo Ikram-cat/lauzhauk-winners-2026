@@ -517,11 +517,11 @@ Applies to `journeys[].realtime` and every entry of `journeys[].legs[]`:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `estimatedDepartureDelayMinutes` | Integer or null | Historical statistical median delay at this leg's boarding stop, clamped to `-10 … +30` minutes. Signed: negative means the train is typically early. Null when no bucket matched — never a fabricated 0. |
-| `estimatedArrivalDelayMinutes` | Integer or null | Same for the alighting stop. Looked up separately from the departure side. |
+| `estimatedDepartureDelayMinutes` | Number (one decimal) or null | Historical statistical median delay at this leg's boarding stop, in minutes with one decimal place (measured at seconds resolution from the actuals), clamped to `-10 … +30`. Signed: negative means the train is typically early. Null when no bucket matched — never a fabricated 0. Clients may round for display. |
+| `estimatedArrivalDelayMinutes` | Number (one decimal) or null | Same for the alighting stop. Looked up separately from the departure side. |
 | `estimatedSource` | `HISTORICAL_ACTUALS` \| `LIVE_SAMPLE` \| `NONE` | Which table produced the estimate. `LIVE_SAMPLE` is the existing realtime sampler filling a gap the historical artifact misses; `NONE` means unknown. |
 | `estimatedSamples` | Integer or null | Measurements behind the matched bucket (at least 10). |
-| `projectedDeparture` | RFC 3339 string or null | `scheduled departure + known delay + estimated delay`. Equals `expectedDeparture` when both delays are 0 or absent. |
+| `projectedDeparture` | RFC 3339 string or null | `scheduled departure + known delay + estimated delay`, composed in seconds (a `+1.5` estimate lands at `:30`). Equals `expectedDeparture` when both delays are 0 or absent. |
 | `projectedArrival` | RFC 3339 string or null | Same for arrival. Recommendation ranking uses this as the arrival instant, then falls back to `expectedArrival`, then the scheduled arrival. |
 
 At journey level the fields mirror the existing rule: departure values come from the first transit leg, arrival values from the last transit leg.

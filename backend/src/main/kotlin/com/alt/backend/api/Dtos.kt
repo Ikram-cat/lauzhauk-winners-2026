@@ -84,7 +84,7 @@ data class ScheduleDto(val departure: String, val arrival: String, val durationM
 data class RealtimeDto(
     val expectedDeparture: String?, val departureDelayMinutes: Int?, val expectedArrival: String?, val arrivalDelayMinutes: Int?,
     val source: String, val sampleCount: Int?,
-    val estimatedDepartureDelayMinutes: Int? = null, val estimatedArrivalDelayMinutes: Int? = null,
+    val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
     val estimatedSource: String = "NONE", val estimatedSamples: Int? = null,
     val projectedDeparture: String? = null, val projectedArrival: String? = null
 )
@@ -109,7 +109,7 @@ data class LegDto(
     val mode: String, val origin: String, val destination: String, val departure: String, val arrival: String,
     val expectedDeparture: String?, val departureDelayMinutes: Int?, val expectedArrival: String?, val arrivalDelayMinutes: Int?,
     val serviceLabel: String?, val departurePlatform: String?, val arrivalPlatform: String?, val occupancy: OccupancyDto?,
-    val estimatedDepartureDelayMinutes: Int? = null, val estimatedArrivalDelayMinutes: Int? = null,
+    val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
     val estimatedSource: String = "NONE", val estimatedSamples: Int? = null,
     val projectedDeparture: String? = null, val projectedArrival: String? = null
 )
