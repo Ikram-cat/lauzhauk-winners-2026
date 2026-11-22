@@ -211,33 +211,40 @@ Current results on the test period (104 incidents, 639 snapshots after 2026-04-0
 
 ## Live mode: not implemented
 
-There is no live mode; the Renens replay remains the main demo. Checked on 2026-11-22 with the team's key (`GTFS_RT_API_KEY` in `.env`, 120 characters, never printed or committed):
+There is no live mode; the Renens replay remains the main demo. Checked on 2026-11-22 with the key in `.env` (`GTFS_RT_API_KEY`, never printed or committed).
 
-1. **The key has no access to Service Alerts.**
-   - `https://api.opentransportdata.swiss/la/gtfs-rt` (TripUpdates, used by the team): `200`, `application/x-protobuf`, 2.55 MB.
-   - `https://api.opentransportdata.swiss/la/gtfs-sa` (Service Alerts): `403 Forbidden`, body `{"error": "Access to this API has been disallowed"}`.
+**Access with the current key.**
+- `la/gtfs-sa` (Service Alerts): `200`, 12.6 MB.
+- `la/gtfs-rt` (TripUpdates, used by the team's `GtfsRealtimeSource`): `403` "Access to this API has been disallowed", confirmed after one minute.
 
-   The key is valid but not subscribed to the Service Alerts API, so no real alert could be read. No alert decoder was written, because there is nothing to verify it on. To unblock: subscribe the key (or a new one) to GTFS-RT Service Alerts on the opentransportdata.swiss API manager, then rerun this check.
-2. **The team's GTFS code reads TripUpdates only.** `GtfsDecoder` decodes `FeedEntity.trip_update` (field 3), not `alert` (field 5). Our model needs a cause, an announced end and the affected stations. TripUpdates carry none of the first two: delays, cancellations and skipped stops are effects, not causes or announced ends. A live mode needs the Service Alerts feed.
-3. **The mapping of a Service Alert to our features is unproven**, even with a key:
+The previous key had the opposite subscriptions. With this key, the team's TripUpdates feature stays off.
 
-   | Feature input | Liveticker (training data) | GTFS-RT Service Alert (to verify on real messages) |
-   | --- | --- | --- |
-   | `reasonCode` | SBB cause `EG_xxx` | `cause` is a 12-value enum (`ACCIDENT`, `TECHNICAL_PROBLEM`, …) with no published mapping to the 31 `EG_xxx` codes. An unmapped cause becomes a missing category. |
-   | `announcedEndAt` | `duration_to` | `active_period.end` is the validity window of the alert. That it equals the announced end of the disruption is unverified. |
-   | `startedAt`, `updatesSoFar` | `created_at_source`, number of published versions | `active_period.start`; the version history must be rebuilt by polling (5 requests per minute at most). |
-   | affected stations | VIA UIC → sloid | `informed_entity.stop_id`. In the real TripUpdates feed (2026-11-22), all 53,268 stop ids are sloids: 27,284 platform-level (`ch:1:sloid:1118:…:…`) and 25,984 stop-place (`ch:1:sloid:1118`), over 10,013 stop places, including Renens VD, Morges, Lausanne and Genève. Assuming alerts use the same ids, the team's `GtfsMatch.sameStop` matches them to VIA UIC codes. This part is likely reliable; it is verified on TripUpdates only. |
-   | identifier | `alea_fall_id` | No evidence that the alert id carries the liveticker / VIA id, so live predictions cannot be checked against training labels. |
-4. **No GTFS journey search exists.** Journeys come from OJP or the mock. The team's GTFS-RT matching itself links a leg to a GTFS trip through OJP stop events (`lineRef`, timetabled origin departure). `detourExtraMinutes` therefore cannot be computed "with GTFS". The demo keeps `TRANSPORT_PROVIDER=demo`.
+**Decoder.** `sbb_duration/gtfs_alerts.py` decodes `alert` entities. It is separate from the team's TripUpdates decoder, uses the official field numbers, and is tested on a hand-encoded message: `python -m sbb_duration.gtfs_alerts data/gtfs/la_gtfs-sa.pb`. The raw feed stays in the ignored `analytics/data/`.
 
-What is implemented for GTFS: `backend/.../service/impact/GtfsDisruptionAdapter.kt`. It does not change the team's code. It finds, in a GTFS-RT TripUpdates snapshot, the trips whose stop updates (intermediate stops included) touch a VIA disruption, with the same rule as journey legs, and reports cancelled trips, skipped stops and delays at those stations. It is tested on the team's captured fixture (`GtfsDisruptionAdapterTest`).
+**What the real feed contains** (header time 2026-11-21 23:00 UTC):
+- 1,470 alerts, 679 from SBB (agency `11`); headers in de, fr, it and en, phrased like the liveticker ("Interrupted service: A - B").
+- `cause`: 982 CONSTRUCTION, 438 OTHER_CAUSE, 20 MAINTENANCE, 15 TECHNICAL_PROBLEM, 11 WEATHER, 4 UNKNOWN_CAUSE.
+- `effect`: UNKNOWN_EFFECT for all 1,470.
+- `active_period`: 1,423 alerts have an end, but 418 have several periods (up to 41 recurring night windows of planned works).
+- `informed_entity.stop_id`: 942 alerts name stops; 8,541 of 8,579 stop ids (99.6%) are sloids.
+- Alert ids are UUIDs (`22fede4f-…`).
 
-To enable a live mode:
-- put the key in `.env` (`GTFS_RT_API_KEY=…`, ignored by Git);
-- record a day of `la/gtfs-sa` alerts for SBB;
-- extend the decoder with `alert` (field 5: `active_period`, `informed_entity`, `cause`, `header_text`);
-- verify the rows above on alerts that also appear in the liveticker;
-- add a `DisruptionSource` that reads alerts, with responses labelled `LIVE`.
+**Why the mapping to our features is not reliable:**
+
+| Feature | Verdict |
+| --- | --- |
+| affected stations | Reliable: sloids map to VIA UIC (`ch:1:sloid:<UIC − 8500000>`), as for TripUpdates. |
+| `reasonCode` | Not available: the GTFS enum is coarse (30% OTHER_CAUSE) and has no mapping to the 31 `EG_xxx` codes, so it would be a missing category for every alert. |
+| `announcedEndAt` | Not verified: `active_period.end` is a validity window. For planned works it is the work schedule, not an announced end. For unplanned incidents it might be the liveticker's `duration_to`, but no such alert was available to check. |
+| `startedAt`, `updatesSoFar`, `durationType` | `startedAt` ≈ first period start. `updatesSoFar` needs a polled history. `durationType` is absent. |
+| population | Out of distribution: of the 414 alerts active at fetch time, none is an unplanned SBB rail incident. The 10 that look unplanned (single period, started < 24 h, not works) concern buses, a lift and wheelchair access. The model was trained only on unplanned rail incidents shorter than 24 h. |
+| validation | Impossible now: there is no shared id with the liveticker or VIA, and the feed holds current alerts only, while the training export ends on 2026-10-12. Predictions on live alerts cannot be compared with known ends. |
+
+**To make it reliable:**
+1. Get a key with both subscriptions, so that the TripUpdates feature works again.
+2. Poll `la/gtfs-sa` every few minutes for some days (the version history gives `updatesSoFar`), and keep SBB alerts with cause ≠ CONSTRUCTION/MAINTENANCE and a single period.
+3. Obtain a liveticker or VIA export covering the same days, and match alerts by header text, stops and start time. Then measure whether `active_period.end` equals `duration_to`, and the model error.
+4. Only then add a `LIVE` `DisruptionSource` (Kotlin), next to `ReplayTimelineDisruptionSource`.
 
 ## Evaluation and reproducibility
 

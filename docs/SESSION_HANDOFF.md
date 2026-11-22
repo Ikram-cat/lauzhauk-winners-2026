@@ -6,6 +6,14 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-22 · C · Service Alerts decoded; live mode not reliable yet
+
+- **New key** (`.env`, never committed). `la/gtfs-sa`: `200` (12.6 MB). `la/gtfs-rt`: `403` "Access to this API has been disallowed", confirmed after a minute. The team's TripUpdates feature is therefore off with this key; the previous key had the opposite subscriptions. A key with both is needed.
+- **Decoder.** `analytics/sbb_duration/gtfs_alerts.py` is separate from the team's TripUpdates decoder. It is tested on a hand-encoded message (`test_gtfs_alerts.py`) and run on the real feed.
+- **Real feed.** 1,470 alerts (679 SBB). Causes: 67% CONSTRUCTION, 30% OTHER_CAUSE. `effect` is always UNKNOWN_EFFECT. 418 alerts have recurring periods. Stops: 99.6% sloids. Ids are UUIDs. Of the 414 alerts active at 23:00 UTC, none is an unplanned SBB rail incident.
+- **Verdict: no live mode.** Stations are reliable. The cause has no mapping to `EG_xxx`. `active_period.end` is a validity window, unverified as an announced end. There is no shared id and no overlap with the training export, so validation is impossible. The population is out of distribution. Details and next steps are in the analytics README, Live mode.
+- **Checks.** `python -m pytest analytics`: 39 passed, 3 skipped. Kotlin: 180 passed. `run_demo.py` works; GTFS-RT logs a failed refresh (403) and the replay is unaffected.
+
 ## 2026-11-22 · C · Live mode checked with the key: Service Alerts refused (403)
 
 - **Key.** `.env` holds `GTFS_RT_API_KEY` (120 characters). It is never printed, logged or committed; `.env` is ignored.

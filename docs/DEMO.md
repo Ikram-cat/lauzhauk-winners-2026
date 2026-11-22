@@ -25,7 +25,7 @@ The `demo` provider (`backend/.../provider/DemoScenarioTransportProvider.kt`) is
 - **Zürich Stadelhofen → Stettbach:** S11, 6 min, and a tram alternative (Tram 11 + Tram 7) arriving 23 min later.
 - **Any other request:** the team mock, unchanged.
 
-`--provider ojp` uses the live timetable once a key is available. When `.env` holds `GTFS_RT_API_KEY`, the script also enables the team's GTFS-RT TripUpdates feed (startup line `gtfs-rt=on`); the replay does not depend on it, and `--offline` keeps it off. There is no live disruption mode: the team's key opens TripUpdates but gets `403` on Service Alerts (see the analytics README).
+`--provider ojp` uses the live timetable once a key is available. When `.env` holds `GTFS_RT_API_KEY`, the script also enables the team's GTFS-RT TripUpdates feed (startup line `gtfs-rt=on`); the replay does not depend on it, and `--offline` keeps it off. There is no live disruption mode. Service Alerts are readable with the current key, but the feed cannot yet give our model's inputs reliably, and that key gets `403` on TripUpdates, so `gtfs-rt` stays off in practice (see the analytics README, Live mode).
 
 It finds JDK 21 through `JAVA_HOME`, or `%LOCALAPPDATA%\Programs\Temurin\jdk-21*` on Windows. Ready when it prints `Backend on http://localhost:8080`. Stop it with Ctrl+C.
 
