@@ -253,9 +253,9 @@ internal fun StationField(
                         text = {
                             Column {
                                 Text(localizedStationName(station.name, language))
-                                val detail = station.address ?: when (station.kind) {
-                                    "address" -> language.text(Copy.AddressWord)
-                                    "stop" -> language.text(Copy.StopWord)
+                                val detail = station.address ?: when (station.kind?.uppercase()) {
+                                    "ADDRESS" -> language.text(Copy.AddressWord)
+                                    "STOP" -> language.text(Copy.StopWord)
                                     else -> null
                                 }
                                 detail?.let {

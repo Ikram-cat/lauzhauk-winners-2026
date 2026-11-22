@@ -38,10 +38,10 @@ internal fun JourneyOverview(origin: String, destination: String, journey: Journ
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(copy(Copy.JourneyOverview), color = colors.onSurfaceVariant,
                 fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            TimelineStop(from, journey?.let { "${copy(Copy.ScheduledDeparture)} · ${time(Instant.parse(it.departure))}" }
+            TimelineStop(from, journey?.let { "${copy(Copy.ScheduledDeparture)} · ${time(it.scheduleDeparture)}" }
                 ?: copy(Copy.NowDeparture), true)
             Box(Modifier.padding(start = 6.dp).width(2.dp).height(18.dp).background(colors.primary))
-            TimelineStop(to, journey?.let { "${copy(Copy.ScheduledArrival)} · ${time(Instant.parse(it.arrival))}" }, false)
+            TimelineStop(to, journey?.let { "${copy(Copy.ScheduledArrival)} · ${time(it.scheduleArrival)}" }, false)
             if (journey != null) {
                 val transfer = if (journey.transfers == 0) copy(Copy.Direct)
                     else language.count(journey.transfers, Copy.Transfer, Copy.TransferPlural)

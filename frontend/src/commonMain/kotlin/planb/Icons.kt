@@ -89,6 +89,21 @@ internal fun WarningTriangleIcon(color: Color, modifier: Modifier = Modifier.siz
 }
 
 @Composable
+internal fun CheckIcon(color: Color, modifier: Modifier = Modifier.size(14.dp)) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = 1.6.dp.toPx()
+        val path = Path().apply {
+            moveTo(w * 0.08f, h * 0.52f)
+            lineTo(w * 0.40f, h * 0.84f)
+            lineTo(w * 0.94f, h * 0.18f)
+        }
+        drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Round))
+    }
+}
+
+@Composable
 internal fun InfoIcon(color: Color, modifier: Modifier = Modifier.size(14.dp)) {
     Canvas(modifier) {
         val stroke = 1.4.dp.toPx()

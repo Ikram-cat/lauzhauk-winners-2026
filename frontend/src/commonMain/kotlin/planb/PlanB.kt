@@ -94,7 +94,7 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
     var journeys by remember { mutableStateOf(emptyList<Journey>()) }
     var expandedJourneyId by remember { mutableStateOf<String?>(null) }
     var chosenJourneyId by remember { mutableStateOf<String?>(null) }
-    var redirectResponse by remember { mutableStateOf<RedirectResponse?>(null) }
+    var journeyResponse by remember { mutableStateOf<JourneyResponse?>(null) }
     var preference by remember { mutableStateOf(Preference.FASTEST) }
     var showOtherOptions by remember { mutableStateOf(false) }
     var searchCollapsed by remember { mutableStateOf(false) }
@@ -120,7 +120,7 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
         journeys = emptyList()
         expandedJourneyId = null
         chosenJourneyId = null
-        redirectResponse = null
+        journeyResponse = null
         showOtherOptions = false
         locationStatus = null
         status = Copy.Searching
@@ -130,6 +130,7 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                 if (from.isEmpty() || to.isEmpty() || from.equals(to, ignoreCase = true)) {
                     throw SearchInputException(Copy.DistinctStations)
                 }
+                // Rescue ("Plan B"): same /api/journeys call, origin = the stuck station, departure = now.
                 val start = if (rescue) Clock.System.now() else swissDeparture(day, departure)
                 val deadline = swissDeparture(requestedDeadlineDate, requestedDeadlineTime)
                 if (start != null && deadline != null && deadline < start) {
@@ -137,20 +138,9 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                 }
                 activeDeadline = deadline
                 val options = JourneyOptions(requestedDirectOnly, deadline.takeIf { source.demo })
-                val response = if (rescue) {
-                    val alt = source.alternatives(from, to, checkNotNull(start), deadline)
-                    RedirectResponse(
-                        situation = "UNKNOWN",
-                        recommendation = alt.journeys.firstOrNull(),
-                        alternatives = alt.journeys.drop(1).take(3),
-                        journeys = alt.journeys,
-                        latestFeasibleDeparture = alt.latestFeasibleDeparture,
-                        noFeasibleRoute = alt.noFeasibleRoute,
-                        advice = alt.advice
-                    )
-                } else source.search(from, to, start, preference = preference, deadline = deadline)
+                val response = source.search(from, to, start, preference = preference, deadline = deadline)
                 appliedOptions = options
-                redirectResponse = response
+                journeyResponse = response
                 val allJourneys = response.displayJourneys
                 journeys = allJourneys
                 expandedJourneyId = (options.applyTo(allJourneys).firstOrNull() ?: allJourneys.firstOrNull())?.id
@@ -165,6 +155,30 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                 status = invalid.feedback
             } catch (_: Exception) {
                 status = Copy.ServiceUnavailable
+            }
+        }
+    }
+    fun useMyLocation() {
+        locationStatus = Copy.LocatingYou
+        scope.launch {
+            locationStatus = when (val located = currentLocation()) {
+                is LocationResult.PermissionDenied -> Copy.LocationPermissionDenied
+                is LocationResult.Unavailable -> Copy.LocationUnavailable
+                is LocationResult.Found -> {
+                    if (source.demo) {
+                        Copy.LocationUnavailable
+                    } else try {
+                        val nearest = source.locations(near = located.latitude to located.longitude, radiusKm = 2.0, limit = 1).firstOrNull()
+                        if (nearest != null) {
+                            origin = nearest.name
+                            null
+                        } else Copy.NoStationNearby
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        Copy.NoStationNearby
+                    }
+                }
             }
         }
     }
@@ -244,11 +258,10 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                                 StationField(
                                                     copy(Copy.From), origin, language, source, { origin = it }, { search(false) }, Modifier.weight(1f),
                                                     trailing = {
-                                                        IconButton(onClick = {
-                                                            locationStatus = Copy.NearestStationPending
-                                                        }, modifier = Modifier.semantics { contentDescription = copy(Copy.UseMyLocation) }) {
-                                                            PinIcon(colors.primary)
-                                                        }
+                                                        IconButton(
+                                                            onClick = { useMyLocation() },
+                                                            modifier = Modifier.semantics { contentDescription = copy(Copy.UseMyLocation) }
+                                                        ) { PinIcon(colors.primary) }
                                                     }
                                                 )
                                                 TextButton(onClick = {
@@ -339,8 +352,8 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                         if (feedback != null) {
                             Text(copy(Copy.Journeys), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                             Text(feedback, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.onSurfaceVariant)
-                            redirectResponse?.let { info ->
-                                val hasDisruption = info.situation == "DISRUPTION_DETECTED"
+                            journeyResponse?.let { info ->
+                                val hasDisruption = info.status == "DISRUPTION_DETECTED"
                                 if (hasDisruption) {
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
@@ -363,9 +376,6 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.Medium
                                             )
-                                            info.message?.let {
-                                                Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                                            }
                                             info.disruption?.let { disruption ->
                                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                     disruption.serviceLabel?.let {
@@ -387,29 +397,16 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                                 disruption.cause?.let {
                                                     Text(it, style = MaterialTheme.typography.bodyMedium)
                                                 }
-                                                if (disruption.confidence == "low") {
+                                                if (disruption.confidence == "LOW" || disruption.confidence == "low") {
                                                     Text(copy(Copy.LimitedLiveData), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                                                 }
                                             }
                                         }
                                     }
-                                } else if (info.situation == "UNKNOWN") {
+                                } else if (info.status == "UNKNOWN") {
                                     Text(copy(Copy.LiveStatusUnavailable), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                                 }
-                                if (!info.message.isNullOrBlank() && !hasDisruption) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = colors.surfaceVariant,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(info.message, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                    }
-                                }
-                                if (info.noFeasibleRoute == true) Text(copy(Copy.NoFeasibleRoute), fontWeight = FontWeight.Bold, color = colors.primary)
-                                info.latestFeasibleDeparture?.let {
-                                    val instant = Instant.parse(it)
-                                    Text("${copy(Copy.LeaveBy)} ${instant.toLocalDateTime(Zurich).date} · ${time(instant)}")
-                                }
+                                if (info.action == "NONE" && !noMatch) Text(copy(Copy.NoFeasibleRoute), fontWeight = FontWeight.Bold, color = colors.primary)
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -468,9 +465,12 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                 }) { Text(copy(Copy.AdjustOptions)) }
                                 Text(copy(Copy.EarliestReturned), fontWeight = FontWeight.Medium)
                             }
-                            val cards = if (noMatch) listOfNotNull(journeys.minByOrNull { Instant.parse(it.arrival) }) else visibleJourneys
-                            val recommendation = redirectResponse?.recommendation?.takeIf { !noMatch && appliedOptions.applyTo(listOf(it)).isNotEmpty() }
-                            val nonRecommendationCards = if (recommendation != null) cards.filterNot { it.id == recommendation.id } else cards
+                            val cards = if (noMatch) listOfNotNull(journeys.minByOrNull { it.scheduleArrival }) else visibleJourneys
+                            val recommendation = journeyResponse?.recommendedJourney
+                                ?.takeIf { !noMatch && appliedOptions.applyTo(listOf(it)).isNotEmpty() }
+                            // The backend already excludes recommendedJourney from alternatives.
+                            val otherOptions = if (recommendation != null) appliedOptions.applyTo(journeyResponse?.alternatives.orEmpty()) else cards
+                            val recommendedWhy = journeyResponse?.reasons?.firstOrNull()?.text(language)
 
                             if (recommendation != null) {
                                 val expanded = expandedJourneyId == recommendation.id
@@ -493,6 +493,7 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                                 chosenJourneyId = recommendation.id
                                             },
                                             recommended = true,
+                                            whyText = recommendedWhy,
                                             fare = fareProfile.price(recommendation),
                                             fullFare = if (fareProfile.travelcard == Travelcard.HALF_FARE)
                                                 fareProfile.copy(travelcard = Travelcard.STANDARD).price(recommendation) else null,
@@ -503,7 +504,7 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                         )
                                     }
                                 }
-                                if (nonRecommendationCards.isNotEmpty()) {
+                                if (otherOptions.isNotEmpty()) {
                                     if (!showOtherOptions) {
                                         Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
                                             OutlinedButton(onClick = { showOtherOptions = true }) { Text(copy(Copy.ViewOtherOptions)) }
@@ -515,7 +516,7 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(top = 10.dp)
                                         )
-                                        for (journey in nonRecommendationCards) {
+                                        for (journey in otherOptions) {
                                             val isExpanded = expandedJourneyId == journey.id
                                             JourneyChoiceCard(
                                                 journey = journey,
@@ -567,7 +568,7 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
                                 SmartWaitingTime(chosen, language)
                             }
                         }
-                        val activeModel = redirectResponse?.modelVersion ?: model?.modelVersion
+                        val activeModel = journeyResponse?.meta?.modelVersion ?: model?.riskModel?.version
                         if (activeModel != null) {
                             Text("${copy(Copy.ModelVersionLabel)}$activeModel", color = colors.onSurfaceVariant, fontSize = 12.sp)
                         }
@@ -578,4 +579,3 @@ internal fun PlanB(api: String, onLanguageChanged: (Language) -> Unit = {}) {
         }
     }
 }
-

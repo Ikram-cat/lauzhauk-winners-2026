@@ -15,6 +15,7 @@ import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlin.math.roundToLong
@@ -39,143 +40,214 @@ internal fun swissDeparture(date: String, hour: String): Instant? {
         ?: throw SearchInputException(Copy.AmbiguousDate)
 }
 
+internal enum class Preference { FASTEST, CHEAPEST, SIMPLEST }
+
+// --- Live contract (Teddy MSG-0027/0028/0032/0033, api-consolidation @ cee0657) ---
+// Only 4 endpoints exist: /health, /api/locations, /api/journeys, /api/model.
+// /api/redirect and /api/alternatives are gone (404); the rescue/"Plan B" flow is just another
+// /api/journeys call with origin = the stuck station and departure = now.
+
+@Serializable
+internal data class Occupancy(val firstClass: String? = null, val secondClass: String? = null)
+
 @Serializable
 internal data class Leg(
-    val origin: String, val destination: String, val departure: String, val arrival: String,
+    val mode: String, val origin: String, val destination: String,
+    val departure: String, val arrival: String,
+    val expectedDeparture: String? = null, val departureDelayMinutes: Int? = null,
+    val expectedArrival: String? = null, val arrivalDelayMinutes: Int? = null,
     val serviceLabel: String? = null, val departurePlatform: String? = null,
-    val arrivalPlatform: String? = null, val mode: String? = null
+    val arrivalPlatform: String? = null, val occupancy: Occupancy? = null
+)
+
+@Serializable
+internal data class Schedule(val departure: String, val arrival: String, val durationMinutes: Int, val transfers: Int)
+
+@Serializable
+internal data class Realtime(
+    val expectedDeparture: String? = null, val departureDelayMinutes: Int? = null,
+    val expectedArrival: String? = null, val arrivalDelayMinutes: Int? = null,
+    val source: String? = null, val sampleCount: Int? = null
+)
+
+@Serializable
+internal data class Risk(
+    val corridorIncidentRate: Double? = null, val typicalIncidentDurationMinutes: Int? = null,
+    val source: String? = null, val basis: String? = null, val confidence: String? = null, val level: String? = null
+)
+
+@Serializable
+internal data class CatalogChf(
+    val secondClassFull: Double? = null, val secondClassHalfFare: Double? = null,
+    val firstClassFull: Double? = null, val firstClassHalfFare: Double? = null
+)
+
+@Serializable
+internal data class Fares(
+    val status: String? = null, val selectedChf: Double? = null,
+    val product: String? = null, val source: String? = null, val catalogChf: CatalogChf? = null
 )
 
 @Serializable
 internal data class Journey(
-    val id: String, val departure: String, val arrival: String, val durationMinutes: Int,
-    val transfers: Int, val dataStatus: String, val legs: List<Leg>,
-    val estimatedFareChf: Double? = null, val halfFareChf: Double? = null, val firstClassFareChf: Double? = null,
-    val fareProduct: String? = null, val fareSource: String? = null, val fareStatus: String? = null,
-    val fareChf: Double? = null, val firstClassHalfFareChf: Double? = null,
-    val feasible: Boolean? = null, val lateArrivalProbability: Double? = null,
-    val riskSource: String? = null, val riskConfidence: String? = null,
-    val riskLabel: String? = null, val riskBasis: String? = null,
-    val disruptionDurationMin: Int? = null, val reasons: List<String> = emptyList(),
-    val why: String? = null
+    val id: String, val dataStatus: String, val verified: Boolean = false,
+    val feasible: Boolean? = null, val maxOccupancy: String? = null,
+    val schedule: Schedule, val realtime: Realtime? = null, val risk: Risk? = null,
+    val fares: Fares? = null, val legs: List<Leg> = emptyList()
 ) {
-    private val known get() = fareStatus != "UNAVAILABLE"
-    /** Undiscounted fare for the class; null means unknown and must not be rendered. */
-    fun fullFare(firstClass: Boolean) = (if (firstClass) firstClassFareChf else estimatedFareChf)?.takeIf { known }
-    /** Price the user pays: backend `fareChf`, else the contract v2 field for the selection (older backends). */
-    fun fare(firstClass: Boolean, halfFare: Boolean) = (fareChf ?: when {
-        !halfFare -> fullFare(firstClass)
-        firstClass -> firstClassHalfFareChf
-        else -> halfFareChf
+    val scheduleDeparture get() = Instant.parse(schedule.departure)
+    val scheduleArrival get() = Instant.parse(schedule.arrival)
+    /** Prefer the live/expected time whenever the detector reported one; else the plain timetable time. */
+    val effectiveDeparture get() = realtime?.expectedDeparture?.let(Instant::parse) ?: scheduleDeparture
+    val effectiveArrival get() = realtime?.expectedArrival?.let(Instant::parse) ?: scheduleArrival
+    val durationMinutes get() = schedule.durationMinutes
+    val transfers get() = schedule.transfers
+    val isLive get() = realtime?.expectedDeparture != null || realtime?.expectedArrival != null
+
+    private val known get() = fares?.status == "PRICED"
+    /** Catalog (undiscounted/discounted) fare for a class; null means unknown and must not be rendered. */
+    fun catalogFare(firstClass: Boolean, halfFare: Boolean) = (when {
+        firstClass && halfFare -> fares?.catalogChf?.firstClassHalfFare
+        firstClass -> fares?.catalogChf?.firstClassFull
+        halfFare -> fares?.catalogChf?.secondClassHalfFare
+        else -> fares?.catalogChf?.secondClassFull
     })?.takeIf { known }
 }
 
 @Serializable
-internal data class Disruption(
-    val legIndex: Int? = null,
-    val serviceLabel: String? = null,
-    val from: String? = null,
-    val to: String? = null,
-    val scheduledDeparture: String? = null,
-    val estimatedDeparture: String? = null,
-    val delayMinutes: Int? = null,
-    val cancelled: Boolean? = null,
-    val basis: String? = null,
-    val confidence: String? = null,
-    val cause: String? = null
+internal data class PlaceRef(val input: String? = null, val resolvedName: String? = null, val id: String? = null)
+
+@Serializable
+internal data class RequestEcho(
+    val origin: PlaceRef? = null, val destination: PlaceRef? = null, val departure: String? = null,
+    val arrivalDeadline: String? = null, val preference: String = "FASTEST",
+    val fareClass: Int = 2, val discount: String = "NONE"
 )
 
 @Serializable
-internal data class RedirectResponse(
-    val situation: String = "NO_DISRUPTION",
-    val disruption: Disruption? = null,
-    val recommendation: Journey? = null,
-    val alternatives: List<Journey> = emptyList(),
-    val journeys: List<Journey> = emptyList(),
-    val message: String? = null,
-    val computedAt: String? = null,
-    val modelVersion: String? = null,
-    val latestFeasibleDeparture: String? = null,
-    val noFeasibleRoute: Boolean? = null,
-    val advice: String? = null,
-    val recommendations: Recommendations? = null
-) {
-    val displayJourneys: List<Journey>
-        get() = if (journeys.isNotEmpty()) journeys else listOfNotNull(recommendation) + alternatives
+internal data class Reason(val code: String, val savedMinutes: Int? = null)
+
+/** reasons[].code is a stable backend enum; all wording is composed client-side (MSG-0027). */
+internal fun Reason.text(language: Language): String {
+    val base = when (code) {
+        "PRIMARY_LEG_DELAYED" -> Copy.ReasonPrimaryLegDelayed
+        "PRIMARY_LEG_CANCELLED" -> Copy.ReasonPrimaryLegCancelled
+        "SUPPRESSED_STOP" -> Copy.ReasonSuppressedStop
+        "EARLIER_ARRIVAL" -> Copy.ReasonEarlierArrival
+        "FEWER_TRANSFERS" -> Copy.ReasonFewerTransfers
+        "CHEAPER" -> Copy.ReasonCheaper
+        "DEADLINE_MET" -> Copy.ReasonDeadlineMet
+        "DEADLINE_MISSED" -> Copy.ReasonDeadlineMissed
+        "REALTIME_UNAVAILABLE" -> Copy.ReasonRealtimeUnavailable
+        "STAY_FASTEST" -> Copy.ReasonStayFastest
+        "EXPECTED_FASTER" -> return "${language.text(Copy.ReasonExpectedFasterBy)}${savedMinutes ?: 0} min"
+        else -> return code
+    }
+    return language.text(base)
 }
 
-internal enum class Preference { FASTEST, CHEAPEST, SIMPLEST }
+internal fun occupancyLabel(level: String?, language: Language): String? = when (level) {
+    "LOW" -> language.text(Copy.OccupancyLow)
+    "MEDIUM" -> language.text(Copy.OccupancyMedium)
+    "HIGH" -> language.text(Copy.OccupancyHigh)
+    else -> null
+}
 
 @Serializable
-internal data class Recommendations(val fastest: String? = null, val cheapest: String? = null, val simplest: String? = null) {
+internal data class Disruption(
+    val legIndex: Int? = null, val serviceLabel: String? = null, val from: String? = null, val to: String? = null,
+    val scheduledDeparture: String? = null, val estimatedDeparture: String? = null, val delayMinutes: Int? = null,
+    val cancelled: Boolean? = null, val basis: String? = null, val confidence: String? = null,
+    val severity: String? = null, val cause: String? = null
+)
+
+@Serializable
+internal data class Highlights(val fastestId: String? = null, val simplestId: String? = null, val cheapestId: String? = null) {
     fun id(preference: Preference) = when (preference) {
-        Preference.FASTEST -> fastest
-        Preference.CHEAPEST -> cheapest
-        Preference.SIMPLEST -> simplest
+        Preference.FASTEST -> fastestId
+        Preference.SIMPLEST -> simplestId
+        Preference.CHEAPEST -> cheapestId
     }
 }
 
 @Serializable
-internal data class JourneyResponse(
-    val journeys: List<Journey>, val recommendations: Recommendations? = null,
-    val latestFeasibleDeparture: String? = null, val noFeasibleRoute: Boolean? = null, val advice: String? = null
-)
+internal data class ResponseMeta(val computedAt: String? = null, val modelVersion: String? = null)
 
 @Serializable
-internal data class Location(val id: String, val name: String, val kind: String)
+internal data class JourneyResponse(
+    val request: RequestEcho? = null,
+    val status: String = "NO_DISRUPTION",
+    val action: String = "NONE",
+    val reasons: List<Reason> = emptyList(),
+    val disruption: Disruption? = null,
+    val primaryJourney: Journey? = null,
+    val recommendedJourney: Journey? = null,
+    val alternatives: List<Journey> = emptyList(),
+    val highlights: Highlights? = null,
+    val deadlineSummary: JsonElement? = null,
+    val meta: ResponseMeta? = null
+) {
+    /** All journeys worth showing the user, recommendation first, never duplicated. */
+    val displayJourneys: List<Journey> get() = listOfNotNull(recommendedJourney ?: primaryJourney) + alternatives
+}
+
+@Serializable
+internal data class Coordinates(val lat: Double, val lon: Double)
+
+@Serializable
+internal data class Location(val id: String, val name: String, val kind: String, val coordinates: Coordinates? = null)
 
 @Serializable
 private data class LocationsResponse(val locations: List<Location>)
 
 @Serializable
-internal data class ModelInfo(
-    val modelVersion: String? = null, val generatedAt: String? = null, val status: String,
-    val gtfsRtEnabled: Boolean = false, val gtfsRtAgeSeconds: Long? = null,
-    val gtfsRtTripUpdates: Int = 0, val gtfsRtCancelled: Int = 0
+internal data class ModelCoverage(val from: String? = null, val to: String? = null, val windowDays: Int? = null, val scope: String? = null)
+
+@Serializable
+internal data class ModelCounts(val keys: Int? = null, val corridors: Int? = null, val baselineHours: Int? = null, val byLineHourCells: Int? = null)
+
+@Serializable
+internal data class RiskModelInfo(
+    val version: String? = null, val generatedAt: String? = null, val source: String? = null, val status: String? = null,
+    val coverage: ModelCoverage? = null, val counts: ModelCounts? = null
 )
 
 @Serializable
-private data class AlternativesResponse(
-    val alternatives: List<Journey>, val latestFeasibleDeparture: String? = null,
-    val noFeasibleRoute: Boolean, val advice: String? = null
-)
+internal data class DelayModelCounts(val portions: Int? = null, val lines: Int? = null)
+
+@Serializable
+internal data class DelayModelInfo(val version: String? = null, val status: String? = null, val counts: DelayModelCounts? = null)
+
+@Serializable
+internal data class ModelInfo(val riskModel: RiskModelInfo? = null, val delayModel: DelayModelInfo? = null)
 
 private val json = Json { ignoreUnknownKeys = true }
 
 internal fun parseJourneys(body: String): JourneyResponse = validateJourneys(json.decodeFromString<JourneyResponse>(body))
 
-internal fun parseRedirect(body: String): RedirectResponse = validateRedirect(json.decodeFromString<RedirectResponse>(body))
-
-private fun validateRedirect(response: RedirectResponse): RedirectResponse = response.also { res ->
-    res.recommendation?.let { journey ->
-        Instant.parse(journey.departure)
-        Instant.parse(journey.arrival)
-        journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
+private fun Journey.validate(): Journey = also {
+    Instant.parse(schedule.departure)
+    Instant.parse(schedule.arrival)
+    realtime?.expectedDeparture?.let(Instant::parse)
+    realtime?.expectedArrival?.let(Instant::parse)
+    legs.forEach {
+        Instant.parse(it.departure)
+        Instant.parse(it.arrival)
+        it.expectedDeparture?.let(Instant::parse)
+        it.expectedArrival?.let(Instant::parse)
     }
-    res.alternatives.forEach { journey ->
-        Instant.parse(journey.departure)
-        Instant.parse(journey.arrival)
-        journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
-    }
-    res.journeys.forEach { journey ->
-        Instant.parse(journey.departure)
-        Instant.parse(journey.arrival)
-        journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
-    }
-    res.latestFeasibleDeparture?.let(Instant::parse)
 }
 
-private fun validateJourneys(response: JourneyResponse): JourneyResponse = response.also {
-    response.journeys.forEach { journey ->
-        Instant.parse(journey.departure)
-        Instant.parse(journey.arrival)
-        journey.legs.forEach { Instant.parse(it.departure); Instant.parse(it.arrival) }
-    }
-    response.latestFeasibleDeparture?.let(Instant::parse)
+private fun validateJourneys(response: JourneyResponse): JourneyResponse = response.also { res ->
+    res.primaryJourney?.validate()
+    res.recommendedJourney?.validate()
+    res.alternatives.forEach { it.validate() }
 }
 
-internal fun journeysUrl(base: String, origin: String, destination: String, departure: Instant?, preference: Preference,
-                         firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null) =
+internal fun journeysUrl(
+    base: String, origin: String, destination: String, departure: Instant?, preference: Preference,
+    firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null, limit: Int? = null
+) =
     URLBuilder(base.trimEnd('/') + "/api/journeys").apply {
         parameters.append("origin", origin)
         parameters.append("destination", destination)
@@ -184,18 +256,7 @@ internal fun journeysUrl(base: String, origin: String, destination: String, depa
         parameters.append("preference", preference.name)
         parameters.append("fareClass", if (firstClass) "1" else "2")
         parameters.append("discount", if (halfFare) "HALF_FARE" else "NONE")
-    }.buildString()
-
-internal fun redirectUrl(base: String, origin: String, destination: String, departure: Instant?, preference: Preference,
-                         firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null) =
-    URLBuilder(base.trimEnd('/') + "/api/redirect").apply {
-        parameters.append("origin", origin)
-        parameters.append("destination", destination)
-        departure?.let { parameters.append("departure", it.toString()) }
-        deadline?.let { parameters.append("arrivalDeadline", it.toString()) }
-        parameters.append("preference", preference.name)
-        parameters.append("fareClass", if (firstClass) "1" else "2")
-        parameters.append("discount", if (halfFare) "HALF_FARE" else "NONE")
+        limit?.let { parameters.append("limit", it.toString()) }
     }.buildString()
 
 internal fun chf(value: Double): String {
@@ -204,7 +265,10 @@ internal fun chf(value: Double): String {
 }
 
 @Serializable
-private data class HealthResponse(val status: String)
+private data class HealthFeeds(val ojp: String? = null, val nova: String? = null)
+
+@Serializable
+private data class HealthResponse(val status: String, val feeds: HealthFeeds? = null)
 
 @Serializable
 private data class ErrorResponse(val error: ErrorDetail)
@@ -215,7 +279,7 @@ private data class ErrorDetail(val code: String)
 internal data class JourneyOptions(val directOnly: Boolean = false, val arriveBy: Instant? = null) {
     fun applyTo(journeys: List<Journey>): List<Journey> = journeys.filter { journey ->
         (!directOnly || journey.transfers == 0) &&
-            (arriveBy == null || Instant.parse(journey.arrival) <= arriveBy)
+            (arriveBy == null || journey.scheduleArrival <= arriveBy)
     }
 }
 
@@ -256,54 +320,37 @@ internal class JourneySource(private val base: String) {
 
     suspend fun health(): Boolean =
         client?.get(base.trimEnd('/') + "/health")?.let { response ->
-            response.status.value == 200 && json.decodeFromString<HealthResponse>(response.bodyAsText()).status == "ok"
+            response.status.value == 200 && json.decodeFromString<HealthResponse>(response.bodyAsText()).status.equals("ok", ignoreCase = true)
         } ?: false
 
-    suspend fun locations(query: String): List<Location> =
-        json.decodeFromString<LocationsResponse>(request("/api/locations", "query" to query, retry = false)).locations
+    suspend fun locations(query: String? = null, near: Pair<Double, Double>? = null, radiusKm: Double? = null, limit: Int? = null): List<Location> =
+        json.decodeFromString<LocationsResponse>(request(
+            "/api/locations",
+            "query" to query,
+            "near" to near?.let { (lat, lon) -> "$lat,$lon" },
+            "radiusKm" to radiusKm?.toString(),
+            "limit" to limit?.toString(),
+            retry = false
+        )).locations
 
     suspend fun model(): ModelInfo = json.decodeFromString(request("/api/model", retry = false))
 
-    suspend fun alternatives(from: String, to: String, notBefore: Instant, deadline: Instant?): JourneyResponse {
-        val response = json.decodeFromString<AlternativesResponse>(request(
-            "/api/alternatives", "from" to from, "to" to to,
-            "notBefore" to notBefore.toString(), "arrivalDeadline" to deadline?.toString()
-        ))
-        return validateJourneys(JourneyResponse(response.alternatives, latestFeasibleDeparture = response.latestFeasibleDeparture,
-            noFeasibleRoute = response.noFeasibleRoute, advice = response.advice))
-    }
-
+    /** Planning AND the stranded/"Plan B" rescue case: pass origin = the stuck station, departure = now. */
     suspend fun search(
         origin: String, destination: String, departure: Instant?, preference: Preference = Preference.FASTEST,
-        firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null
-    ): RedirectResponse {
-        if (demo) return demoRedirect(origin, destination, departure ?: Clock.System.now(), preference)
-        val redirectUri = redirectUrl(base, origin, destination, departure, preference, firstClass, halfFare, deadline)
-        val body = fetch(redirectUri, retry = true, allow404 = true)
-        if (body != null) {
-            return parseRedirect(body)
-        }
-        val legacyUrl = journeysUrl(base, origin, destination, departure, preference, firstClass, halfFare, deadline)
-        val legacyBody = fetch(legacyUrl, retry = true) ?: throw SearchInputException(Copy.ServiceUnavailable)
-        val legacyResponse = parseJourneys(legacyBody)
-        val all = legacyResponse.journeys
-        return RedirectResponse(
-            situation = "UNKNOWN",
-            recommendation = all.firstOrNull(),
-            alternatives = all.drop(1).take(3),
-            journeys = all,
-            latestFeasibleDeparture = legacyResponse.latestFeasibleDeparture,
-            noFeasibleRoute = legacyResponse.noFeasibleRoute,
-            advice = legacyResponse.advice
-        )
+        firstClass: Boolean = false, halfFare: Boolean = false, deadline: Instant? = null, limit: Int? = null
+    ): JourneyResponse {
+        if (demo) return demoSearch(origin, destination, departure ?: Clock.System.now(), preference)
+        val url = journeysUrl(base, origin, destination, departure, preference, firstClass, halfFare, deadline, limit)
+        return parseJourneys(fetch(url, retry = true))
     }
 
     private suspend fun request(path: String, vararg params: Pair<String, String?>, retry: Boolean = true): String =
         fetch(URLBuilder(base.trimEnd('/') + path).apply {
             for ((key, value) in params) if (value != null) parameters.append(key, value)
-        }.buildString(), retry) ?: throw SearchInputException(Copy.ServiceUnavailable)
+        }.buildString(), retry)
 
-    private suspend fun fetch(url: String, retry: Boolean, allow404: Boolean = false): String? {
+    private suspend fun fetch(url: String, retry: Boolean): String {
         val http = checkNotNull(client)
         var attempt = 0
         while (true) {
@@ -311,7 +358,6 @@ internal class JourneySource(private val base: String) {
             val status = response.status.value
             val body = response.bodyAsText()
             if (status in 200..299) return body
-            if (allow404 && status == 404) return null
             val code = runCatching { json.decodeFromString<ErrorResponse>(body).error.code }.getOrNull()
             val rateLimited = code == "UPSTREAM_RATE_LIMITED"
             val timeout = status == 504 || code == "UPSTREAM_TIMEOUT"
@@ -322,6 +368,7 @@ internal class JourneySource(private val base: String) {
             }
             throw SearchInputException(when {
                 status == 400 -> Copy.BadRequest
+                status == 404 -> Copy.NoFeasibleRoute
                 rateLimited -> Copy.ProviderBusy
                 timeout -> Copy.ProviderTimeout
                 else -> Copy.ServiceUnavailable
@@ -330,52 +377,58 @@ internal class JourneySource(private val base: String) {
     }
 }
 
-private suspend fun demoRedirect(
+private suspend fun demoSearch(
     origin: String, destination: String, start: Instant, preference: Preference = Preference.FASTEST
-): RedirectResponse {
-    val demoJourneys = demoSearch(origin, destination, start)
+): JourneyResponse {
+    val demoJourneys = demoJourneys(origin, destination, start)
     if (demoJourneys.isEmpty()) {
-        return RedirectResponse(
-            situation = "NO_DISRUPTION",
-            recommendation = null,
-            alternatives = emptyList(),
-            journeys = emptyList()
-        )
+        return JourneyResponse(status = "NO_DISRUPTION", action = "NONE")
     }
     fun key(value: String) = value.lowercase().replace("è", "e").replace("ü", "u")
     val fromLausanne = key(origin) == "lausanne"
     val other = if (fromLausanne) destination else origin
     val service = services.firstOrNull { key(it.destination) == key(other) }
-    val situation = "DISRUPTION_DETECTED"
-    val disruption = Disruption(
-        serviceLabel = service?.label ?: "RE 33",
-        from = origin,
-        to = destination,
-        scheduledDeparture = start.toString(),
-        delayMinutes = if ((service?.delay ?: 0) > 0) service?.delay else 22,
-        cancelled = false,
-        confidence = "high",
-        cause = "Panne de signalisation sur le tronçon Renens - Morges"
-    )
-    val why = when (preference) {
-        Preference.SIMPLEST -> "Itinéraire le plus simple sans correspondance"
-        else -> "Itinéraire le plus rapide malgré la perturbation (+22 min)"
+    val disrupted = (service?.delay ?: 0) > 0
+    val primary = demoJourneys.first()
+    return if (disrupted) {
+        val disruption = Disruption(
+            legIndex = 0,
+            serviceLabel = service?.label ?: "RE 33",
+            from = origin, to = destination,
+            scheduledDeparture = start.toString(),
+            delayMinutes = service?.delay ?: 22,
+            cancelled = false,
+            basis = "REALTIME_ESTIMATE",
+            confidence = "HIGH",
+            cause = "Panne de signalisation sur le tronçon Renens - Morges"
+        )
+        val recommended = demoJourneys.getOrElse(1) { primary }
+        JourneyResponse(
+            status = "DISRUPTION_DETECTED",
+            action = if (recommended.id == primary.id) "STAY" else "REROUTE",
+            reasons = listOf(
+                Reason(if (preference == Preference.SIMPLEST) "FEWER_TRANSFERS" else "EARLIER_ARRIVAL")
+            ),
+            disruption = disruption,
+            primaryJourney = primary,
+            recommendedJourney = recommended,
+            alternatives = demoJourneys.filterNot { it.id == recommended.id }.take(3),
+            highlights = Highlights(primary.id, demoJourneys.minByOrNull { it.transfers }?.id, primary.id)
+        )
+    } else {
+        JourneyResponse(
+            status = "NO_DISRUPTION",
+            action = "STAY",
+            reasons = listOf(Reason("STAY_FASTEST")),
+            primaryJourney = primary,
+            recommendedJourney = primary,
+            alternatives = demoJourneys.drop(1).take(3),
+            highlights = Highlights(primary.id, demoJourneys.minByOrNull { it.transfers }?.id, primary.id)
+        )
     }
-    val rec = demoJourneys.first().copy(why = why)
-    val alts = demoJourneys.drop(1).take(3)
-    val msg = "Attention : perturbation détectée. Vous trouverez ci-dessous les meilleures alternatives pour votre trajet."
-    return RedirectResponse(
-        situation = situation,
-        disruption = disruption,
-        recommendation = rec,
-        alternatives = alts,
-        journeys = demoJourneys,
-        message = msg
-    )
 }
 
-private suspend fun demoSearch(origin: String, destination: String, start: Instant): List<Journey> {
-    delay(320)
+private fun demoJourneys(origin: String, destination: String, start: Instant): List<Journey> {
     fun key(value: String) = value.lowercase().replace("è", "e").replace("ü", "u")
     val fromLausanne = key(origin) == "lausanne"
     if (!fromLausanne && key(destination) != "lausanne") return emptyList()
@@ -386,9 +439,15 @@ private suspend fun demoSearch(origin: String, destination: String, start: Insta
         val duration = service.duration + index * 8
         val arr = dep + duration.minutes
         Journey(
-            "demo-$index", dep.toString(), arr.toString(), duration, 0, "MOCK",
-            listOf(Leg(origin, destination, dep.toString(), arr.toString(), service.label,
-                service.platform.takeIf { fromLausanne }, mode = "TRANSIT"))
+            id = "demo-$index",
+            dataStatus = "MOCK",
+            verified = false,
+            schedule = Schedule(dep.toString(), arr.toString(), duration, 0),
+            fares = Fares(
+                status = "DISABLED"
+            ),
+            legs = listOf(Leg("TRANSIT", origin, destination, dep.toString(), arr.toString(), serviceLabel = service.label,
+                departurePlatform = service.platform.takeIf { fromLausanne }))
         )
     }
 }
