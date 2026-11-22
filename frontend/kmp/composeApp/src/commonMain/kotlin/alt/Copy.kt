@@ -93,6 +93,7 @@ private val EN = mapOf(
     "connections" to "Connections",
     "itinerary" to "Itinerary",
     "moreinfo" to "More info",
+    "sameod" to "Origin and destination are the same place — pick two different stations.",
     "lessinfo" to "Less info",
     "search.sub" to "Live timetable, delays and alternatives",
 )
@@ -187,6 +188,7 @@ private val FR = mapOf(
     "connections" to "Correspondances",
     "itinerary" to "Itinéraire",
     "moreinfo" to "Plus d'infos",
+    "sameod" to "Départ et arrivée identiques — choisissez deux gares différentes.",
     "lessinfo" to "Moins d'infos",
     "search.sub" to "Horaire en direct, retards et alternatives",
 )

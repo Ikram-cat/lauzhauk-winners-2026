@@ -19,6 +19,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -88,11 +89,18 @@ private fun Masthead(st: AppState, pal: AltPalette) {
                     }
                     Spacer(Modifier.width(18.dp))
                 }
-                Image(
-                    painter = painterResource(Res.drawable.alt_mark),
-                    contentDescription = "ALT",
-                    modifier = Modifier.size(44.dp),
-                )
+                // The SVG mark is drawn for light backgrounds; the white tile keeps it
+                // visible in the dark theme too.
+                Box(
+                    Modifier.size(44.dp).background(Color.White).border(1.dp, pal.rule),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(Res.drawable.alt_mark),
+                        contentDescription = "ALT",
+                        modifier = Modifier.size(40.dp),
+                    )
+                }
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("ALT", fontSize = 20.sp, fontWeight = FontWeight.Black,

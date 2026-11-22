@@ -102,6 +102,9 @@ class AppState(private val scope: CoroutineScope) {
 
     fun search(simulate: Boolean = false) {
         if (fromText.isBlank() || toText.isBlank()) { error = t("enterboth"); return }
+        if (fromText.trim().equals(toText.trim(), ignoreCase = true)) { error = t("sameod"); return }
+        val sameId = fromSel?.id != null && fromSel?.id == toSel?.id
+        if (sameId) { error = t("sameod"); return }
         var ts = timestamp(dateText, timeText)
         if (ts == "INVALID") { error = t("badtime"); return }
         if (arriveBy && ts == null) { error = t("badtime"); return }
