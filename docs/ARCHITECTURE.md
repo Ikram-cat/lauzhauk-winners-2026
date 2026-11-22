@@ -1,6 +1,6 @@
 # System architecture
 
-CFF Plan B is a Web-first Swiss public transport planner. The initial release asks a Swiss transport routing provider for valid journeys and recommends the eligible one with the earliest scheduled arrival. The browser runs on Vercel, the Kotlin/JVM Ktor API on Railway, and Python analytics runs offline. This is the target architecture. Check the handoff for implementation and deployment evidence. [Master plan](MASTER_PLAN.md) · [Session handoff](SESSION_HANDOFF.md)
+ALT is a Web-first Swiss public transport planner. The initial release asks a Swiss transport routing provider for valid journeys and recommends the eligible one with the earliest scheduled arrival. The browser runs on Vercel, the Kotlin/JVM Ktor API on Railway, and Python analytics runs offline. This is the target architecture. Check the handoff for implementation and deployment evidence. [Master plan](MASTER_PLAN.md) · [Session handoff](SESSION_HANDOFF.md)
 
 ## Runtime and ownership
 
@@ -72,13 +72,13 @@ flowchart LR
     Offline --> Artifact["Versioned and validated artifact"]
     Artifact -->|Load at startup when enabled| Risk["Kotlin RiskEstimator"]
     Risk --> Rank["RecommendationService"]
-    Places["Curated PlacesProvider"] --> PlanB["Plan B response"]
+    Places["Curated PlacesProvider"] --> PlanB["ALT response"]
     Rank --> PlanB
 ```
 
 - `RiskEstimator.estimate(journey, context): RiskEstimate?` returns unknown under the MVP's `NoPredictionEstimator`. Add an estimator that reads a versioned, evaluated artifact only when its coverage and journey linkage are documented. An unsupported version or unavailable data leaves risk unknown. Incident-only evidence can support descriptive historical insights. Calibrated journey probabilities require a suitable denominator, valid labels and temporal evaluation. [Analytics interfaces](../analytics/INTERFACES.md)
 - Add deadline eligibility and preference scoring through `RecommendationService` once the API contract defines them. Preserve scheduled arrival as a comparable baseline. Record the factors behind each recommendation, especially when a later option is preferable under a user's constraints. [Roadmap](ROADMAP.md)
-- A future `PlacesProvider.near(station, constraints): List<Place>` can serve curated, sourced backup options through a Plan B API with its own validation and provenance. Add workspace availability, fares, occupancy and additional live signals only after verifying data availability and quality.
+- A future `PlacesProvider.near(station, constraints): List<Place>` can serve curated, sourced backup options through a ALT API with its own validation and provenance. Add workspace availability, fares, occupancy and additional live signals only after verifying data availability and quality.
 - Keep initial search stateless. Persisted profiles, favorites or notification subscriptions would require a separate storage decision. Consider iOS and Android once the Web path is stable and the team has the relevant build and test environment. Review the HTTP boundaries before sharing UI or Kotlin DTO code. [Decisions](DECISIONS.md)
 
 

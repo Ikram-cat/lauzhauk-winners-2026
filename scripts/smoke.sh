@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy smoke test for the CFF Plan B backend.
+# Deploy smoke test for the ALT backend.
 # Usage: ./scripts/smoke.sh https://your-service.up.railway.app
 # Covers the four endpoints (/health, /api/locations, /api/journeys, /api/model) and their 400/404 paths.
 set -u

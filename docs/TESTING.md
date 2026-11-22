@@ -33,7 +33,7 @@ Run after both services deploy and after any change to production domains, API c
 | T+2 · integration checkpoint | Health reachable, browser mock search renders a labeled fixture, first configured build checks pass | A, B, D |
 | T+4 · initial MVP | Public Web and Ktor URLs, browser renders one real itinerary, basic validation and loading/error/empty states, documented reproducible `main` revision | A, B, D |
 | T+11 · stable MVP | All T+4 checks pass on the released version, responsive results and alternatives when available, ranking and parser tests pass, demo fallback is documented, verified checkpoint tagged `mvp-t11` | A, B, D |
-| T+22 · submission | Repeat the deployed smoke test on the submission revision. Verify at least one distinctive Plan B feature and its provenance. Capture the submission artifacts and tag. If differentiation remains pending, preserve the stable demo and record its evidence and the unmet feature target. | D with relevant owners |
+| T+22 · submission | Repeat the deployed smoke test on the submission revision. Verify at least one distinctive ALT feature and its provenance. Capture the submission artifacts and tag. If differentiation remains pending, preserve the stable demo and record its evidence and the unmet feature target. | D with relevant owners |
 
 Tags and a successful health check give release context. Acceptance requires the feature checks listed for the milestone. Evaluate timelines relative to the actual kickoff recorded by the team. [Master plan](MASTER_PLAN.md) · [Roadmap](ROADMAP.md)
 

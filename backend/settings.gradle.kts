@@ -1,1 +1,1 @@
-rootProject.name = "cff-plan-b-backend"
+rootProject.name = "alt-backend"

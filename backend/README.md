@@ -1,4 +1,4 @@
-# CFF Plan B — Backend API
+# ALT — Backend API
 
 All endpoints are `GET` JSON, read-only, no authentication, no cookies.
 Feature status lives in [FEATURES.md](FEATURES.md); full response shapes in

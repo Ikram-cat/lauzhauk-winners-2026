@@ -4,7 +4,7 @@ plugins {
     application
 }
 
-group = "com.cffplanb"
+group = "com.alt"
 version = "0.1.0"
 
 repositories {
@@ -17,7 +17,7 @@ val logbackVersion = "1.5.12"
 val coroutinesVersion = "1.9.0"
 
 application {
-    mainClass.set("com.cffplanb.backend.ApplicationKt")
+    mainClass.set("com.alt.backend.ApplicationKt")
 }
 
 kotlin {

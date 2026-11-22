@@ -97,8 +97,8 @@ def main(argv=None) -> None:
     windows = os.name == "nt"
     gradlew = str(BACKEND / ("gradlew.bat" if windows else "gradlew"))
     run([gradlew, "--no-daemon", "-q", "installDist"], BACKEND, env)
-    launcher = BACKEND / "build" / "install" / "cff-plan-b-backend" / "bin" / (
-        "cff-plan-b-backend.bat" if windows else "cff-plan-b-backend")
+    launcher = BACKEND / "build" / "install" / "alt-backend" / "bin" / (
+        "alt-backend.bat" if windows else "alt-backend")
     print(f"\nBackend on http://localhost:{args.port}  provider={provider}  model={artifact.name}  "
           f"timelines={OUTPUT / 'timelines'}  gtfs-rt={'on' if env.get('GTFS_RT_API_KEY') else 'off'}  "
           f"service-alerts={'on' if env.get('GTFS_SA_API_KEY') else 'off'}  "

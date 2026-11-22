@@ -17,7 +17,7 @@ WORKDIR /app
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-COPY --from=builder /app/build/install/cff-plan-b-backend/ ./
+COPY --from=builder /app/build/install/alt-backend/ ./
 
 USER appuser
 
@@ -26,4 +26,4 @@ EXPOSE 8080
 ENV PORT=8080
 ENV TRANSPORT_PROVIDER=mock
 
-ENTRYPOINT ["bin/cff-plan-b-backend"]
+ENTRYPOINT ["bin/alt-backend"]

@@ -1,4 +1,4 @@
-# CFF Plan B — LauzHack 2026
+# ALT — LauzHack 2026
 ## Master project brief, architecture, milestones and AI handoff
 
 **Status:** planning baseline, 21 November 2026.  
@@ -13,9 +13,9 @@
 
 ## 1. Product vision
 
-**CFF Plan B** is a personalized Swiss public-transport journey planner that helps people reach important commitments despite disruptions. Instead of only showing the scheduled fastest route, it eventually ranks viable alternatives by travel time, reliability, simplicity, and (where reliable fare data exists) price, and proposes recovery actions if the user's schedule becomes impossible.
+**ALT** is a personalized Swiss public-transport journey planner that helps people reach important commitments despite disruptions. Instead of only showing the scheduled fastest route, it eventually ranks viable alternatives by travel time, reliability, simplicity, and (where reliable fare data exists) price, and proposes recovery actions if the user's schedule becomes impossible.
 
-**Core user story:** “I need to travel from Lausanne to Geneva and arrive by 14:00. Show the best route, explain the risk of being late, and offer a practical Plan B.”
+**Core user story:** “I need to travel from Lausanne to Geneva and arrive by 14:00. Show the best route, explain the risk of being late, and offer a practical ALT.”
 
 **Differentiator:** reliable-arrival recommendations, not merely duplicating a train timetable.
 
@@ -93,7 +93,7 @@ Order by value and feasibility:
 2. **Deadline-aware** filtering and latest reasonable departure recommendation.
 3. **Historical incident insights / predictive risk** only after CSV schema validation.
 4. **Simple vs fast** preference and reliability-weighted route ranking.
-5. **Plan B rescue**: curated nearby cafes/quiet workspaces if meeting will be missed, using transparent assumptions.
+5. **ALT rescue**: curated nearby cafes/quiet workspaces if meeting will be missed, using transparent assumptions.
 6. Optional notifications or lightweight incident indicator if API supports it.
 
 ### P2 — Stretch only
@@ -116,7 +116,7 @@ Browser (Vercel)
   | HTTPS JSON
   v
 Web UI (prefer Kotlin Compose Multiplatform Web if validated)
-  - Search form / Results / Plan B screen
+  - Search form / Results / ALT screen
   - UI state + ViewModel/presenter
   - API client interface (no direct CFF calls)
   |
@@ -199,7 +199,7 @@ This is **a contract example, not actual API data**. Define request/response DTO
 ## 5. Repository layout
 
 ```text
-cff-plan-b/
+alt/
 ├── README.md
 ├── docs/
 │   ├── MASTER_PLAN.md             # this document
@@ -270,10 +270,10 @@ Do not add Postgres just to store third-party journey search results. Static cur
 
 | Role | Owns | T+4 h deliverable | T+11 h deliverable | Later |
 |---|---|---|---|---|
-| **A — Frontend** | `frontend/` | Search + loading/result/error UI; calls backend | Responsive results and alternatives | Deadline controls, Plan B screens |
+| **A — Frontend** | `frontend/` | Search + loading/result/error UI; calls backend | Responsive results and alternatives | Deadline controls, ALT screens |
 | **B — Backend / Transport** | `backend/` | `/health`, search endpoint, transport adapter, real itinerary | Robust parsing, validation, ranking | Reliability and preferences |
 | **C — Analytics / Data** | `analytics/` | Inspect available transport fields, write fixture/contract tests; await CSV | Prepare CSV validation and baseline when available | Historical stats, predictive risk |
-| **D — Integration / Deployment** | `.github/`, `docs/`, deployment settings | GitHub, CI, Railway, Vercel, deployed smoke test | Stable `main`, tagged demo, error monitoring | Plan B places, demo polish |
+| **D — Integration / Deployment** | `.github/`, `docs/`, deployment settings | GitHub, CI, Railway, Vercel, deployed smoke test | Stable `main`, tagged demo, error monitoring | ALT places, demo polish |
 
 **Dependency rule:** A and B agree on a JSON example and API contract in the first 30 minutes. A uses a mock response until B's endpoint is ready. C must not block A/B on unavailable CSV. D merges frequently and owns end-to-end smoke tests.
 
@@ -329,7 +329,7 @@ Do not add Postgres just to store third-party journey search results. Static cur
 - Integrate versioned risk artifact into Kotlin `RiskEstimator`.
 - Show transparent explanations and unknown/uncertain states.
 
-### T+17 to T+20 h — Optional Plan B
+### T+17 to T+20 h — Optional ALT
 
 - Curated quiet workspaces/cafes near relevant stations, with sourced/verified attributes.
 - If arrival is impossible, show alternatives such as a quiet call location or suggested rescheduling.
@@ -389,7 +389,7 @@ Ktor loads the JSON into memory on startup. No online Python process is required
 
 **Screen 1 — Search:** origin, destination, optional time/deadline, Search CTA.  
 **Screen 2 — Results:** recommended itinerary, alternatives, departure/arrival, transfers, data provenance, optional reliability note.  
-**Screen 3 — Plan B (later):** if disruption threatens commitment, alternative travel or nearby verified workspace; show walking time and buffer.
+**Screen 3 — ALT (later):** if disruption threatens commitment, alternative travel or nearby verified workspace; show walking time and buffer.
 
 Design: uncluttered, readable, high contrast, restrained Swiss rail-inspired red accents; avoid claiming official CFF affiliation or using trademarks without permission. Loading and failure states matter as much as the happy path.
 
@@ -412,7 +412,7 @@ Design: uncluttered, readable, high contrast, restrained Swiss rail-inspired red
 
 ## 11. Suggested first commits / actionable checklist
 
-1. Create repo `cff-plan-b`; add this brief as `docs/MASTER_PLAN.md`.
+1. Create repo `alt`; add this brief as `docs/MASTER_PLAN.md`.
 2. Commit a short `README.md` with run/deploy instructions and owners.
 3. Create `frontend/`, `backend/`, `analytics/`; don't overbuild empty modules.
 4. Write `docs/API_CONTRACT.md` with the agreed journey DTO and mock JSON.
@@ -421,7 +421,7 @@ Design: uncluttered, readable, high contrast, restrained Swiss rail-inspired red
 7. Wire UI to mock backend journey.
 8. Replace mock with live transport adapter.
 9. Test Lausanne → Genève publicly; tag `mvp-t4`.
-10. Stabilize and tag `mvp-t11`; only then add ML/Plan B.
+10. Stabilize and tag `mvp-t11`; only then add ML/ALT.
 
 ---
 
@@ -429,7 +429,7 @@ Design: uncluttered, readable, high contrast, restrained Swiss rail-inspired red
 
 When sharing this file with Codex, Gemini, JetBrains AI or another agent:
 
-> You are helping build **CFF Plan B**, a four-person LauzHack 2026 project. Treat `docs/MASTER_PLAN.md` as product and architecture context, but inspect the **actual repository and toolchain** before editing. Preserve a working `main` and follow the T+4/T+11 milestone scope. Work only within your assigned module. First state the files you will change, expected behavior, and tests. Do not invent CSV fields, live API response fields, fares, probabilities, or challenge criteria. Keep Kotlin Ktor backend and Web-first Vercel frontend; use Python offline for analytics. Make small commits and provide reproducible commands. If the Compose Web/Wasm build blocks for over 45 minutes, propose the documented minimal Web fallback instead of silently expanding scope. Do not add a database, auth, or ML service unless a specific feature requires it. Keep mock data clearly labeled.
+> You are helping build **ALT**, a four-person LauzHack 2026 project. Treat `docs/MASTER_PLAN.md` as product and architecture context, but inspect the **actual repository and toolchain** before editing. Preserve a working `main` and follow the T+4/T+11 milestone scope. Work only within your assigned module. First state the files you will change, expected behavior, and tests. Do not invent CSV fields, live API response fields, fares, probabilities, or challenge criteria. Keep Kotlin Ktor backend and Web-first Vercel frontend; use Python offline for analytics. Make small commits and provide reproducible commands. If the Compose Web/Wasm build blocks for over 45 minutes, propose the documented minimal Web fallback instead of silently expanding scope. Do not add a database, auth, or ML service unless a specific feature requires it. Keep mock data clearly labeled.
 
 ### Agent assignments
 
@@ -459,4 +459,4 @@ A task is done only if it builds, has a reproducible test/manual check, respects
 | Modular adapters/interfaces | Allow upgrades without rewriting frontend/backend |
 | `main` always deployable | Hackathon demo reliability |
 
-**Final success criterion:** by T+4, a public Web app returns one real itinerary. By T+11, a stable, submittable demo is live. By submission, add at least one honest, distinctive Plan B capability without sacrificing reliability.
+**Final success criterion:** by T+4, a public Web app returns one real itinerary. By T+11, a stable, submittable demo is live. By submission, add at least one honest, distinctive ALT capability without sacrificing reliability.

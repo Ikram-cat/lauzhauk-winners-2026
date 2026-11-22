@@ -279,7 +279,7 @@ All are pushed to `origin/prediction`. `Daten/`, `analytics/output/`, `analytics
 - Updated `backend/README.md` with commands, env vars, package structure, OJP notes.
 
 **Files changed**
-`backend/build.gradle.kts`, `backend/settings.gradle.kts`, `backend/gradle.properties`, `backend/gradlew`, `backend/gradlew.bat`, `backend/gradle/wrapper/*`, `backend/Dockerfile`, `backend/README.md`, `backend/src/main/kotlin/com/cffplanb/backend/**`, `backend/src/test/kotlin/com/cffplanb/backend/**`, `backend/src/test/resources/ojp_fixture.xml`, `backend/src/main/resources/logback.xml`
+`backend/build.gradle.kts`, `backend/settings.gradle.kts`, `backend/gradle.properties`, `backend/gradlew`, `backend/gradlew.bat`, `backend/gradle/wrapper/*`, `backend/Dockerfile`, `backend/README.md`, `backend/src/main/kotlin/com/alt/backend/**`, `backend/src/test/kotlin/com/alt/backend/**`, `backend/src/test/resources/ojp_fixture.xml`, `backend/src/main/resources/logback.xml`
 
 **Verification**
 ```

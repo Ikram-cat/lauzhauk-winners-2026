@@ -21,7 +21,7 @@ def _request(name: str) -> bytes:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <OJP xmlns="http://www.vdv.de/ojp" xmlns:siri="http://www.siri.org.uk/siri" version="2.0"><OJPRequest><siri:ServiceRequest>
-<siri:RequestTimestamp>{ts}</siri:RequestTimestamp><siri:RequestorRef>cff-plan-b-analytics</siri:RequestorRef>
+<siri:RequestTimestamp>{ts}</siri:RequestTimestamp><siri:RequestorRef>alt-analytics</siri:RequestorRef>
 <OJPLocationInformationRequest><siri:RequestTimestamp>{ts}</siri:RequestTimestamp>
 <InitialInput><Name>{escape(name)}</Name></InitialInput>
 <Restrictions><Type>stop</Type><NumberOfResults>5</NumberOfResults></Restrictions>

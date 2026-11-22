@@ -22,8 +22,8 @@ Use [the environment template](../.env.example) as a reference for variable name
 After `backend/Dockerfile` and the health route exist, run this container check from the repository root with Docker available.
 
 ```powershell
-docker build --tag cff-plan-b-backend:local ./backend
-docker run --rm -p 127.0.0.1:8080:8080 -e PORT=8080 cff-plan-b-backend:local
+docker build --tag alt-backend:local ./backend
+docker run --rm -p 127.0.0.1:8080:8080 -e PORT=8080 alt-backend:local
 ```
 
 In a second terminal, run `curl.exe --fail-with-body http://localhost:8080/health`. Confirm an HTTP 200 response body matches the [API contract](API_CONTRACT.md). Stop the local container with Ctrl+C when finished.
