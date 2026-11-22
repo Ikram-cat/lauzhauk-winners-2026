@@ -2,7 +2,10 @@ package com.alt.backend.api
 
 import com.alt.backend.domain.AdviceCode
 import com.alt.backend.domain.SearchRequest
+import com.alt.backend.perturbation.DemoPerturbation
 import com.alt.backend.service.SearchResult
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.EmptyCoroutineContext
 import com.alt.backend.service.duration.DisruptionDurationEstimator
 import com.alt.backend.service.impact.ImpactResult
 import com.alt.backend.service.impact.JourneyImpactService
@@ -29,7 +32,8 @@ fun Route.journeyImpactRoutes(
     impact: JourneyImpactService,
     estimator: DisruptionDurationEstimator,
     clock: Clock,
-    serviceAlerts: ServiceAlertsSource? = null
+    serviceAlerts: ServiceAlertsSource? = null,
+    demoPerturbationEnabled: Boolean = true
 ) {
     post("/api/journeys/impact") {
         val request = try {
@@ -54,7 +58,14 @@ fun Route.journeyImpactRoutes(
                 "Invalid timestamp. Must be RFC 3339 with Z or numeric UTC offset.")))
         }
 
-        when (val result = impact.check(SearchRequest(origin, destination, departure), observedAt, request.journeyId)) {
+        val demo = try { DemoPerturbation.parse(call.request.queryParameters["demoPerturbation"], demoPerturbationEnabled) }
+            catch (e: IllegalArgumentException) {
+                return@post call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", e.message!!, "demoPerturbation")))
+            }
+
+        when (val result = withContext(demo ?: EmptyCoroutineContext) {
+            impact.check(SearchRequest(origin, destination, departure), observedAt, request.journeyId)
+        }) {
             is ImpactResult.SearchFailed -> {
                 val (status, code) = when (result.search) {
                     is SearchResult.Timeout -> HttpStatusCode.GatewayTimeout to "UPSTREAM_TIMEOUT"
@@ -72,6 +83,7 @@ fun Route.journeyImpactRoutes(
                     journey = result.planned?.toImpactDto(),
                     affected = result.impacts.isNotEmpty(),
                     liveAlerts = live,
+                    demoPerturbation = demo?.let { DemoPerturbationDto(true, it.seed, it.applied) },
                     impacts = result.impacts.map { i ->
                         val d = i.match.disruption
                         JourneyDisruptionImpactDto(

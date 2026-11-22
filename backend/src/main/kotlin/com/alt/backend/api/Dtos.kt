@@ -1,5 +1,7 @@
 package com.alt.backend.api
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 
@@ -135,9 +137,15 @@ data class DeadlineSummaryDto(val feasible: Boolean, val latestFeasibleDeparture
 @Serializable
 data class MetaDto(val computedAt: String, val modelVersion: String?)
 
+/** DEMO-ONLY: present only when the `demoPerturbation` query parameter was honoured (docs/API_CONTRACT.md). */
+@Serializable
+data class DemoPerturbationDto(val active: Boolean, val seed: Long, val applied: List<String>)
+
 @Serializable
 data class JourneysResponseDto(
     val request: RequestDto, val status: String, val action: String, val reasons: JsonArray, val disruption: DisruptionDto?,
     val primaryJourney: JourneyDto?, val recommendedJourney: JourneyDto?, val alternatives: List<JourneyDto>,
-    val highlights: HighlightsDto, val deadlineSummary: DeadlineSummaryDto?, val meta: MetaDto
+    val highlights: HighlightsDto, val deadlineSummary: DeadlineSummaryDto?, val meta: MetaDto,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val demoPerturbation: DemoPerturbationDto? = null
 )
