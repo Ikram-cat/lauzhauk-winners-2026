@@ -186,7 +186,7 @@ private fun SearchPanel(st: AppState) {
             }
             Spacer(Modifier.width(8.dp))
             Button(onClick = { st.search() }, enabled = !st.loading) {
-                Text(st.t("search"), fontWeight = FontWeight.SemiBold)
+                Text(st.t("search"), fontWeight = FontWeight.SemiBold, color = Color.White)
             }
         }
     }
