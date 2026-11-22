@@ -62,4 +62,30 @@ class DisruptionRouteTest {
         assertEquals("LIVE", live["dataStatus"]!!.jsonPrimitive.content)
         assertEquals("DISABLED", live["status"]!!.jsonPrimitive.content)
     }
+
+    private suspend fun ApplicationTestBuilder.rejected(path: String, body: String, field: String?) {
+        val r = client.post(path) { contentType(ContentType.Application.Json); setBody(body) }
+        assertEquals(HttpStatusCode.BadRequest, r.status)
+        val e = Json.parseToJsonElement(r.bodyAsText()).jsonObject["error"]!!.jsonObject
+        assertEquals("INVALID_REQUEST", e["code"]!!.jsonPrimitive.content)
+        assertEquals(field, e["field"]?.jsonPrimitive?.contentOrNull)
+    }
+
+    @Test
+    fun `POST bodies and string fields are bounded`() = testApplication {
+        application { configureApp(fixedClock, AppConfig(transportProvider = "mock", durationArtifactPath = null, disruptionTimelinesDir = null)) }
+        val big = "x".repeat(65 * 1024)
+        rejected("/api/journeys/impact", """{"origin":"Lausanne","destination":"Genève","journeyId":"$big"}""", "body")
+        rejected("/api/disruptions/outlook", """{"disruption":{"startedAt":"2026-11-21T07:00:00Z","summaryEn":"$big"}}""", "body")
+        rejected("/api/journeys/impact", """{"origin":"Lausanne","destination":"Genève","journeyId":"${"j".repeat(121)}"}""", "journeyId")
+        rejected("/api/journeys/impact", """{"origin":"${"o".repeat(121)}","destination":"Genève"}""", "origin")
+        rejected("/api/disruptions/outlook", """{"disruption":{"startedAt":"2026-11-21T07:00:00Z","reasonCode":"${"r".repeat(121)}"}}""", "disruption.reasonCode")
+        rejected("/api/disruptions/outlook", """{"disruption":{"startedAt":"2026-11-21T07:00:00Z","summaryEn":"${"s".repeat(2001)}"}}""", "disruption.summaryEn")
+        rejected("/api/disruptions/outlook", "{not json", null)
+        val ok = client.post("/api/disruptions/outlook") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"disruption":{"startedAt":"2026-11-21T07:00:00Z","reasonCode":"${"r".repeat(120)}","summaryEn":"${"s".repeat(2000)}"},"observedAt":"2026-11-21T08:00:00Z"}""")
+        }
+        assertEquals(HttpStatusCode.OK, ok.status)
+    }
 }
