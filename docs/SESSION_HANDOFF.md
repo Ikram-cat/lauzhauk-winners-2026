@@ -6,6 +6,16 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-22 · A · Compact delay indicators
+
+- On `feat/frontened-mvp` at `d20874c`, updated `frontend/web/{app.mjs,copy.mjs,style.css}` and the frontend design and feature specs. The featured card uses larger departure and arrival boxes and a smaller recommendation label. Red announced and orange estimated delay indicators have conditional legends. Estimate rounding is down for departure and up for arrival. Historical incident rates and estimate measurement notes are omitted from the display.
+- Chrome verified placement, rounding, missing-delay visibility, detail labels, and 320 px width using a live search with test overrides. Node syntax and `git diff --check` passed. Preview at `http://127.0.0.1:8790/`. Backend contracts and recommendation ordering are unchanged.
+
+## 2026-11-22 · A · Historical delay contract MSG-0045
+
+- Fast-forwarded `feat/frontened-mvp` to `origin/main` at `d20874c`. Uncommitted frontend work in `frontend/web/{app.mjs,copy.mjs,style.css}` and the design and feature docs uses the additive timing fields on journeys and legs. Shows separate scheduled, known and estimated timing badges, backend projections, and localized estimate sources and measurement counts. Recommendation and result ordering remain backend-owned.
+- Railway `GET /health` reported estimates `OK` with 47,875 line buckets and 6,372 station buckets. Chrome verified a live scheduled Lausanne–Genève response and leg details, plus test variants for known and negative estimated delays, reported zero estimates, rounding at 30 seconds, French decimal formatting, legacy responses, and mobile width. Node syntax and `git diff --check` passed. Preview at `http://127.0.0.1:8790/`.
+
 ## 2026-11-22 · A · Opening animation
 
 - On `feat/frontened-mvp` at `1d447cc`, refined the ALT welcome sequence in `frontend/web/index.html`, `style.css`, and `app.mjs`. The frame expands with the red rule and suffix, the full wordmark settles, and the opening layer lifts to reveal the planner. Updated `frontend/DESIGN.md`.
