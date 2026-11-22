@@ -68,3 +68,12 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
         freeCompilerArgs.add("-Xexpect-actual-classes")
     }
 }
+
+tasks.register<JavaExec>("smokeSearch") {
+    group = "verification"
+    description = "Headless API smoke test against the deployed backend"
+    dependsOn("desktopMainClasses")
+    mainClass.set("alt.SmokeKt")
+    val comp = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = comp.output.allOutputs + comp.runtimeDependencyFiles
+}
