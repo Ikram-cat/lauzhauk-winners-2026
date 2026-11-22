@@ -177,11 +177,10 @@ private fun List<Location>.stopsOnly(): List<Location> =
         .map { it.copy(name = cleanStationName(it.name)) }
         .take(6)
 
-/** "Lausanne (Lausanne)" -> "Lausanne" (redundant parent suffix stripped, SBB-style). */
+/** "Zürich HB (Zürich)" -> "Zürich HB" (parent-town suffix always stripped, SBB-style). */
 private fun cleanStationName(name: String): String {
-    val m = Regex("^(.+) \\(([^)]+)\\)$").find(name) ?: return name
-    val (base, parent) = m.destructured
-    return if (base.trim().equals(parent.trim(), ignoreCase = true)) base.trim() else name
+    val m = Regex("^(.+) \\([^)]+\\)$").find(name) ?: return name
+    return m.destructured.component1().trim()
 }
 
 private fun tomorrowZurichDate(): String = try {
