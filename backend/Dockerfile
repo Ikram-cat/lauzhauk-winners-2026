@@ -1,5 +1,7 @@
 # Build stage — Docker build context is the REPO ROOT (railway.json at repo root pins this);
-# frontend/web is copied into the image and served same-origin by Ktor (WEB_DIR).
+# frontend/kmp/dist (the committed Kotlin Multiplatform wasm distribution) is copied into the
+# image and served same-origin at / by Ktor (WEB_DIR). No Node needed at image build time:
+# the wasm dist is committed to the repo.
 FROM docker.io/library/eclipse-temurin:21-jdk-alpine AS builder
 WORKDIR /app
 
@@ -19,9 +21,8 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY --from=builder /app/build/install/alt-backend/ ./
-COPY frontend/web/ web/
-# Kotlin Multiplatform (Compose) wasm app served at /kmp (WEB_KMP_DIR=web-kmp)
-COPY frontend/kmp/dist web-kmp/
+# Kotlin Multiplatform (Compose) wasm app — the one and only frontend, served at /
+COPY frontend/kmp/dist web/
 
 USER appuser
 
