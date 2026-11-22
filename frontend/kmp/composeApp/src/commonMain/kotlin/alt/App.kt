@@ -119,12 +119,14 @@ private fun Masthead(st: AppState, pal: AltPalette) {
                     Modifier.size(44.dp).background(pal.logoTile).border(1.dp, pal.rule),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Image(
-                        painter = painterResource(Res.drawable.alt_mark),
-                        contentDescription = "ALT",
-                        modifier = Modifier.size(40.dp),
-                        colorFilter = ColorFilter.tint(pal.ink),
-                    )
+                    if (canLoadSvgResources) {
+                        Image(
+                            painter = painterResource(Res.drawable.alt_mark),
+                            contentDescription = "ALT",
+                            modifier = Modifier.size(40.dp),
+                            colorFilter = ColorFilter.tint(pal.ink),
+                        )
+                    }
                 }
                 Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
                 Text("ALT", fontSize = 20.sp, fontWeight = FontWeight.Black,

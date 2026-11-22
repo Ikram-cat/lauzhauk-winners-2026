@@ -211,17 +211,19 @@ fun WelcomeIntro(pal: AltPalette, onDone: () -> Unit) {
             // .intro-mark::after — 3px red rule growing from the left
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(track).height(3.dp).background(pal.red))
             // .intro-logo — the ALT symbol in ink, right-aligned inside the widening frame
-            Image(
-                painter = painterResource(Res.drawable.alt_mark),
-                contentDescription = null,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = logoPad).size(logoSize)
-                    .graphicsLayer {
-                        alpha = logoIn
-                        scaleX = 0.7f + 0.3f * logoIn
-                        scaleY = 0.7f + 0.3f * logoIn
-                    },
-                colorFilter = ColorFilter.tint(pal.ink),
-            )
+            if (canLoadSvgResources) {
+                Image(
+                    painter = painterResource(Res.drawable.alt_mark),
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = logoPad).size(logoSize)
+                        .graphicsLayer {
+                            alpha = logoIn
+                            scaleX = 0.7f + 0.3f * logoIn
+                            scaleY = 0.7f + 0.3f * logoIn
+                        },
+                    colorFilter = ColorFilter.tint(pal.ink),
+                )
+            }
         }
     }
 }

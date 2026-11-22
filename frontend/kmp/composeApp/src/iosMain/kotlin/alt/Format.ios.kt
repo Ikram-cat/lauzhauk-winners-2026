@@ -48,3 +48,5 @@ actual fun kvGet(key: String, session: Boolean): String =
 actual fun kvSet(key: String, value: String, session: Boolean) {
     if (session) sessionStore[key] = value else NSUserDefaults.standardUserDefaults.setObject(value, key)
 }
+
+actual val canLoadSvgResources: Boolean = true

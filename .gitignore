@@ -99,3 +99,6 @@ frontend/kmp/iosApp/iosApp.xcodeproj/
 # (desktop-app-recording.mp4); future recordings stay local.
 *.mp4
 !desktop-app-recording.mp4
+
+# Android: machine-specific SDK path
+local.properties
