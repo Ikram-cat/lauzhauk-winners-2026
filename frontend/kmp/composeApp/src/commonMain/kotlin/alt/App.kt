@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
@@ -79,7 +80,7 @@ fun App() {
                 SiteFooter(st, pal)
             }
             if (!introDone) {
-                WelcomeIntro(pal, LocalCompact.current) { introDone = true; kvSet("alt-intro", "1", true) }
+                WelcomeIntro(pal) { introDone = true; kvSet("alt-intro", "1", true) }
             }
           }
         }
@@ -110,16 +111,18 @@ private fun Masthead(st: AppState, pal: AltPalette) {
                     }
                     Spacer(Modifier.width(if (compact) 8.dp else 18.dp))
                 }
-                // The SVG mark is drawn for light backgrounds; the white tile keeps it
-                // visible in the dark theme too.
+                // The SVG is transparent, so the tile carries the mark: black tile on the
+                // light theme, white tile on the dark theme; the glyph is knocked out in
+                // the page colour.
                 Box(
-                    Modifier.size(44.dp).background(Color.White).border(1.dp, pal.rule),
+                    Modifier.size(44.dp).background(pal.logoTile).border(1.dp, pal.rule),
                     contentAlignment = Alignment.Center,
                 ) {
                     Image(
                         painter = painterResource(Res.drawable.alt_mark),
                         contentDescription = "ALT",
                         modifier = Modifier.size(40.dp),
+                        colorFilter = ColorFilter.tint(pal.canvas),
                     )
                 }
                 Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
