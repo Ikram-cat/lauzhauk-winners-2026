@@ -189,7 +189,7 @@ class RouteTest {
     @Test
     fun `provider failures map to documented statuses`() {
         for ((r, st, code) in listOf(
-            Triple(ProviderResult.AuthError("Transport provider authentication failed. Check OJP_API_KEY configuration."), HttpStatusCode.BadGateway, "UPSTREAM_ERROR"),
+            Triple(ProviderResult.AuthError("Transport provider authentication failed."), HttpStatusCode.BadGateway, "UPSTREAM_ERROR"),
             Triple(ProviderResult.Timeout("OJP did not respond within 8000ms"), HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT"),
             Triple(ProviderResult.RateLimited("OJP rate limit reached"), HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED"),
             Triple(ProviderResult.Failure("boom"), HttpStatusCode.BadGateway, "UPSTREAM_ERROR"),

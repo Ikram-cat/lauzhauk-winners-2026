@@ -113,9 +113,9 @@ class OjpTransportProvider(
                         parseTripResponse(body)
                     }
                     401, 403 -> {
-                        log.error("OJP authentication error: HTTP {}", response.status.value)
+                        log.error("OJP authentication error: HTTP {}. Check OJP_API_KEY configuration.", response.status.value)
                         ProviderResult.AuthError(
-                            "Transport provider authentication failed. Check OJP_API_KEY configuration."
+                            "Transport provider authentication failed."
                         )
                     }
                     429 -> ProviderResult.RateLimited("OJP rate limit reached")
@@ -218,9 +218,10 @@ class OjpTransportProvider(
                 }
                 when (response.status.value) {
                     200 -> response.bodyAsText()
-                    401, 403 -> throw OjpAuthenticationException(
-                        "Transport provider authentication failed. Check OJP_API_KEY configuration."
-                    )
+                    401, 403 -> {
+                        log.error("OJP authentication error: HTTP {}. Check OJP_API_KEY configuration.", response.status.value)
+                        throw OjpAuthenticationException("Transport provider authentication failed.")
+                    }
                     429 -> throw OjpRateLimitedException()
                     else -> throw OjpUpstreamException("OJP location request failed with HTTP ${response.status.value}")
                 }
