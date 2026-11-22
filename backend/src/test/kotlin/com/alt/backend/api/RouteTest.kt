@@ -13,6 +13,8 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
 import java.time.Clock
@@ -114,6 +116,18 @@ class RouteTest {
         assertEquals(HttpStatusCode.OK, client.get("/api/journeys?origin=Lausanne&destination=Gen%C3%A8ve&foo=bar&utm_source=x&includeText=true").status)
         assertEquals(HttpStatusCode.OK, client.get("/api/locations?query=laus&foo=bar").status)
         assertEquals(HttpStatusCode.OK, client.get("/api/journeys?origin=A&destination=B&foo=1&foo=2").status) // repeated unknown keys are not ambiguous
+    }
+
+    @Test
+    fun `a malformed percent escape is a 400 not a 500`() = testApplication {
+        // the test client cannot send a bad escape, so a route fails the way Ktor's lazy query decoding does
+        application {
+            configureApp(fixedClock, AppConfig(transportProvider = "mock", fareBaseUrl = ""))
+            routing { get("/decode") { call.respondText("%zz".decodeURLQueryComponent()) } }
+        }
+        val r = client.get("/decode")
+        assertEquals(HttpStatusCode.BadRequest, r.status)
+        assertTrue(r.bodyAsText().contains("INVALID_REQUEST"))
     }
 
     @Test

@@ -60,6 +60,10 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
 
     // Status pages for unhandled exceptions
     install(StatusPages) {
+        // Ktor throws this while decoding a malformed %-escape in the query string: the client's fault, not ours.
+        exception<URLDecodeException> { call, _ ->
+            call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Malformed percent-encoding in query string")))
+        }
         exception<Throwable> { call, cause ->
             log.error("Unhandled exception: ${cause.javaClass.simpleName}", cause)
             call.respond(
