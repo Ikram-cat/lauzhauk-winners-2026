@@ -87,9 +87,32 @@ delivery; most likely missing intermediate stops — see evidence).
   product page ("Read more" on tedp_ojpfare-1, needs the lead's login).
   With one working request in hand, the backend build is mechanical.
 
+## Round 8 (same night): the shape question is CLOSED — the beta service itself 500s
+
+The lead supplied the CURRENT canonical example from the API explorer
+("Read more" on tedp_ojpfare-1). Sent VERBATIM, byte-for-byte, with our fare
+token: **HTTP 500 Internal Server Error** — same as every variant of ours.
+GET /ojpfare → 403 (endpoint exists, auth enforced), POST → 500 always.
+The official example is preserved at docs/ojp_fare_example.xml — that IS the
+target shape (TripLeg/LegId/TripId/LegIntermediates/EntitlementProducts,
+ServiceRequestContext+Language, HTA entitlement). Our v2→v1 transformer
+already matches it structurally.
+
+Conclusion: the remaining failure is SERVER-SIDE (broken/misconfigured
+beta tonight), not request shape. Options while their service heals:
+- Retry periodically (betas flap; one `curl --data-binary @docs/ojp_fare_example.xml`
+  against /ojpfare is the health check).
+- Support mail to opendata@sbb.ch (draft in the chat report) with our trace.
+- BUILD ANYWAY: implement OjpFareProvider against the canonical example as a
+  fixture (parsing, wire fields, CHEAPEST ranking, HTA entitlement), live
+  switch OFF until a probe returns 200. The day their beta responds, one
+  config flag turns real prices on — no rebuild.
+
 ## Plan (Phase F) — exact fares (updated)
 
 1. Get one working OJPFareDelivery (was "crack the shape"):
+   - DONE otherwise: canonical request captured (docs/ojp_fare_example.xml);
+     only SBB's server-side 500 stands in the way. Health check = one curl.
    - HUMAN STEP: lead opens api-manager product tedp_ojpfare-1 → "Read more"
      → copies the CURRENT example request (or Postman collection) to Teddy.
      Fallback: mail opendata@sbb.ch with our failing request + trace.
