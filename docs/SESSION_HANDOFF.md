@@ -6,6 +6,18 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-22 · C · Final series: live grouping, security check, team quick start, merge, PR
+
+- **Live alerts grouped.** `ServiceAlertGrouper` merges feed alerts with the same title kind, the same two end stations in either order and the same matched stations. Each `liveAlerts` entry carries `ids`, `operators` and `directions`. Measured: 9 alerts on Lausanne → Genève became 6 entries (`212b028`).
+- **Security.** Whole history checked: 85 commits, 1,413 git objects. Neither key appears, in full or as a fragment, and there is no JWT/Bearer/`KEY=` token pattern, no private key, and no `.env`, `Daten`, `analytics/output`, `analytics/data` or `.joblib`. The only binary is main's 2 KB GTFS-RT test fixture.
+- **Quick start.** "Démarrage rapide pour l'équipe" opens `analytics/README.md`: get or regenerate the model, the `.env` keys, the demo command, and one curl per route (`dec62f9`).
+- **Second merge of `main`** (`3636751`, 11 commits: four-endpoint API, strict contract).
+  - Both sides kept.
+  - `/api/journeys/impact` now has its own `ImpactJourneyDto`.
+  - Main's strict `LegDto` test means the sloids are not added to `/api/journeys`. They stay in the domain and in the impact response; B decides whether to add them.
+- **Checks after the merge.** Kotlin 187 passed. Python 39 passed, 3 skipped. `run_demo.py` with both live feeds: every request in `DEMO.md` gives its documented value, and the key is not in the log.
+- **PR.** `gh` is not installed. Title and description are in `analytics/output/PR.md` (ignored); open it at https://github.com/Ikram-cat/lauzhauk-winners-2026/compare/main...prediction?expand=1. The team messages (B, duration-model colleague, frontend, keys) are in `analytics/output/TEAM_NOTES.md`, unsent.
+
 ## 2026-11-22 · C · Live alerts in the journey check (LIVE, no prediction)
 
 - **Keys.** `.env` has two keys. `GTFS_RT_API_KEY` gives `la/gtfs-rt` `200` (1.8 MB); `GTFS_SA_API_KEY` gives `la/gtfs-sa` `200` (12.6 MB). Each key gets `403` on the other feed. The second line of `.env` was saved as `GTFS_RT_API_KEY`; only its name was changed to `GTFS_SA_API_KEY`, and its value was not read out. `.env` stays ignored, and `.env.example` has `GTFS_SA_API_KEY=`.
