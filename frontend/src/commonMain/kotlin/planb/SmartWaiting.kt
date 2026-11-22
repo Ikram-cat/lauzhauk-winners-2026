@@ -61,7 +61,6 @@ internal fun SmartWaitingTime(journey: Journey, language: Language, modifier: Mo
     val boarding = journey.legs.firstOrNull { it.mode == "TRANSIT" } ?: return
     val departure = Instant.parse(boarding.departure)
     var now by remember { mutableStateOf(Clock.System.now()) }
-    var atStation by remember(boarding.origin) { mutableStateOf(false) }
     var margin by remember { mutableIntStateOf(5) }
     var chosen by remember(journey.id, boarding.origin) { mutableStateOf<Opportunity?>(null) }
     val uriHandler = LocalUriHandler.current
@@ -90,55 +89,43 @@ internal fun SmartWaitingTime(journey: Journey, language: Language, modifier: Mo
             )
             Text(language.waiting(WaitingCopy.ScheduleOnly), style = MaterialTheme.typography.bodySmall)
             if (timeLeft > Duration.ZERO) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().toggleable(
-                        value = atStation, role = Role.Checkbox, onValueChange = { atStation = it }
-                    ).padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Checkbox(checked = atStation, onCheckedChange = null)
-                    Text("${language.waiting(WaitingCopy.AtStation)} ${boarding.origin}")
-                }
                 TextButton(onClick = {
                     val query = "${boarding.origin}, Switzerland".encodeURLQueryComponent()
                     uriHandler.openUri("https://www.openstreetmap.org/search?query=$query")
                 }) { Text(language.waiting(WaitingCopy.StationMap)) }
-                if (atStation) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(
-                            enabled = margin > 3,
-                            onClick = { margin-- },
-                            modifier = Modifier.semantics { contentDescription = language.waiting(WaitingCopy.LowerMargin) }
-                        ) { Text("-") }
-                        Text("${language.waiting(WaitingCopy.Margin)} · $margin min", Modifier.weight(1f))
-                        TextButton(
-                            enabled = margin < 30,
-                            onClick = { margin++ },
-                            modifier = Modifier.semantics { contentDescription = language.waiting(WaitingCopy.RaiseMargin) }
-                        ) { Text("+") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        enabled = margin > 3,
+                        onClick = { margin-- },
+                        modifier = Modifier.semantics { contentDescription = language.waiting(WaitingCopy.LowerMargin) }
+                    ) { Text("-") }
+                    Text("${language.waiting(WaitingCopy.Margin)} · $margin min", Modifier.weight(1f))
+                    TextButton(
+                        enabled = margin < 30,
+                        onClick = { margin++ },
+                        modifier = Modifier.semantics { contentDescription = language.waiting(WaitingCopy.RaiseMargin) }
+                    ) { Text("+") }
+                }
+                Text(language.waiting(WaitingCopy.Estimates), style = MaterialTheme.typography.bodySmall)
+                val matching = stationActivities.filter { it.budget.fits(now, departure, margin) }
+                chosen?.let { activity ->
+                    val returnBy = activity.budget.returnBy(departure, margin)
+                    val reminder = if (now >= returnBy) language.waiting(WaitingCopy.ReturnNow)
+                    else language.waiting(WaitingCopy.ReturnBy) + time(returnBy)
+                    Text(
+                        reminder,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                    )
+                    if (activity !in matching) {
+                        TextButton(onClick = { chosen = null }) { Text(language.waiting(WaitingCopy.ClearReminder)) }
                     }
-                    Text(language.waiting(WaitingCopy.Estimates), style = MaterialTheme.typography.bodySmall)
-                    val matching = stationActivities.filter { it.budget.fits(now, departure, margin) }
-                    chosen?.let { activity ->
-                        val returnBy = activity.budget.returnBy(departure, margin)
-                        val reminder = if (now >= returnBy) language.waiting(WaitingCopy.ReturnNow)
-                        else language.waiting(WaitingCopy.ReturnBy) + time(returnBy)
-                        Text(
-                            reminder,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-                        )
-                        if (activity !in matching) {
-                            TextButton(onClick = { chosen = null }) { Text(language.waiting(WaitingCopy.ClearReminder)) }
-                        }
-                    }
-                    if (matching.isEmpty() && chosen == null) Text(language.waiting(WaitingCopy.StayAtStation))
-                    for (activity in matching) {
-                        WaitingOpportunityCard(activity, margin, activity == chosen, language) {
-                            chosen = if (activity == chosen) null else activity
-                        }
+                }
+                if (matching.isEmpty() && chosen == null) Text(language.waiting(WaitingCopy.StayAtStation))
+                for (activity in matching) {
+                    WaitingOpportunityCard(activity, margin, activity == chosen, language) {
+                        chosen = if (activity == chosen) null else activity
                     }
                 }
             }
@@ -182,33 +169,44 @@ private fun WaitingOpportunityCard(
 private fun Language.waiting(text: WaitingCopy): String = when (this) {
     Language.French -> text.french
     Language.English -> text.english
+    Language.German -> text.german
+    Language.Italian -> text.italian
 }
 
-private enum class WaitingCopy(val french: String, val english: String) {
-    Title("Que faire en attendant ?", "Smart Waiting Time"),
-    TimeLeft("Temps avant le départ · ", "Time before departure · "),
-    DeparturePassed("Heure de départ prévue passée", "Scheduled departure has passed"),
+private enum class WaitingCopy(val french: String, val english: String, val german: String, val italian: String) {
+    Title("Que faire en attendant ?", "Smart Waiting Time", "Intelligente Wartezeit", "Tempo di attesa intelligente"),
+    TimeLeft("Temps avant le départ · ", "Time before departure · ", "Zeit bis zur Abfahrt · ", "Tempo prima della partenza · "),
+    DeparturePassed("Heure de départ prévue passée", "Scheduled departure has passed",
+        "Geplante Abfahrtszeit ist vorbei", "L'orario di partenza previsto è passato"),
     ScheduleOnly("Compte à rebours basé sur l’horaire sélectionné. Vérifiez les annonces en gare.",
-        "Countdown based on the selected timetable. Check station announcements."),
-    AtStation("Je suis en gare de", "I’m at"),
+        "Countdown based on the selected timetable. Check station announcements.",
+        "Countdown basierend auf dem gewählten Fahrplan. Beachten Sie die Durchsagen am Bahnhof.",
+        "Conto alla rovescia basato sull'orario selezionato. Controlla gli annunci in stazione."),
+    AtStation("Je suis en gare de", "I’m at", "Ich bin am Bahnhof", "Sono alla stazione di"),
     Estimates("Estimations pour la gare. Vérifiez l’accès, l’attente et le temps jusqu’à votre voie.",
-        "Station estimates. Check access, queues and the time to reach your platform."),
-    StationMap("Voir les environs sur OpenStreetMap", "View the station area on OpenStreetMap"),
-    Margin("Marge de sécurité", "Safety margin"),
-    LowerMargin("Réduire la marge de sécurité", "Reduce safety margin"),
-    RaiseMargin("Augmenter la marge de sécurité", "Increase safety margin"),
-    TakeBreak("S’asseoir et faire une pause", "Take a seated break"),
-    ShortWalk("Marcher quelques minutes dans la gare", "Take a short walk inside the station"),
-    Coffee("Café ou en-cas, si disponible", "Coffee or snack if available"),
-    Shop("Faire un tour dans une boutique ouverte", "Browse an open shop"),
-    WalkOut("Aller à pied", "Walk there"),
-    Activity("Activité", "Activity"),
-    WalkBack("Retour à pied", "Walk back"),
-    Fits("Temps estimé compatible", "Fits the estimated time"),
+        "Station estimates. Check access, queues and the time to reach your platform.",
+        "Schätzungen für den Bahnhof. Prüfen Sie Zugang, Wartezeit und die Zeit bis zu Ihrem Gleis.",
+        "Stime per la stazione. Controlla l'accesso, l'attesa e il tempo per raggiungere il binario."),
+    StationMap("Voir les environs sur OpenStreetMap", "View the station area on OpenStreetMap",
+        "Umgebung auf OpenStreetMap ansehen", "Visualizza i dintorni su OpenStreetMap"),
+    Margin("Marge de sécurité", "Safety margin", "Sicherheitsmarge", "Margine di sicurezza"),
+    LowerMargin("Réduire la marge de sécurité", "Reduce safety margin", "Sicherheitsmarge verringern", "Riduci il margine di sicurezza"),
+    RaiseMargin("Augmenter la marge de sécurité", "Increase safety margin", "Sicherheitsmarge erhöhen", "Aumenta il margine di sicurezza"),
+    TakeBreak("S’asseoir et faire une pause", "Take a seated break", "Sich hinsetzen und eine Pause machen", "Sedersi e fare una pausa"),
+    ShortWalk("Marcher quelques minutes dans la gare", "Take a short walk inside the station",
+        "Ein paar Minuten im Bahnhof spazieren", "Fare una breve passeggiata in stazione"),
+    Coffee("Café ou en-cas, si disponible", "Coffee or snack if available", "Kaffee oder Snack, falls verfügbar", "Caffè o snack, se disponibile"),
+    Shop("Faire un tour dans une boutique ouverte", "Browse an open shop", "In einem offenen Geschäft stöbern", "Dare un'occhiata a un negozio aperto"),
+    WalkOut("Aller à pied", "Walk there", "Hinweg zu Fuss", "Andata a piedi"),
+    Activity("Activité", "Activity", "Aktivität", "Attività"),
+    WalkBack("Retour à pied", "Walk back", "Rückweg zu Fuss", "Ritorno a piedi"),
+    Fits("Temps estimé compatible", "Fits the estimated time", "Passt in die geschätzte Zeit", "Compatibile con il tempo stimato"),
     StayAtStation("Restez près de la voie. Le temps estimé est trop court pour ces activités.",
-        "Stay near the platform. The estimated time is too short for these activities."),
-    SetReminder("Afficher l’heure de retour", "Show return reminder"),
-    ClearReminder("Masquer le rappel", "Clear reminder"),
-    ReturnBy("Repartez vers la voie avant ", "Head back to the platform by "),
-    ReturnNow("Retournez à la voie maintenant", "Return to the platform now")
+        "Stay near the platform. The estimated time is too short for these activities.",
+        "Bleiben Sie in der Nähe des Gleises. Die geschätzte Zeit reicht für diese Aktivitäten nicht aus.",
+        "Resta vicino al binario. Il tempo stimato è troppo breve per queste attività."),
+    SetReminder("Afficher l’heure de retour", "Show return reminder", "Rückkehrzeit anzeigen", "Mostra promemoria di ritorno"),
+    ClearReminder("Masquer le rappel", "Clear reminder", "Erinnerung ausblenden", "Nascondi promemoria"),
+    ReturnBy("Repartez vers la voie avant ", "Head back to the platform by ", "Kehren Sie zum Gleis zurück vor ", "Torna al binario entro "),
+    ReturnNow("Retournez à la voie maintenant", "Return to the platform now", "Kehren Sie jetzt zum Gleis zurück", "Torna al binario adesso")
 }
