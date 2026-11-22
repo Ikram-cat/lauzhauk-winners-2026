@@ -81,8 +81,9 @@ fun ResultsPage(st: AppState, pal: AltPalette, modifier: Modifier) {
                 Spacer(Modifier.height(36.dp))
                 Eyebrow(st.t("otheroptions"), pal)
                 Spacer(Modifier.height(12.dp))
-                Column(Modifier.fillMaxWidth().border(1.dp, pal.ink)) {
+                Column(Modifier.fillMaxWidth()) {
                     others.forEachIndexed { i, j ->
+                        if (i > 0) Spacer(Modifier.height(12.dp))
                         Band(st, j, pal, expanded.contains(j.id), i == 0 && j.id == res.primaryJourney?.id) {
                             expanded = if (expanded.contains(j.id)) expanded - j.id else expanded + j.id
                         }
@@ -448,7 +449,9 @@ private fun Band(
     val known = fmtDelay(j.realtime?.departureDelayMinutes)
     val est = fmtEstimate(j.realtime?.estimatedDepartureDelayMinutes)
 
-    Column(Modifier.fillMaxWidth().background(pal.canvas)) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(pal.rule))
+        Column(Modifier.weight(1f)) {
         Row(
             Modifier.fillMaxWidth().clickable { onToggle() }
                 .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -498,7 +501,7 @@ private fun Band(
         }
 
         if (expanded) {
-            Column(Modifier.fillMaxWidth().background(pal.canvas).padding(horizontal = 16.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(pal.rule))
                 j.legs.forEach { leg -> BandLeg(st, leg, pal) }
                 Spacer(Modifier.height(4.dp))
@@ -518,7 +521,7 @@ private fun Band(
                 }
             }
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(pal.ink))
+        }
     }
 }
 
@@ -553,7 +556,7 @@ private fun BandLeg(st: AppState, leg: Leg, pal: AltPalette) {
         }
         val chips = buildList {
             fmtDelay(leg.departureDelayMinutes)?.let { add(it + " " + st.t("live")) }
-            fmtEstimate(leg.estimatedDepartureDelayMinutes)?.let { add("≈" + it + " " + st.t("estimated")) }
+            fmtEstimate(leg.estimatedDepartureDelayMinutes)?.let { add(it + " " + st.t("estimated")) }
             fmtPct(leg.incidentCancellationRisk)?.let { add(st.t("cancelrisk") + " " + it) }
             fmtPct(leg.incidentSuppressedStopRisk)?.let { add(st.t("suppressed") + " " + it) }
             fmtPct(leg.transferMissRisk)?.let { add(st.t("missrisk") + " " + it) }
