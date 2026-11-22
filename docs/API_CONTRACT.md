@@ -559,3 +559,39 @@ Lookup order when a disruption is active: `linesIncident` (line × 4-hour block,
 Conditioned numbers are measured only on trips that ran and reported: cancelled trips are excluded from the delay medians but are counted in the `incidentCancellationRisk` and `incidentSuppressedStopRisk` denominators, which are ALL planned stops matching the station/window, including cancelled and skipped ones. This survivor bias is deliberate — the delay distribution describes trains that operated, the risk shares describe what happened to the planned ones. A zero share is a measured zero, not fabricated.
 
 Incidents are reconstructed from the SBB public liveticker audit trail: window start is the first source record, end the first `ENDED` version (the `duration_from` column is empty for almost every incident). A train trip is in scope when its folded stop sequence shares at least two stations with the incident corridor and the measurement's scheduled time lies inside the window. The Phase-1 unconditional tables are untouched: the conditioned ones are separate top-level arrays in the same artifact.
+
+### `demoPerturbation` query parameter (DEMO ONLY, `/api/journeys` and `/api/journeys/impact`)
+
+**This parameter exists only to demo detection and rerouting to judges. It is not part of the product contract and no client should depend on it.** It makes the backend lie about the live situation on purpose, and every response that used it says so.
+
+| Value | Behavior |
+| --- | --- |
+| absent | Nothing changes. The payload is byte-identical to one from an instance without this feature. |
+| `true` (case-insensitive) | A fresh random draw on **every** request. |
+| integer | Reproducible seed: the same seed always produces the same delay, leg and cancellation. |
+| `false`, or anything else | `false` is the same as absent; any other value is `400 INVALID_REQUEST` with `field: "demoPerturbation"`. |
+| `DEMO_PERTURBATION=false` in the environment | The kill switch: the parameter is treated as absent entirely, including for validation. |
+
+The perturbation is applied at the **provider layer**, not on the wire: the decorator wraps the real `TransportProvider`, so its search results and its stop-event boards describe the same synthetic incident. The perturbation therefore flows through the normal pipeline — `DisruptionDetector` finds the delay against the timetable board, and `JourneyPlanService` reroutes on that finding. Nothing in the response is fabricated by the route.
+
+One draw applies:
+- a **delay of 5–45 minutes** on one transit leg of the first journey of the provider result (the plan's primary), shifting that leg's expected times and the estimated time of the same service on its boarding-station live board, so detection sees at least the 3-minute threshold;
+- with **~50 % probability**, the **cancellation of one alternative** journey that departs before the delayed leg: it is omitted from the search results (as OJP omits confirmed cancellations) and its trip is flagged `cancelled` on the live board, which is what the CANCELLED_FLAG / earlier-departure-cancelled rules consume.
+
+When the parameter is honoured, the envelope gains ONE additive top-level field:
+
+```json
+"demoPerturbation": {
+  "active": true,
+  "seed": 12345,
+  "applied": ["delay+18min Demo rail service @ Lausanne", "cancelled Demo regional @ Lausanne"]
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `active` | boolean | Always `true` when present. Its presence is the signal. |
+| `seed` | integer | The seed that produced this draw, so a demo step can be replayed exactly. |
+| `applied` | array of strings | Human-readable summary of what was changed; empty when the provider returned no journey to perturb. |
+
+`seed` is drawn from a secure-free random source on `true`; send it back as the parameter to replay the same demo moment. `dataStatus` / `MOCK` conventions are untouched: the perturbation is a separate, explicit label, and `applied` may name `MOCK` journeys (the demo and mock providers) exactly as it names real ones.
