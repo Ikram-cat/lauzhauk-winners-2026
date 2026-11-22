@@ -1,59 +1,41 @@
-# CFF Plan B
+# ALT → Alternative
 
-CFF Plan B is a four-person LauzHack 2026 project for Swiss public-transport journeys. When a traveler needs to reach a commitment on time, the app aims to show the best feasible itinerary, explain what is known about arrival reliability, and offer a practical alternative when one exists. The first release focuses on finding a real itinerary from a public browser.
+Disruption-aware Swiss public-transport journey planner — built at LauzHack 2026 by a four-person team.
 
-## Delivery and status
+ALT doesn't just find your route: it **predicts what will go wrong with it** — chronic delays per line, station and hour; incident-amplified delay and cancellation risk; and the probability you lose a tight connection — and recommends the best alternative *before* you're stranded. When everything is on time, it tells you that too, with data and provenance.
 
-| Milestone | Exit condition | Status |
-| --- | --- | --- |
-| Repository baseline | A new agent can find its assignment, the JSON contract, and the current state | Documentation present. See the handoff for verification. |
-| T+4 h | Public Vercel Web app calls public Railway Ktor API and displays at least one actual transport itinerary | Planned |
-| T+11 h | Deployable `main`, reliable search, alternatives where supplied, ranking and parsing tests, public smoke test, and a recorded known-good checkpoint | Planned |
-| T+22 h | Final submission with a preserved working demo and at least one verified, distinctive Plan B capability | Planned |
+**Live:** https://lauzhauk-winners-2026-production.up.railway.app (web app + API, same origin)
 
-Times are relative to actual kickoff. Integration records the kickoff and checks the official submission deadline. The MVP takes origin, destination, and an optional earliest departure and sorts valid itineraries by scheduled arrival. It includes loading, error, and empty results, and shows platforms when supplied. Deadline-aware recommendations, validated historical insights, workspace suggestions, iOS, and Android are future work. Accounts and a database are outside the MVP.
+## What it does
 
-The repository currently contains documentation, an environment template, and a PR template. Application code, build wrappers, executable CI, provider behavior, Compose Web/Wasm viability, and public deployments are pending or unverified. Samples in the API contract are illustrative. Runtime mock data must be visibly identified in the UI.
+- **Journey search** (from/to with station autocomplete, GPS "use my location", depart-now or arrive-by deadline, fastest / easiest preference) against live Swiss open data (OJP journey search + stop-event realtime, GTFS-RT cancellations and delays, live fares, occupancy).
+- **Predicted arrival delays**, not just timetables: every trip carries per-leg statistical estimates learned from **274 days (Jan–Oct 2026) of national SBB actuals** — 652M rows parsed, 5.7M measured delay samples, 60,484 line buckets + 6,568 station buckets (median + p90 per line/station/weekday-class/hour). Blue badge = statistically estimated; red badge = live announced delay; projected times compose both.
+- **Incident-conditioned predictions**: when a disruption is active on your route, estimates switch to buckets measured *during* 140 real incidents — extra delay, cancellation risk, suppressed-stop risk per line/station.
+- **Connection-miss math**: the probability that a predicted delay eats your transfer slack. Above 50% the recommendation switches to the journey that avoids the tight connection (reason `TRANSFER_MISS_RISK`) — the win is "you don't lose your train", not five minutes.
+- **Honesty as architecture**: unknown is `null`, never zero; every number carries its provenance (`HISTORICAL_ACTUALS` / live / simulation); the demo simulation (`demoPerturbation` seed) is labelled in the API response itself. We even measured whether rail incidents cascade onto buses (9 months, 104M rows) and report the honest negative result instead of inventing a feature — see [docs/PROPAGATION_2B.md](docs/PROPAGATION_2B.md).
+- **Demo trigger**: a `Simulate disruption` button injects a reproducible synthetic incident into the *real* pipeline — status goes red, the reroute reason is shown, everything labelled.
 
-## Architecture and ownership
+## Architecture
 
-| Owner | Area | Responsibility |
-| --- | --- | --- |
-| A | [Frontend](frontend/README.md) | Compose Multiplatform Web on Vercel if the Wasm build gate passes, browser UI state, and a client for the Ktor JSON API |
-| B | [Backend](backend/README.md) | Ktor on Railway, request validation, Swiss transport adapter, normalized journey DTOs, and scheduled-arrival ranking |
-| C | [Analytics](analytics/README.md) | Provider field audit and fixtures, then offline Python analysis after the historical CSV is validated |
-| D | [Integration](docs/DEVELOPMENT_WORKFLOW.md) | Shared contracts, CI, deployment coordination, public smoke tests, and cross-module handoff |
-| Coordinated | [Shared](shared/README.md) | Documented JSON contracts and compatibility rules. A Kotlin shared module is optional and has no build of its own yet. |
+- **Backend** — Kotlin 2.2 / Ktor 3, deployed on Railway (auto-deploy from `main`, Docker build from the repo root). Strict structured JSON API, additive-only contract, error envelopes, rate-limit-safe upstream clients, XXE-hardened XML. **245 tests green, CI on every push.** See [backend/README.md](backend/README.md) and the [API contract](docs/API_CONTRACT.md).
+- **Frontend** — Kotlin Multiplatform + Compose Multiplatform, one shared UI codebase: **Web (WebAssembly)** served same-origin at `/`, **Desktop (JVM)** via `:composeApp:run`, **iOS** target in the repo (`frontend/kmp/iosApp`), Android in flight on member branches. The committed wasm dist in `frontend/kmp/dist` is what the backend serves — no Node at image build time. Swiss editorial design (see [frontend/DESIGN.md](frontend/DESIGN.md)): EN/FR/IT/DE, dark/light, the original ALT→Alternative intro, Swiss railway clock, and the Switzerland route-loading map.
+- **Analytics** — offline Python pipeline (`analytics/`) building the delay/risk artifacts the backend loads (`delay_estimates_v2.json`, corridor risk, propagation study). Ist-Daten actuals never leave the machine; artifacts are versioned and committed.
+- **Coordination** — team runs on GitHub Discussion #4 (protocol: TO/FROM/TYPE/ID/RE/TIME headers).
 
-The browser calls Ktor over HTTPS. Ktor owns transport-provider calls and mapping, so frontend models can follow the project-owned contract. Later, Ktor can load versioned analytics artifacts generated offline. See [Architecture](docs/ARCHITECTURE.md) and the [API contract](docs/API_CONTRACT.md).
+## Running it
 
-## Local setup and verification
+- Production: the URL above. Health: `GET /health`.
+- Locally (backend): `backend/` with `TRANSPORT_PROVIDER=ojp|mock|demo`, `OJP_API_KEY`, `GTFS_RT_API_KEY` — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+- Locally (frontend): `cd frontend/kmp && ./gradlew :composeApp:run` (desktop) or `node serve.mjs` (serves the committed wasm dist with an /api proxy).
+- Quick demo seeds: `&demoPerturbation=12345` on any search URL.
 
-From a clone, check the base revision and read the onboarding files before editing.
+## Documentation
 
-```text
-git status --short --branch
-git log -5 --oneline
-git diff --check
-```
+- [API contract](docs/API_CONTRACT.md) — the wire, strict and additive.
+- [Challenge plan](docs/CHALLENGES.md) — JetBrains / AXA / SBB-CFF criteria mapping.
+- [Architecture](docs/ARCHITECTURE.md), [deployment](docs/DEPLOYMENT.md), [analytics README](analytics/README.md), [backend README](backend/README.md), [propagation study](docs/PROPAGATION_2B.md).
+- Agent rules for the workspace: [AGENTS.md](AGENTS.md).
 
-Copy [.env.example](.env.example) to a local ignored `.env` if useful. Pass the variables to the module's documented launcher or hosting environment. The template itself does not load them. The frontend needs a public API base URL and the backend needs the exact browser origin in its CORS allowlist.
+## Status (submission)
 
-As each toolchain lands, use its module README for the pinned prerequisites and runnable commands. The planned sequence is to run the Ktor tests and start the API, confirm `GET /health` locally, start the Web development build pointed at the API, then exercise search from the browser. Analytics runs separately with its documented Python environment and approved input. See [Testing](docs/TESTING.md) for the smoke matrix and [Deployment](docs/DEPLOYMENT.md) for build outputs, configuration, verification, and rollback.
-
-## GitHub workflow
-
-Keep `main` deployable once the runnable baseline lands. Start the assigned feature branch from `main` and integrate small reviewed PRs using the [PR template](.github/PULL_REQUEST_TEMPLATE.md). Coordinate contract changes with their consumers and leave remote settings to authorized maintainers. Use the [development workflow](docs/DEVELOPMENT_WORKFLOW.md) for branch names, conflict resolution, and integration responsibilities.
-
-## Project documentation
-
-- [Agent rules](AGENTS.md) and [master plan](docs/MASTER_PLAN.md) for session setup, scope, and responsibilities.
-- [Architecture](docs/ARCHITECTURE.md), [API contract](docs/API_CONTRACT.md), and [decision log](docs/DECISIONS.md) for stable designs and interfaces.
-- [Workflow](docs/DEVELOPMENT_WORKFLOW.md), [deployment](docs/DEPLOYMENT.md), [testing](docs/TESTING.md), [demo script](docs/DEMO_SCRIPT.md), and [CI plan](.github/workflows/README.md) for delivery procedures.
-- [Roadmap](docs/ROADMAP.md) and [session handoff](docs/SESSION_HANDOFF.md) for the active work queue and verified state.
-- Module guidance for [frontend rules](frontend/AGENTS.md) and [interfaces](frontend/INTERFACES.md), [backend rules](backend/AGENTS.md) and [interfaces](backend/INTERFACES.md), [analytics rules](analytics/AGENTS.md) and [interfaces](analytics/INTERFACES.md), and [shared rules](shared/AGENTS.md) and [interfaces](shared/INTERFACES.md).
-
-
-## Sponsor challenge submission
-
-The [challenge plan](docs/CHALLENGES.md) maps the official JetBrains, AXA and SBB/CFF briefs to owners and demo evidence. Beyond the Web MVP, the submission targets Web and desktop KMP, shared Compose, French and English, light and dark themes, bounded screenshot-plus-text extraction, and personalized disruption recovery. These features are planned.
+Main is deployable and deployed. All backend features live in production; the Compose Multiplatform web app is the shipped frontend; iOS target present, Android on a member branch. Numbers: 274 training days · 5.7M delay samples · 140 conditioned incidents · 142 risk-scored corridors · 245 tests · 4 languages · 3 platforms in-repo · 0 fabricated values.
