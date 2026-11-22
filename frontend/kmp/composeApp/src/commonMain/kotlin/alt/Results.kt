@@ -63,8 +63,10 @@ fun ResultsPage(st: AppState, pal: AltPalette, modifier: Modifier) {
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 LegendDot(pal.red, st.t("legend.known"), pal.muted)
                 LegendDot(pal.estimate, st.t("legend.est"), pal.muted)
-                fmtPct(recommended?.realtime?.transferMissRisk)?.let {
-                    RiskChip(st.t("missrisk") + " " + it, pal, 10.sp)
+                // Connection risk is only surfaced when it is really probable (>= 50%, the same
+                // threshold the backend uses to switch the recommendation) — then it is red.
+                recommended?.realtime?.transferMissRisk?.takeIf { it >= 0.5 }?.let {
+                    RiskChip(st.t("missrisk") + " " + fmtPct(it), pal, 10.sp)
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -445,7 +447,8 @@ private fun Band(
     val sched = j.schedule
     val known = fmtDelay(j.realtime?.arrivalDelayMinutes, roundUp = true)
     val est = fmtEstimate(j.realtime?.estimatedArrivalDelayMinutes)
-    val missChip = fmtPct(j.realtime?.transferMissRisk)?.let { st.t("missrisk") + " " + it }
+    // Hidden unless really probable (>= 50%); rendered red via RiskChip when shown.
+    val missChip = j.realtime?.transferMissRisk?.takeIf { it >= 0.5 }?.let { st.t("missrisk") + " " + fmtPct(it) }
 
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(pal.rule))
