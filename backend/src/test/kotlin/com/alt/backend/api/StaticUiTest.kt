@@ -52,4 +52,18 @@ class StaticUiTest {
         assertEquals(HttpStatusCode.NotFound, client.get("/").status)
         assertEquals(HttpStatusCode.OK, client.get("/health").status)
     }
+
+    @Test
+    fun `kmp app served under kmp and missing dir means no kmp routes`() = testApplication {
+        val kmp = Files.createTempDirectory("alt-kmp").toFile()
+        kmp.resolve("index.html").writeText("<html><body>alt-kmp</body></html>")
+        application {
+            configureApp(clock, AppConfig(transportProvider = "mock", fareBaseUrl = "",
+                webDir = "/nonexistent-alt-web", webKmpDir = kmp.absolutePath))
+        }
+        val page = client.get("/kmp/")
+        assertEquals(HttpStatusCode.OK, page.status)
+        assertTrue(page.bodyAsText().contains("alt-kmp"))
+        assertEquals(HttpStatusCode.OK, client.get("/health").status)
+    }
 }
