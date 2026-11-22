@@ -3,7 +3,10 @@ package com.alt.backend.service.impact
 import com.alt.backend.domain.SearchRequest
 import com.alt.backend.provider.DemoScenarioTransportProvider
 import com.alt.backend.provider.ProviderResult
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -79,5 +82,21 @@ class ServiceAlertsTest {
         assertEquals(listOf(0 to "ch:1:sloid:1037"), match.stops)
         assertTrue(ServiceAlertMatcher.match(lake, snapshot, at.toInstant()).isEmpty(), "lake route does not call at Morges")
         assertTrue(ServiceAlertMatcher.match(ic1, snapshot, end).isEmpty(), "period end is exclusive")
+    }
+
+    @Test
+    fun `an expired snapshot is served at once while one background fetch refreshes it`() = runBlocking {
+        var now = 1_000_000L
+        val gate = CompletableDeferred<Unit>()
+        var fetches = 0
+        val src = ServiceAlertsSource({ fetches++; if (fetches > 1) gate.await(); feed() }, { now })
+        val first = assertNotNull(src.current())
+        now += 61_000 // past the TTL, still inside the stale window
+        val stale = withTimeout(2_000) { src.current() } // returns although the refresh is blocked
+        assertSame(first, stale)
+        withTimeout(2_000) { src.current() } // a second caller must not start a second fetch
+        gate.complete(Unit); src.settle()
+        assertEquals(2, fetches)
+        assertNotSame(first, src.current())
     }
 }
