@@ -10,6 +10,7 @@ import com.alt.backend.provider.MockFareProvider
 import com.alt.backend.provider.MockTransportProvider
 import com.alt.backend.provider.NovaFareProvider
 import com.alt.backend.provider.OjpTransportProvider
+import com.alt.backend.perturbation.PerturbationProvider
 import com.alt.backend.service.JourneySearchService
 import com.alt.backend.service.duration.DurationArtifactLoader
 import com.alt.backend.service.impact.ReplayTimelineDisruptionSource
@@ -96,7 +97,10 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     val fareUrl = config.fareBaseUrl.trim()
     val fares = when (fareUrl) { "" -> null; "mock" -> FareCache(MockFareProvider); else -> FareCache(NovaFareProvider(fareUrl.trimEnd('/'))) }
     log.info("Fare lookup {}", when (fareUrl) { "" -> "disabled"; "mock" -> "enabled (MOCK demo prices)"; else -> "enabled (NOVA via transport.opendata.ch)" })
-    val searchService = JourneySearchService(ResilientProvider(provider, cacheEnabled = config.cacheEnabled), fares)
+    log.info("Demo perturbation {}", if (config.demoPerturbationEnabled) "enabled (demoPerturbation query parameter, DEMO ONLY)" else "disabled by DEMO_PERTURBATION=false")
+    // The perturbation decorator sits OUTSIDE the resilient/caching provider: every request draws its own profile and
+    // the cached upstream result stays pristine. Without the query parameter it is a pure pass-through.
+    val searchService = JourneySearchService(PerturbationProvider(ResilientProvider(provider, cacheEnabled = config.cacheEnabled)), fares)
 
     val risk: RiskEstimator = if (config.riskSource.lowercase() == "none") NoRiskEstimator else {
         // Explicit RISK_ARTIFACT_PATH (if it exists) wins; otherwise the bundled classpath resource, copied to a temp file.
@@ -138,7 +142,8 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         }
     } ?: run { log.info("GTFS-RT Service Alerts disabled (no GTFS_SA_API_KEY)"); null }
     configureRoutes(searchService, clock, risk, gtfs, delay, estimates,
-        durationEstimator = durationEstimator, disruptionSource = disruptionSource, serviceAlerts = serviceAlerts)
+        durationEstimator = durationEstimator, disruptionSource = disruptionSource, serviceAlerts = serviceAlerts,
+        demoPerturbationEnabled = config.demoPerturbationEnabled)
 
     // Same-origin web UI: frontend/web is copied into the image (WEB_DIR). Missing directory -> no static
     // routes at all, so local runs and tests keep byte-identical behavior. /api/* routes win by specificity.

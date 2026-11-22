@@ -1,5 +1,7 @@
 package com.alt.backend.api
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -42,7 +44,9 @@ data class JourneyImpactResponseDto(
     val journey: ImpactJourneyDto?,
     val affected: Boolean,
     val impacts: List<JourneyDisruptionImpactDto>,
-    val liveAlerts: LiveAlertsDto = LiveAlertsDto.disabled()
+    val liveAlerts: LiveAlertsDto = LiveAlertsDto.disabled(),
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val demoPerturbation: DemoPerturbationDto? = null
 )
 
 @Serializable

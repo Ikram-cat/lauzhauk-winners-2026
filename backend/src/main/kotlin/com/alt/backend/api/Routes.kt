@@ -16,12 +16,15 @@ import com.alt.backend.service.duration.NoDurationEstimator
 import com.alt.backend.service.impact.DisruptionSource
 import com.alt.backend.service.impact.EmptyDisruptionSource
 import com.alt.backend.service.impact.JourneyImpactService
+import com.alt.backend.perturbation.DemoPerturbation
+import com.alt.backend.perturbation.DemoPerturbationState
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.time.Clock
 import java.time.LocalDate
@@ -29,9 +32,10 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
+import kotlin.coroutines.EmptyCoroutineContext
 
 internal val RFC3339_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME
-private val JOURNEY_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount", "limit")
+private val JOURNEY_PARAMS = setOf("origin", "destination", "departure", "arrivalDeadline", "preference", "fareClass", "discount", "limit", "demoPerturbation")
 private val LOCATION_PARAMS = setOf("query", "limit", "near", "radiusKm")
 private val DECIMAL = Regex("[+-]?\\d+(\\.\\d+)?")
 
@@ -83,7 +87,8 @@ fun Application.configureRoutes(
     estimates: com.alt.backend.service.estimate.DelayEstimateModel = com.alt.backend.service.estimate.DelayEstimateModel.NONE,
     durationEstimator: DisruptionDurationEstimator = NoDurationEstimator,
     disruptionSource: DisruptionSource = EmptyDisruptionSource,
-    serviceAlerts: com.alt.backend.service.impact.ServiceAlertsSource? = null
+    serviceAlerts: com.alt.backend.service.impact.ServiceAlertsSource? = null,
+    demoPerturbationEnabled: Boolean = true
 ) {
     val snap: (suspend () -> com.alt.backend.gtfs.GtfsSnapshot?)? = gtfs?.let { g -> { g.current() } }
     val planner = JourneyPlanService(searchService, DisruptionDetector(searchService::stopEvents, gtfs = snap), clock, delay, estimates,
@@ -101,7 +106,7 @@ fun Application.configureRoutes(
         }
 
         disruptionRoutes(durationEstimator, clock)
-        journeyImpactRoutes(JourneyImpactService(searchService, disruptionSource), durationEstimator, clock, serviceAlerts)
+        journeyImpactRoutes(JourneyImpactService(searchService, disruptionSource), durationEstimator, clock, serviceAlerts, demoPerturbationEnabled)
 
         get("/api/model") {
             val i = risk.info(); val d = delay.info()
@@ -160,6 +165,7 @@ fun Application.configureRoutes(
             val q = call.request.queryParameters
             val origin: String; val destination: String; val departure: OffsetDateTime; val deadline: OffsetDateTime?
             val pref: Preference; val fareClass: Int; val discount: Discount; val limit: Int
+            val demo: DemoPerturbationState?
             try {
                 call.rejectDuplicates(JOURNEY_PARAMS)
                 origin = q.text("origin"); destination = q.text("destination")
@@ -169,6 +175,8 @@ fun Application.configureRoutes(
                 fareClass = q["fareClass"]?.let { v -> v.trim().takeIf { it == "1" || it == "2" }?.toInt() ?: throw ParamError("fareClass", "Parameter 'fareClass' must be 1 or 2") } ?: 2
                 discount = q["discount"]?.let { v -> Discount.entries.firstOrNull { it.name.equals(v.trim(), ignoreCase = true) } ?: throw ParamError("discount", "Parameter 'discount' must be one of NONE, HALF_FARE") } ?: Discount.NONE
                 limit = q.limit(10, 3)
+                demo = try { DemoPerturbation.parse(q["demoPerturbation"], demoPerturbationEnabled) }
+                    catch (e: IllegalArgumentException) { throw ParamError("demoPerturbation", e.message!!) }
             } catch (e: ParamError) { call.fail(HttpStatusCode.BadRequest, "INVALID_REQUEST", e.message!!, e.field); return@get }
 
             val (from, to) = coroutineScope {
@@ -185,16 +193,20 @@ fun Application.configureRoutes(
             val o = (from as PlaceResult.Found).place; val d = (to as PlaceResult.Found).place
 
             val req = SearchRequest(o.query, d.query, departure, fareClass, discount)
-            val result = when (val r = searchService.search(req)) {
-                is SearchResult.Success -> r
-                is SearchResult.Timeout -> return@get call.fail(HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT", r.message)
-                is SearchResult.RateLimited -> return@get call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", r.message)
-                is SearchResult.LocationResolutionError -> return@get call.fail(HttpStatusCode.NotFound, "LOCATION_NOT_FOUND", "Location not found", r.field ?: "origin")
-                is SearchResult.AuthError -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
-                is SearchResult.Failure -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
+            // A demo perturbation carries a per-request profile in the coroutine context so the provider's search
+            // results and its stop-event boards describe the same synthetic incident.
+            val ctx = demo ?: EmptyCoroutineContext
+            val result = withContext(ctx) { searchService.search(req) }
+            when (result) {
+                is SearchResult.Success -> {}
+                is SearchResult.Timeout -> return@get call.fail(HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT", result.message)
+                is SearchResult.RateLimited -> return@get call.fail(HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED", result.message)
+                is SearchResult.LocationResolutionError -> return@get call.fail(HttpStatusCode.NotFound, "LOCATION_NOT_FOUND", "Location not found", result.field ?: "origin")
+                is SearchResult.AuthError -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", result.message)
+                is SearchResult.Failure -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", result.message)
             }
-            val plan = planner.plan(req, pref, deadline, result)
-            call.respond(HttpStatusCode.OK, buildResponse(plan, o, d, departure, deadline, pref, fareClass, discount, limit, risk, clock))
+            val plan = withContext(ctx) { planner.plan(req, pref, deadline, result as SearchResult.Success) }
+            call.respond(HttpStatusCode.OK, buildResponse(plan, o, d, departure, deadline, pref, fareClass, discount, limit, risk, clock, demo))
         }
     }
 }
@@ -203,7 +215,7 @@ private fun place(p: ResolvedPlace) = PlaceEchoDto(p.input, p.name, p.id)
 
 private fun buildResponse(
     plan: JourneyPlan, o: ResolvedPlace, d: ResolvedPlace, departure: OffsetDateTime, deadline: OffsetDateTime?, pref: Preference,
-    fareClass: Int, discount: Discount, limit: Int, risk: RiskEstimator, clock: Clock
+    fareClass: Int, discount: Discount, limit: Int, risk: RiskEstimator, clock: Clock, demo: DemoPerturbationState? = null
 ): JourneysResponseDto {
     val info = risk.info()
     val windowDays = ((info.coverage as? JsonObject)?.let { c ->
@@ -238,7 +250,8 @@ private fun buildResponse(
         },
         primaryJourney = dto(plan.primary), recommendedJourney = dto(plan.recommended), alternatives = alternatives.map { dto(it)!! },
         highlights = highlights, deadlineSummary = summary,
-        meta = MetaDto(RFC3339_FORMATTER.format(OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS)), info.modelVersion))
+        meta = MetaDto(RFC3339_FORMATTER.format(OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS)), info.modelVersion),
+        demoPerturbation = demo?.let { DemoPerturbationDto(true, it.seed, it.applied) })
 }
 
 private fun journeyDto(j: Journey, plan: JourneyPlan, deadline: OffsetDateTime?, fareClass: Int, discount: Discount, r: RiskEstimate?, windowDays: Int?, verified: Boolean): JourneyDto {
