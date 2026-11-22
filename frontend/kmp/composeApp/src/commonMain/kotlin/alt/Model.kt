@@ -137,6 +137,8 @@ data class Realtime(
     val projectedDeparture: String? = null,
     val projectedArrival: String? = null,
     val estimatedBasis: String? = null,
+    val transferMissRisk: Double? = null,
+    val transferRiskBasis: String? = null,
     val incidentExtraMinutes: Double? = null,
     val incidentCancellationRisk: Double? = null,
     val incidentSuppressedStopRisk: Double? = null,

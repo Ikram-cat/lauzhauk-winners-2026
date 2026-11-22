@@ -60,9 +60,12 @@ fun ResultsPage(st: AppState, pal: AltPalette, modifier: Modifier) {
             }
             Spacer(Modifier.height(20.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 LegendDot(pal.red, st.t("legend.known"), pal.muted)
                 LegendDot(pal.estimate, st.t("legend.est"), pal.muted)
+                fmtPct(recommended?.realtime?.transferMissRisk)?.let {
+                    RiskChip(st.t("missrisk") + " " + it, pal, 10.sp)
+                }
             }
             Spacer(Modifier.height(16.dp))
 
@@ -440,8 +443,9 @@ private fun Band(
     onToggle: () -> Unit,
 ) {
     val sched = j.schedule
-    val known = fmtDelay(listOfNotNull(j.realtime?.departureDelayMinutes, j.realtime?.arrivalDelayMinutes) .plus(j.legs.flatMap { listOfNotNull(it.departureDelayMinutes, it.arrivalDelayMinutes) }).maxOrNull())
-    val est = fmtEstimate(j.realtime?.estimatedDepartureDelayMinutes)
+    val known = fmtDelay(j.realtime?.arrivalDelayMinutes, roundUp = true)
+    val est = fmtEstimate(j.realtime?.estimatedArrivalDelayMinutes)
+    val missChip = fmtPct(j.realtime?.transferMissRisk)?.let { st.t("missrisk") + " " + it }
 
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(pal.rule))
@@ -487,6 +491,10 @@ private fun Band(
                     Box(Modifier.border(1.dp, pal.estimate).padding(horizontal = 6.dp, vertical = 2.dp)) {
                         Text(est, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = pal.estimate)
                     }
+                }
+                if (missChip != null) {
+                    if (known != null || est != null) Spacer(Modifier.width(6.dp))
+                    RiskChip(missChip, pal, 10.sp)
                 }
             }
             Spacer(Modifier.width(14.dp))
@@ -568,4 +576,12 @@ private fun BandLeg(st: AppState, leg: Leg, pal: AltPalette) {
         }
     }
     if (abs(0) < 0) Text("")
+}
+
+/** Trip-level "connection at risk" chip: red-bordered like the other band badges. */
+@Composable
+private fun RiskChip(text: String, pal: AltPalette, size: androidx.compose.ui.unit.TextUnit) {
+    Box(Modifier.border(1.dp, pal.red).padding(horizontal = 6.dp, vertical = 2.dp)) {
+        Text(text, fontSize = size, fontWeight = FontWeight.Bold, color = pal.red, maxLines = 1)
+    }
 }
