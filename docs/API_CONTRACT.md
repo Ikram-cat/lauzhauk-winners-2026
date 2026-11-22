@@ -27,7 +27,7 @@ Requests use HTTP locally and HTTPS in public deployments. The API returns UTF-8
 | `destination` | Yes | Same rules as `origin`. |
 | `departure` | No | Earliest eligible scheduled departure. Accept an RFC 3339 timestamp with `Z` or an explicit numeric UTC offset. An omitted value uses the request-time instant from the backend clock. |
 
-Encode each query value, including spaces, accented characters and any literal `+` in an offset. Empty required values, invalid timestamps, duplicate parameters and unsupported parameters return `400 INVALID_REQUEST`. The API expects stop search text rather than an app-specific station identifier. How the provider resolves that text belongs to the transport adapter.
+Encode each query value, including spaces, accented characters and any literal `+` in an offset. Empty required values, invalid timestamps, and duplicate parameters return `400 INVALID_REQUEST`. Unknown parameters are ignored (asserted by `RouteTest`). The API expects stop search text rather than an app-specific station identifier. How the provider resolves that text belongs to the transport adapter.
 
 Use this path for a fixed departure in a local fixture check.
 
@@ -443,9 +443,8 @@ These fields and endpoints were added during implementation. All are additive: a
 
 | Method and path | Purpose | Success |
 | --- | --- | --- |
-| `GET /api/locations?query=<text>` | Stop/address autocomplete for the search box, proxied from the provider and cached. Query 1–120 code points. | `200` with `{ "locations": [ { "id", "name", "kind", "x", "y" } ] }` |
-| `GET /api/alternatives?from=&to=&notBefore=[&arrivalDeadline=]` | Rescue search from an intermediate stop after a disruption. Same validation, ranking and journey shape as `/api/journeys`. | `200` with `{ "request", "alternatives", "latestFeasibleDeparture", "noFeasibleRoute", "advice" }` |
-| `GET /api/model` | Provenance of the risk artifact actually loaded by the running instance. No provider call. | `200` with `{ "modelVersion", "generatedAt", "coverage", "source", "keysLoaded", "status", "corridorsLoaded", "baselineLoaded", "byLineHourCells", "corridorKeysSample" }` |
+| `GET /api/locations?query=<text>` | Stop/address autocomplete for the search box, proxied from the provider and cached. Query 1–120 code points. | `200` with `{ "locations": [ { "id", "name", "kind", "coordinates": { "lat", "lon" } \| null } ] }` |
+| `GET /api/model` | Provenance of the risk artifact actually loaded by the running instance. No provider call. | `200` with `{ "riskModel": { "version", "generatedAt", "source", "status", "coverage", "counts": { "keys", "corridors", "baselineHours", "byLineHourCells" } }, "delayModel": { "version", "status", "counts": { "portions", "lines" } } }` |
 
 ### Additional journey fields
 
