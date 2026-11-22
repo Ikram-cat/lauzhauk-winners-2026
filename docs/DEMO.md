@@ -62,7 +62,7 @@ Before 17:43 there is no public announcement, so there is no prediction and the 
 
 ### Optional live step
 
-After the replay, show that the same check works on today's network: send the journey-impact request **without** `observedAt`. `liveAlerts` lists the alerts active now on Lausanne → Genève. On 2026-11-22 at 00:41 UTC there were 9, all "Interrupted service: Renens VD - Allaman" (planned works) matched at Morges. Say clearly that these are `LIVE` and that no duration is predicted for them (`prediction: null`, with the reason).
+After the replay, show that the same check works on today's network: send the journey-impact request **without** `observedAt`. `liveAlerts` lists the alerts active now on Lausanne → Genève. On 2026-11-22 01:05 UTC the backend merged 9 feed alerts into 6 entries, led by "Interrupted service: Renens VD - Allaman" (planned works, both directions, matched at Morges). The content changes over time. Say clearly that these are `LIVE` and that no duration is predicted for them (`prediction: null`, with the reason).
 
 ## Fallback requests (curl)
 

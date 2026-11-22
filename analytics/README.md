@@ -1,5 +1,53 @@
 # Analytics
 
+## Démarrage rapide pour l'équipe
+
+Ces étapes servent les deux routes de durée des perturbations (`sbb_duration`). Les données et le modèle ne sont pas dans Git : il faut les recevoir ou les régénérer.
+
+**1. Obtenir le modèle.** Choisis une des deux options.
+- **Recevoir les fichiers.** Récupère `duration_model.v1.eval.json` (modèle pour les rejeux) ou `duration_model.v1.json` (modèle entraîné sur tout), et, pour la démo, le dossier `timelines/`. Indique leur emplacement au backend :
+  ```sh
+  DURATION_ARTIFACT_PATH=/chemin/duration_model.v1.eval.json
+  DISRUPTION_TIMELINES_DIR=/chemin/timelines
+  ```
+- **Régénérer depuis `Daten.zip`.** Décompresse l'archive dans `analytics/` pour obtenir `analytics/Daten/Daten/extern-liveticker/…` (dossier ignoré par Git), puis lance, depuis `analytics/` :
+  ```sh
+  python -m pip install -r requirements.txt
+  python -m sbb_duration.train      # metrics.json + duration_model.joblib
+  python -m sbb_duration.export     # duration_model.v1.json, duration_model.v1.eval.json, golden_vectors.json
+  ```
+  Les rejeux de la démo (`timelines/`) sont produits par `python -m sbb_duration.sources`. Le script de démo les génère s'ils manquent.
+
+**2. Remplir `.env`** à la racine. Il est ignoré par Git : n'y mets jamais de clé dans un fichier suivi. Il faut une clé par flux opentransportdata.swiss, car chaque clé est refusée (`403`) sur l'autre flux.
+```sh
+GTFS_RT_API_KEY=...   # GTFS-RT TripUpdates (la/gtfs-rt): retards et suppressions
+GTFS_SA_API_KEY=...   # GTFS-RT Service Alerts (la/gtfs-sa): alertes live dans /api/journeys/impact
+```
+Les deux sont facultatives. Sans elles, ou avec `--offline`, la démo fonctionne quand même : le rejeu n'en dépend pas.
+
+**3. Lancer la démo.** Depuis la racine du dépôt :
+```sh
+python analytics/scripts/run_demo.py      # génère ce qui manque, puis démarre le backend sur :8080
+```
+JDK 21 et Python 3.14 sont nécessaires. Le backend est prêt quand le script affiche `Backend on http://localhost:8080` ; la ligne indique aussi `gtfs-rt=on/off` et `service-alerts=on/off`. Le déroulé complet est dans [DEMO.md](../docs/DEMO.md).
+
+**4. Les deux routes.** Sous Windows, utilise `curl.exe` et des noms de gares en ASCII (`Geneve`).
+```sh
+# Le trajet est-il touché, de combien est le détour, et que conseiller ?
+# Rejeu de Renens (MOCK) avec observedAt ; liveAlerts (LIVE) est rempli sans observedAt.
+curl -X POST http://localhost:8080/api/journeys/impact -H "Content-Type: application/json" \
+  -d '{"origin":"Lausanne","destination":"Geneve","observedAt":"2026-09-17T18:31:00+02:00"}'
+
+# Combien de temps durera encore cette perturbation ?
+curl -X POST http://localhost:8080/api/disruptions/outlook -H "Content-Type: application/json" \
+  -d '{"disruption":{"reasonCode":"EG_011","durationType":"UNTIL_APPROX_DATE_TIME","startedAt":"2026-09-17T17:22:29+02:00","announcedEndAt":"2026-09-17T20:30:00+02:00","updatesSoFar":1,"summaryEn":"Interrupted service: Renens VD - Morges"},"observedAt":"2026-09-17T18:31:00+02:00","detourExtraMinutes":60}'
+```
+Résultats attendus :
+- impact : `affected: true`, `detourExtraMinutes: 100`, `advice.code: TAKE_DETOUR` ;
+- outlook : `remainingMinutes: {p50: 139, pessimistic: 174}`.
+
+Le contrat complet est dans [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal). Pour les tests, lance `python -m pytest analytics -q` depuis la racine, et `./gradlew test` dans `backend/`.
+
 Offline pipeline that turns the SBB extern-liveticker CSVs into two artifacts for the backend. Python never runs online.
 
 ## Rebuild
