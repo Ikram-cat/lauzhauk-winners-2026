@@ -4,9 +4,16 @@ import com.alt.backend.domain.Journey
 import com.alt.backend.domain.LegMode
 import com.alt.backend.domain.SearchRequest
 import com.alt.backend.provider.FareQuote
+import com.alt.backend.service.estimate.DelayEstimateModel
+import com.alt.backend.service.estimate.LegEstimate
+import com.alt.backend.service.estimate.OVERLAP_KNOWN_WINS
+import com.alt.backend.service.estimate.SOURCE_NONE
+import com.alt.backend.service.estimate.SideEstimate
+import com.alt.backend.service.estimate.weekdayClassOf
 import java.time.Clock
 import java.time.Duration
 import java.time.OffsetDateTime
+import java.time.ZoneId
 
 enum class Situation { NO_DISRUPTION, DISRUPTION_DETECTED, UNKNOWN }
 enum class Action { REROUTE, STAY, NONE }
@@ -17,12 +24,26 @@ data class Reason(
     val savedMinutes: Int? = null, val savedTransfers: Int? = null, val savedChf: Double? = null, val marginMinutes: Int? = null
 )
 
-data class LegRealtime(val expectedDeparture: OffsetDateTime?, val departureDelayMinutes: Int?, val expectedArrival: OffsetDateTime?, val arrivalDelayMinutes: Int?)
+/**
+ * [departureDelayMinutes] / [arrivalDelayMinutes] stay the KNOWN live delay only. The estimated layer is separate:
+ * [estimatedDepartureDelayMinutes] / [estimatedArrivalDelayMinutes] are the historical statistical median (clamped
+ * to -10..+30), [estimatedSource] is HISTORICAL_ACTUALS | LIVE_SAMPLE | NONE, and the projected times add
+ * scheduled + known + estimated (default additive; ESTIMATE_OVERLAP=known_wins drops the estimate where live is known).
+ */
+data class LegRealtime(
+    val expectedDeparture: OffsetDateTime?, val departureDelayMinutes: Int?, val expectedArrival: OffsetDateTime?, val arrivalDelayMinutes: Int?,
+    val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
+    val estimatedSource: String = SOURCE_NONE, val estimatedSamples: Int? = null,
+    val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null
+)
 
 /** [source]: GTFS_RT | OJP | DELAY_MODEL | NONE. Journey values come from the first / last transit leg or the worst leg; [sampleCount] only for DELAY_MODEL. */
 data class JourneyRealtime(
     val legs: List<LegRealtime>, val expectedDeparture: OffsetDateTime?, val departureDelayMinutes: Int?,
-    val expectedArrival: OffsetDateTime?, val arrivalDelayMinutes: Int?, val source: String, val sampleCount: Int?
+    val expectedArrival: OffsetDateTime?, val arrivalDelayMinutes: Int?, val source: String, val sampleCount: Int?,
+    val estimatedDepartureDelayMinutes: Double? = null, val estimatedArrivalDelayMinutes: Double? = null,
+    val estimatedSource: String = SOURCE_NONE, val estimatedSamples: Int? = null,
+    val projectedDeparture: OffsetDateTime? = null, val projectedArrival: OffsetDateTime? = null
 )
 
 /**
@@ -40,6 +61,7 @@ data class JourneyPlan(
 )
 
 private fun mins(a: OffsetDateTime, b: OffsetDateTime) = Duration.between(a, b).toMinutes().toInt()
+private val estimateZone = ZoneId.of("Europe/Zurich")
 private fun norm(s: String?) = s?.uppercase()?.filter { it.isLetterOrDigit() }.orEmpty()
 private const val MIN_REROUTE_GAIN_MIN = 5
 
@@ -47,7 +69,10 @@ class JourneyPlanService(
     private val search: JourneySearchService,
     private val detector: DisruptionDetector,
     private val clock: Clock,
-    private val delay: RealtimeDelayModel = RealtimeDelayModel.NONE
+    private val delay: RealtimeDelayModel = RealtimeDelayModel.NONE,
+    private val estimates: DelayEstimateModel = DelayEstimateModel.NONE,
+    /** ESTIMATE_OVERLAP: additive (default) or known_wins. */
+    private val estimateOverlap: String = System.getenv("ESTIMATE_OVERLAP") ?: "additive"
 ) {
     suspend fun plan(req: SearchRequest, pref: Preference, deadline: OffsetDateTime?, first: SearchResult.Success): JourneyPlan {
         val price = { q: FareQuote -> q.price(req.fareClass, req.discount) }
@@ -96,7 +121,7 @@ class JourneyPlanService(
         }
         // The replacement search overlaps the original one; the same legs under a different id are the same trip.
         val unique = pool.distinctBy { j -> j.legs.map { Triple(it.serviceLabel, it.departure.toInstant(), it.arrival.toInstant()) } }
-        fun arrivalOf(j: Journey) = realtimeOf(j).expectedArrival ?: j.arrival
+        fun arrivalOf(j: Journey) = realtimeOf(j).projectedArrival ?: realtimeOf(j).expectedArrival ?: j.arrival
         val cmp = RecommendationService.comparator(pref, ::fareOf) { arrivalOf(it).toInstant() }
         fun sorted(js: List<Journey>) = js.sortedWith(cmp).let { r -> r.filter { meetsAt(it, arrivalOf(it)) } + r.filterNot { meetsAt(it, arrivalOf(it)) } }
 
@@ -146,10 +171,33 @@ class JourneyPlanService(
         return JourneyPlan(status, action, reasons, disruption, primary, recommended, alternatives, fares, rt, latest, checkOf.keys)
     }
 
+    /** Historical estimate for a transit leg: departure looked up at its origin, arrival at its destination. */
+    private fun estimateFor(l: com.alt.backend.domain.JourneyLeg): LegEstimate {
+        val depLocal = l.departure.atZoneSameInstant(estimateZone)
+        val arrLocal = l.arrival.atZoneSameInstant(estimateZone)
+        val dep = estimates.estimate(l.serviceLabel, l.origin, weekdayClassOf(depLocal.toLocalDate()), depLocal.hour).departure
+        val arr = estimates.estimate(l.serviceLabel, l.destination, weekdayClassOf(arrLocal.toLocalDate()), arrLocal.hour).arrival
+        return LegEstimate(dep, arr)
+    }
+
+    /** scheduled + known + estimated (the estimate is dropped when ESTIMATE_OVERLAP=known_wins and live is known).
+     *  Composed in seconds so the decimal estimate survives into the projected timestamps. */
+    private fun project(scheduled: OffsetDateTime, known: OffsetDateTime?, est: SideEstimate?): OffsetDateTime? {
+        val knownSec = known?.let { Duration.between(scheduled, it).seconds }
+        if (knownSec == null && est == null) return null
+        val appliedSec = when {
+            est == null -> 0L
+            estimateOverlap.equals(OVERLAP_KNOWN_WINS, ignoreCase = true) && knownSec != null -> 0L
+            else -> Math.round(est.median * 60)
+        }
+        return scheduled.plusSeconds((knownSec ?: 0L) + appliedSec)
+    }
+
     /**
-     * Per leg: provider estimates (OJP) overlaid by the detector's verdict for that leg (GTFS-RT or OJP stop events).
-     * Journey level: first transit leg for departure, last transit leg (else the worst leg delay) for arrival; the statistical
-     * delay model fills in only when nothing live is known. [live] false (detection failed) leaves everything null.
+     * Per leg: provider estimates (OJP) overlaid by the detector's verdict for that leg (GTFS-RT or OJP stop events),
+     * plus the SEPARATE historical estimate layer (estimated* / projected* fields). Journey level: first transit leg
+     * for departure, last transit leg (else the worst leg delay) for arrival; the statistical delay model fills in
+     * only when nothing live is known. [live] false (detection failed) leaves everything null.
      */
     private fun realtime(j: Journey, check: JourneyCheck?, live: Boolean): JourneyRealtime {
         if (!live) return JourneyRealtime(j.legs.map { LegRealtime(null, null, null, null) }, null, null, null, null, "NONE", null)
@@ -166,18 +214,32 @@ class JourneyPlanService(
                 is LegCheck.Clear -> c.delayMinutes?.let { dep = l.departure.plusMinutes(it.toLong()); if (c.fromGtfs) gtfs = true else ojp = true }
                 else -> {}
             }
-            LegRealtime(dep, dep?.let { mins(l.departure, it) }, arr, arr?.let { mins(l.arrival, it) })
+            val est = estimateFor(l)
+            LegRealtime(dep, dep?.let { mins(l.departure, it) }, arr, arr?.let { mins(l.arrival, it) },
+                estimatedDepartureDelayMinutes = est.departure?.let { Math.round(it.median * 10) / 10.0 },
+                estimatedArrivalDelayMinutes = est.arrival?.let { Math.round(it.median * 10) / 10.0 },
+                estimatedSource = est.source, estimatedSamples = est.samples,
+                projectedDeparture = project(l.departure, dep, est.departure),
+                projectedArrival = project(l.arrival, arr, est.arrival))
         }
         val transit = j.legs.indices.filter { j.legs[it].mode == LegMode.TRANSIT }
         val firstLeg = transit.firstOrNull()?.let { legs[it] }
-        val lastDelay = transit.lastOrNull()?.let { legs[it].arrivalDelayMinutes }
+        val lastLeg = transit.lastOrNull()?.let { legs[it] }
+        val lastDelay = lastLeg?.arrivalDelayMinutes
         val worst = transit.mapNotNull { legs[it].arrivalDelayMinutes ?: legs[it].departureDelayMinutes }.maxOrNull()
         val arrDelay = lastDelay ?: worst
+        val estSource = firstLeg?.estimatedSource?.takeIf { it != SOURCE_NONE } ?: lastLeg?.estimatedSource ?: SOURCE_NONE
+        val estSamples = firstLeg?.estimatedSamples ?: lastLeg?.estimatedSamples
+        val projDep = firstLeg?.projectedDeparture
+        val projArr = lastLeg?.projectedArrival
         if (gtfs || ojp) {
             val src = if (gtfs) "GTFS_RT" else "OJP"
-            return JourneyRealtime(legs, firstLeg?.expectedDeparture, firstLeg?.departureDelayMinutes, arrDelay?.let { j.arrival.plusMinutes(it.toLong()) }, arrDelay, src, null)
+            return JourneyRealtime(legs, firstLeg?.expectedDeparture, firstLeg?.departureDelayMinutes, arrDelay?.let { j.arrival.plusMinutes(it.toLong()) }, arrDelay, src, null,
+                firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr)
         }
-        val m = delay.forJourney(j) ?: return JourneyRealtime(legs, null, null, null, null, "NONE", null)
-        return JourneyRealtime(legs, null, null, j.arrival.plusMinutes(m.minutes.toLong()), m.minutes, "DELAY_MODEL", m.samples)
+        val m = delay.forJourney(j) ?: return JourneyRealtime(legs, null, null, null, null, "NONE", null,
+            firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr)
+        return JourneyRealtime(legs, null, null, j.arrival.plusMinutes(m.minutes.toLong()), m.minutes, "DELAY_MODEL", m.samples,
+            firstLeg?.estimatedDepartureDelayMinutes, lastLeg?.estimatedArrivalDelayMinutes, estSource, estSamples, projDep, projArr)
     }
 }

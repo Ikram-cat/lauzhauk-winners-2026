@@ -15,6 +15,8 @@ data class AppConfig(
     val riskSource: String = System.getenv("RISK_SOURCE") ?: "artifact",
     val riskArtifactPath: String? = System.getenv("RISK_ARTIFACT_PATH"),
     val delayArtifactPath: String? = System.getenv("DELAY_ARTIFACT_PATH"),
+    /** Path to delay_estimates_v2.json; unset or invalid -> historical estimates unavailable (NONE). */
+    val estimateArtifactPath: String? = System.getenv("ESTIMATE_ARTIFACT_PATH"),
     // Blank disables fare lookup (used by the test task to stay offline).
     val fareBaseUrl: String = System.getenv("FARE_BASE_URL") ?: "https://transport.opendata.ch",
     val gtfsRtApiKey: String? = System.getenv("GTFS_RT_API_KEY"),

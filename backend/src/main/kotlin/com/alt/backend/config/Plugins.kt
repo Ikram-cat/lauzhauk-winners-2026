@@ -116,6 +116,13 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         } ?: config.delayArtifactPath?.let { Path.of(it) }
     val delay = RealtimeDelayModel(delayPath)
     log.info("Delay artifact status={} modelVersion={}", delay.info().status, delay.info().modelVersion)
+    val estimatePath = config.estimateArtifactPath?.takeIf { Files.exists(Path.of(it)) }?.let { Path.of(it) }
+        ?: com.alt.backend.service.estimate.DelayEstimateModel::class.java.getResourceAsStream("/realtime/delay_estimates_v2.json")?.use {
+            Files.createTempFile("delay_estimates_v2", ".json").also { f -> Files.copy(it, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING); f.toFile().deleteOnExit() }
+        } ?: config.estimateArtifactPath?.let { Path.of(it) }
+    val estimates = com.alt.backend.service.estimate.DelayEstimateModel(estimatePath, delay)
+    log.info("Delay estimate artifact status={} lineBuckets={} stationBuckets={}",
+        estimates.info().status, estimates.info().lineBuckets, estimates.info().stationBuckets)
     val durationEstimator = DurationArtifactLoader.load(config.durationArtifactPath)
     val disruptionSource = ReplayTimelineDisruptionSource.load(config.disruptionTimelinesDir)
     val serviceAlerts = config.gtfsSaApiKey?.trim()?.takeIf { it.isNotEmpty() }?.let { key ->
@@ -124,6 +131,6 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { src.current() }
         }
     } ?: run { log.info("GTFS-RT Service Alerts disabled (no GTFS_SA_API_KEY)"); null }
-    configureRoutes(searchService, clock, risk, gtfs, delay,
+    configureRoutes(searchService, clock, risk, gtfs, delay, estimates,
         durationEstimator = durationEstimator, disruptionSource = disruptionSource, serviceAlerts = serviceAlerts)
 }
