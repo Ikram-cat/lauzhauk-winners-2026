@@ -198,12 +198,12 @@ private fun reasonText(r: Reason, st: AppState): String {
 @Composable
 private fun SimulationBanner(st: AppState, dp: DemoPerturbation, pal: AltPalette) {
     Row(
-        Modifier.fillMaxWidth().background(pal.surface).border(1.dp, pal.orange)
+        Modifier.fillMaxWidth().background(pal.surface).border(1.dp, pal.rule)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(st.t("simchip"), fontSize = 10.sp, fontWeight = FontWeight.Black,
-            letterSpacing = 1.sp, color = pal.orange)
+            letterSpacing = 1.sp, color = pal.muted)
         Spacer(Modifier.width(10.dp))
         Text(
             st.t("demo.seed") + " " + (dp.seed ?: "—") +
