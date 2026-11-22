@@ -91,3 +91,8 @@ __pycache__/
 /analytics/output/
 analytics/Daten/
 model/
+
+# iOS host: generated Xcode project and local demo recordings
+frontend/kmp/iosApp/iosApp.xcodeproj/
+*.xcresult/
+*.mp4
