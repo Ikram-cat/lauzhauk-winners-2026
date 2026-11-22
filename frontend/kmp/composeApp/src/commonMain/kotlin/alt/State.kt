@@ -173,7 +173,16 @@ class AppState(private val scope: CoroutineScope) {
 
 /** Stations only — addresses are excluded from autocomplete by design. */
 private fun List<Location>.stopsOnly(): List<Location> =
-    filter { it.kind.equals("STOP", ignoreCase = true) }.take(6)
+    filter { it.kind.equals("STOP", ignoreCase = true) }
+        .map { it.copy(name = cleanStationName(it.name)) }
+        .take(6)
+
+/** "Lausanne (Lausanne)" -> "Lausanne" (redundant parent suffix stripped, SBB-style). */
+private fun cleanStationName(name: String): String {
+    val m = Regex("^(.+) \\(([^)]+)\\)$").find(name) ?: return name
+    val (base, parent) = m.destructured
+    return if (base.trim().equals(parent.trim(), ignoreCase = true)) base.trim() else name
+}
 
 private fun tomorrowZurichDate(): String = try {
     LocalDate.parse(todayZurichDate()).plus(DatePeriod(days = 1)).toString()
