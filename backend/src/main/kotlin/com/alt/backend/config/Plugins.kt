@@ -23,6 +23,8 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
+import io.ktor.server.routing.routing
+import io.ktor.server.http.content.staticFiles
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.response.*
 import kotlinx.serialization.json.Json
@@ -133,4 +135,14 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     } ?: run { log.info("GTFS-RT Service Alerts disabled (no GTFS_SA_API_KEY)"); null }
     configureRoutes(searchService, clock, risk, gtfs, delay, estimates,
         durationEstimator = durationEstimator, disruptionSource = disruptionSource, serviceAlerts = serviceAlerts)
+
+    // Same-origin web UI: frontend/web is copied into the image (WEB_DIR). Missing directory -> no static
+    // routes at all, so local runs and tests keep byte-identical behavior. /api/* routes win by specificity.
+    val webDir = java.io.File(config.webDir)
+    if (webDir.isDirectory) {
+        routing { staticFiles("/", webDir) }
+        log.info("Serving web UI from {}", webDir.absolutePath)
+    } else {
+        log.info("Web UI directory '{}' not found; serving API only", config.webDir)
+    }
 }
