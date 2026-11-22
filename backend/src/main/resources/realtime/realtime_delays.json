@@ -1,10 +1,10 @@
 {
- "modelVersion": "rt-20261121-2348",
- "generatedAt": "2026-11-21T23:48:03Z",
+ "modelVersion": "rt-20261122-0010",
+ "generatedAt": "2026-11-22T00:10:58Z",
  "window": {
   "from": "2026-11-21T20:55:12Z",
-  "to": "2026-11-21T23:47:32Z",
-  "samples": 890
+  "to": "2026-11-22T00:10:32Z",
+  "samples": 923
  },
  "portions": [
   {
@@ -225,6 +225,15 @@
   },
   {
    "station": "Zürich HB",
+   "hourBucket": 2,
+   "samples": 10,
+   "medianDelayMin": 0.5,
+   "p90DelayMin": 1.1,
+   "shareLate": 0.0,
+   "cancelled": 0
+  },
+  {
+   "station": "Zürich HB",
    "hourBucket": 22,
    "samples": 72,
    "medianDelayMin": 1.0,
@@ -293,7 +302,7 @@
    "station": "Lausanne",
    "hourBucket": 1,
    "samples": 6,
-   "medianDelayMin": 0.5,
+   "medianDelayMin": 0.6,
    "p90DelayMin": 1.3,
    "shareLate": 0.0
   },
