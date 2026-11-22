@@ -77,7 +77,7 @@ class GtfsRealtimeSource(
             return {
                 val r = client.get(url) { header(HttpHeaders.Authorization, "Bearer $apiKey") }
                 if (r.status.value != 200) error("GTFS-RT HTTP ${r.status.value}")
-                r.readBytes()
+                r.readRawBytes()
             }
         }
     }

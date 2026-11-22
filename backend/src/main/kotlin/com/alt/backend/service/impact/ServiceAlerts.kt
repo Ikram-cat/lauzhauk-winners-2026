@@ -207,7 +207,7 @@ class ServiceAlertsSource(
             return {
                 val r = client.get(url) { header(HttpHeaders.Authorization, "Bearer $apiKey") }
                 if (r.status.value != 200) error("Service Alerts HTTP ${r.status.value}")
-                r.readBytes()
+                r.readRawBytes()
             }
         }
     }
