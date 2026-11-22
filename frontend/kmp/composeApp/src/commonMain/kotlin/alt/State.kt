@@ -21,8 +21,8 @@ class AppState(private val scope: CoroutineScope) {
     var dark by mutableStateOf(false)
     var page by mutableStateOf(PAGE_SEARCH)
 
-    var fromText by mutableStateOf("Lausanne")
-    var toText by mutableStateOf("Genève")
+    var fromText by mutableStateOf("")
+    var toText by mutableStateOf("")
     var fromSel by mutableStateOf<Location?>(null)
     var toSel by mutableStateOf<Location?>(null)
     var fromSug by mutableStateOf<List<Location>>(emptyList())
