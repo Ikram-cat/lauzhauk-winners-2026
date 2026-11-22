@@ -6,6 +6,48 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-22 · A · Opening animation
+
+- On `feat/frontened-mvp` at `1d447cc`, refined the ALT welcome sequence in `frontend/web/index.html`, `style.css`, and `app.mjs`. The frame expands with the red rule and suffix, the full wordmark settles, and the opening layer lifts to reveal the planner. Updated `frontend/DESIGN.md`.
+- Chrome checked the animation at 320, 390 and 1200 px, keyboard dismissal without replay, and reduced motion. JavaScript syntax and `git diff --check` passed. The preview is `http://127.0.0.1:8790/`. Backend and roadmap status are unchanged.
+
+## 2026-11-22 · A · Suggestion and result polish
+
+- Updated `frontend/web/app.mjs`, `frontend/web/style.css`, and `frontend/DESIGN.md` on `feat/frontened-mvp` at `1d447cc`. Nested parentheses use regular weight, zero-minute detail annotations are omitted, and alternatives use one surface per theme. Enlarged the recommendation label and added more prominent status gradients.
+- Chrome verified the presentation and narrow layout using live responses with test overrides for the nested name, delay values and status states. Node syntax and `git diff --check` passed. Backend integration and F1–F3 review status are unchanged.
+
+## 2026-11-22 · A · Welcome rotation and result formatting
+
+- Branch `feat/frontened-mvp` at `1d447cc` with uncommitted changes in `frontend/web/`, `frontend/DESIGN.md`, and `frontend/FEATURES.md`. Added nineteen localized rotating headings, scrollable suggestions with regular-weight parenthetical text, rectangular status panels, hour-and-minute journey durations, and a jump back to the preceding batch. Removed the visible realtime source label while retaining backend data and estimates.
+- Chrome verified successive reloads, live suggestions and results, all disruption states, cached expansion from seven to nine results and navigation back to the original row using test responses, and a narrow viewport. Node syntax and `git diff --check` passed. The preview is `http://127.0.0.1:8790/`. The API returns a bounded set of journeys, with no server pagination. F1–F3 remain in local review.
+
+## 2026-11-22 · A · Page gradient and route loading
+
+- Branch `feat/frontened-mvp` at `1d447cc` with uncommitted browser work in `frontend/web/`. Extended the red and gray gradient, grouped the active mode styling, spaced result times, and added the red recommendation label. Clear status remains above the recommendation and requires backend confirmation.
+- Loading keeps Searching and its progress line in the submit button and draws a schematic Switzerland outline with a red train connecting the selected endpoints. It reuses the bundled swisstopo boundary and is static with reduced motion.
+- Chrome verified a live Lausanne–Genève search through loading and results, mode styling and help, the map and moving train, clear status, mobile width and reduced motion. Node syntax and `git diff --check` passed. The local preview is `http://127.0.0.1:8790/`. Backend contracts and F1–F3 review status are unchanged.
+
+## 2026-11-22 · A · Journey search and results refinements
+
+- Branch `feat/frontened-mvp` at `1d447cc`. Updated the uncommitted browser frontend’s departure controls, shared ranking-help panel, localized disruption messages and sunset-inspired masthead treatment. Updated `frontend/DESIGN.md` and `frontend/FEATURES.md`.
+- Chrome verified a live NOW and scheduled search, API timestamp conversion and retention across ranking changes, desktop keyboard and mobile touch tooltip dismissal, and each disruption state in all four locales using in-browser test variants. Confirmed that the warning mentions alternatives only when supplied. Node syntax and `git diff --check` passed. The static module defines no separate build or lint command.
+- The preview is available at `http://127.0.0.1:8790/`. F1–F3 remain in local review. Backend integration, providers and response contracts are unchanged.
+
+## 2026-11-22 · A · Unified browser planner
+
+- Branch `feat/frontened-mvp` at `1d447cc`, with the expanded browser changes uncommitted in `frontend/web/`. Updated frontend design, feature and preview documentation. Reused the existing outlined ALT brand mark, web components and Kotlin API integration.
+- Delivered unified FROM/TO autocomplete, explicit geolocation on both fields, Swiss boundary verification with ©swisstopo, a real Swiss local clock, NOW, Fastest/Simplest tooltips, automatically visible alternatives and an editable mobile summary. Results retain backend recommendations, fares, disruption information and provenance. Observed historical corridor and baseline statistics replace risk-level-only labels.
+- Verified Node syntax and assertions for Swiss and foreign coordinates, DST, sorting, deduplication and all visible copy keys checked by the script. Chrome connected to the live Kotlin API for both ranking modes and validated mobile and desktop layouts, address and station suggestions, simulated positions, locale persistence, dark mode, reduced motion, and recovery from a blocked journey request. `git diff --check` passed. The static web module defines no separate build or lint script.
+- F1–F3 remain in local review. The preview runs at `http://127.0.0.1:8790/`. Next with D and B: review any future verified country metadata or pagination extensions. Current location filtering needs verified coordinates, alternatives use cached batches, and average historical delay is not exposed by the API. No backend contract or deployment setting changed.
+
+## 2026-11-22 · A · ALT browser preview
+
+- Branch `feat/frontened-mvp` at `1d447cc` with the browser implementation uncommitted. Added `frontend/web/` and `frontend/README.md`. Used a dependency-free browser implementation because this checkout has generated Wasm output and platform fragments but lacks the frontend build configuration and application entry point.
+- Implemented validated origin and destination selection, the three backend modes, the pinned recommendation, editorial alternatives, disruption details, and browser preferences. The preview proxies the documented Kotlin API. It requests the supported result limit once per search and reveals cached alternatives in batches of seven.
+- Verification used `node --check`, Node assertions for Swiss time and DST conversion and result ordering, and Chrome via DevTools. Live Lausanne–Genève requests succeeded in all three modes. Browser checks covered station and address selection, simulated geolocation with confirmation, Simplest keyboard help, route details, French, dark theme, and a 390 px viewport. A synthetic response exercised an impacted leg and 7 then 9 deduplicated options from one request. `git diff --check` for the existing working tree reports a pre-existing Markdown hard break in `frontend/FEATURES.md`.
+- F1–F3 browser behavior is available for local review at `http://127.0.0.1:8790/`. Physical-device and production frontend verification remain open. Backend cursors and journey notifications remain unavailable in this browser implementation. No native or Wasm delivery is claimed.
+- Next with D: review the browser fallback and configure same-origin forwarding for deployment. Confirm behavior on a physical mobile device and check a provider-confirmed disruption when available.
+
 ## 2026-11-22 · C · Final series: live grouping, security check, team quick start, merge, PR
 
 - **Live alerts grouped.** `ServiceAlertGrouper` merges feed alerts with the same title kind, the same two end stations in either order and the same matched stations. Each `liveAlerts` entry carries `ids`, `operators` and `directions`. Measured: 9 alerts on Lausanne → Genève became 6 entries (`212b028`).
