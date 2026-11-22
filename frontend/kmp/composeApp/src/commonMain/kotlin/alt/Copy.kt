@@ -1,6 +1,6 @@
 package alt
 
-enum class Lang { EN, FR, IT }
+enum class Lang { EN, FR, IT, DE }
 
 private val EN = mapOf(
     "app.title" to "ALT — Swiss journey planner",
@@ -297,6 +297,112 @@ private val IT = mapOf(
     "info.label" to "Maggiori informazioni su questa opzione",
 )
 
+private val DE = mapOf(
+    "app.title" to "ALT — Schweizer Reiseplaner",
+    "app.sub" to "SBB-Verbindungen mit Störungsinformation",
+    "from" to "Von",
+    "to" to "Nach",
+    "swap" to "Tauschen",
+    "from.ph" to "Bahnhof oder Adresse",
+    "to.ph" to "Bahnhof oder Adresse",
+    "date" to "Datum (JJJJ-MM-TT)",
+    "time" to "Zeit (HH:MM)",
+    "deadline" to "Ankunft bis (HH:MM)",
+    "depart" to "Abfahrt",
+    "now" to "Jetzt",
+    "preference" to "Priorität",
+    "fastest" to "Schnellste",
+    "cheapest" to "Günstigste",
+    "simplest" to "Einfachste",
+    "half" to "Halbtax",
+    "first" to "1. Klasse",
+    "search" to "Verbindungen suchen",
+    "simulate" to "Störung simulieren",
+    "simulate.hint" to "Live-Demo: fügt eine gekennzeichnete synthetische Störung ein",
+    "loading" to "Verbindungen werden gesucht…",
+    "noresults" to "Für diese Suche wurden keine Verbindungen gefunden.",
+    "error" to "Etwas ist schiefgelaufen",
+    "retry" to "Erneut versuchen",
+    "recommended" to "Empfohlen",
+    "primary" to "Ihre geplante Verbindung",
+    "alternatives" to "Alternativen",
+    "transfers" to "Umstiege",
+    "direct" to "direkt",
+    "live" to "live",
+    "estimated" to "geschätzt",
+    "projected" to "Prognose",
+    "platform" to "Gl.",
+    "occupancy" to "Auslastung",
+    "low" to "tief",
+    "medium" to "mittel",
+    "high" to "hoch",
+    "disruption" to "Störung festgestellt",
+    "allclear" to "Keine Störung auf Ihrer Verbindung gemeldet",
+    "reroute" to "Umleitung empfohlen",
+    "stay" to "Auf Ihrer Verbindung bleiben",
+    "unknown" to "Live-Status nicht verfügbar",
+    "simchip" to "SIMULATION",
+    "simapplied" to "In dieser Simulation angewendet:",
+    "deadlinemet" to "Ankunft vor Ihrer Frist",
+    "deadlinemissed" to "Verpasst Ihre Frist",
+    "latestdeparture" to "Späteste Abfahrt, die die Frist noch einhält:",
+    "nofeasible" to "Keine Verbindung hält die Frist ein — beste Verbindung ohne Frist wird angezeigt.",
+    "cancelrisk" to "Ausfallrisiko",
+    "suppressed" to "Risiko eines ausfallenden Halts",
+    "missrisk" to "Risiko eines verpassten Anschlusses",
+    "fare" to "Fahrpreis",
+    "fare.unavailable" to "Fahrpreis nicht verfügbar",
+    "mock" to "DEMODATEN",
+    "verified" to "bestätigt",
+    "unverified" to "nicht bestätigt",
+    "risk" to "Störungsrisiko",
+    "min" to "Min.",
+    "hour" to "Std.",
+    "enterboth" to "Geben Sie einen Abfahrtsort und ein Ziel ein.",
+    "badtime" to "Prüfen Sie das Format von Datum und Zeit.",
+    "dark" to "Dunkel",
+    "light" to "Hell",
+    "theme" to "Design",
+    "lang" to "Sprache",
+    "delayknown" to "gemeldete Verspätung",
+    "api.source" to "API",
+    "demo.seed" to "Seed",
+    "planner.eyebrow" to "Schweizer Reiseplaner",
+    "planner.title" to "Planen Sie Ihre Reise",
+    "planner.sub" to "Verbindungen in der ganzen Schweiz — mit Störungsinformation.",
+    "arrive" to "Ankunft bis",
+    "easiest" to "Einfachste",
+    "results" to "Ergebnisse",
+    "otheroptions" to "Weitere Optionen",
+    "back" to "Suche bearbeiten",
+    "legend.known" to "gemeldete Verspätung",
+    "legend.est" to "geschätzte Verspätung",
+    "status.ok" to "Keine Störung gemeldet",
+    "status.bad" to "Störung festgestellt",
+    "status.ok.line" to "Ihre Verbindung verkehrt planmässig.",
+    "depart.label" to "Abfahrt",
+    "arrive.label" to "Ankunft",
+    "price" to "Preis",
+    "duration" to "Dauer",
+    "connections" to "Anschlüsse",
+    "itinerary" to "Reiseverlauf",
+    "moreinfo" to "Mehr Infos",
+    "sameod" to "Abfahrt und Ziel sind identisch — wählen Sie zwei verschiedene Bahnhöfe.",
+    "lessinfo" to "Weniger Infos",
+    "search.sub" to "Live-Fahrplan, Verspätungen und Alternativen",
+    "info.easiest" to "«Einfachste» bevorzugt Verbindungen mit den wenigsten Umstiegen, damit Ihre Reise einfacher und bequemer wird.",
+    "info.fastest" to "«Schnellste» bevorzugt Verbindungen, mit denen Sie so früh wie möglich ankommen.",
+    "info.label" to "Mehr zu dieser Option",
+)
+
+private val WELCOME_DE = listOf(
+    "Wohin geht es?", "Was ist Ihr nächster Halt?", "Bereit für Ihr nächstes Abenteuer?", "Wohin als Nächstes?",
+    "Sie haben einen Termin?", "Auf geht's!", "Wohin führt Sie Ihre Reise?", "Sollen wir losfahren?",
+    "Was ist Ihr Ziel?", "Ihre nächste Reise beginnt hier.", "Unterwegs?", "Nächster Halt: irgendwo?",
+    "Wohin heute?", "Auf die Schiene!", "Ruft das Abenteuer?", "Wohin dürfen wir Sie bringen?",
+    "Sie müssen einen Zug erwischen?", "Bereit zum Losfahren?", "Wohin bringt Sie der heutige Tag?", "Entdecken wir die Welt!",
+)
+
 val WELCOME_EN = listOf(
     "Where are we going?", "What's your next stop?", "Ready for your next adventure?", "Where to next?",
     "Got somewhere to be?", "Let's get you moving!", "Where's the journey taking you?", "Shall we get going?",
@@ -320,7 +426,7 @@ private val WELCOME_IT = listOf(
 )
 
 fun welcomeText(i: Int, lang: Lang): String =
-    when (lang) { Lang.FR -> WELCOME_FR; Lang.IT -> WELCOME_IT; else -> WELCOME_EN }[i]
+    when (lang) { Lang.FR -> WELCOME_FR; Lang.IT -> WELCOME_IT; Lang.DE -> WELCOME_DE; else -> WELCOME_EN }[i]
 
 /** Random welcome index, different from the previous page load's when possible. */
 fun pickWelcome(): Int {
@@ -332,4 +438,4 @@ fun pickWelcome(): Int {
 }
 
 fun s(key: String, lang: Lang): String =
-    (when (lang) { Lang.FR -> FR; Lang.IT -> IT; else -> EN })[key] ?: EN[key] ?: key
+    (when (lang) { Lang.FR -> FR; Lang.IT -> IT; Lang.DE -> DE; else -> EN })[key] ?: EN[key] ?: key

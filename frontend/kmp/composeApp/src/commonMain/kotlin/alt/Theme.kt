@@ -33,6 +33,8 @@ data class AltPalette(
     val featureTimeBg: Color,
     val featureRule: Color,
     val clearBg: Color,
+    /** Tile behind the transparent ALT symbol: inverted from the glyph (light on light, dark on dark). */
+    val logoTile: Color,
 )
 
 val LightAlt = AltPalette(
@@ -52,6 +54,7 @@ val LightAlt = AltPalette(
     featureTimeBg = Color(0xFFF2F2F2),
     featureRule = Color(0xFFC7C7C7),
     clearBg = Color(0xFFF2F2F2),
+    logoTile = Color(0xFFFFFFFF),
 )
 
 val DarkAlt = AltPalette(
@@ -71,6 +74,7 @@ val DarkAlt = AltPalette(
     featureTimeBg = Color(0xFF101010),
     featureRule = Color(0xFF555555),
     clearBg = Color(0xFF242424),
+    logoTile = Color(0xFF101010),
 )
 
 val AltSans = FontFamily.SansSerif
