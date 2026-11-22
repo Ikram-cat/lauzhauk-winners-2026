@@ -92,6 +92,8 @@ private val EN = mapOf(
     "duration" to "Duration",
     "connections" to "Connections",
     "itinerary" to "Itinerary",
+    "moreinfo" to "More info",
+    "lessinfo" to "Less info",
     "search.sub" to "Live timetable, delays and alternatives",
 )
 
@@ -184,6 +186,8 @@ private val FR = mapOf(
     "duration" to "Durée",
     "connections" to "Correspondances",
     "itinerary" to "Itinéraire",
+    "moreinfo" to "Plus d'infos",
+    "lessinfo" to "Moins d'infos",
     "search.sub" to "Horaire en direct, retards et alternatives",
 )
 

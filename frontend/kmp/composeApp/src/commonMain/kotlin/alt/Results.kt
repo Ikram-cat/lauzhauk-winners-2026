@@ -109,7 +109,10 @@ private fun StatusPanel(st: AppState, res: JourneyResponse, pal: AltPalette) {
                     .border(1.dp, pal.red).padding(14.dp),
             ) {
                 Row(verticalAlignment = Alignment.Top) {
-                    Text("▲", fontSize = 16.sp, color = pal.red, fontWeight = FontWeight.Bold)
+                    Box(
+                        Modifier.background(pal.red).size(22.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("!", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.White) }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -245,8 +248,8 @@ private fun FeatureCard(st: AppState, j: Journey, pal: AltPalette) {
     val estDep = fmtEstimate(j.realtime?.estimatedDepartureDelayMinutes)
     val estArr = fmtEstimate(j.realtime?.estimatedArrivalDelayMinutes)
 
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-        Box(Modifier.width(5.dp).fillMaxHeight().background(pal.red))
+    var expanded by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).border(1.dp, pal.red)) {
         Column(
             Modifier.weight(1f).background(pal.featureBg).padding(24.dp),
         ) {
@@ -296,13 +299,26 @@ private fun FeatureCard(st: AppState, j: Journey, pal: AltPalette) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(pal.featureRule))
 
             Spacer(Modifier.height(14.dp))
-            Text(st.t("itinerary").uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                letterSpacing = 1.2.sp, color = pal.featureMuted)
-            Spacer(Modifier.height(6.dp))
-            if (j.legs.isEmpty()) {
-                Text("—", fontSize = 12.sp, color = pal.featureMuted)
+            Box(
+                Modifier.fillMaxWidth().border(1.dp, pal.featureRule).clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    (if (expanded) st.t("lessinfo") else st.t("moreinfo")).uppercase(),
+                    fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
+                    color = pal.red,
+                )
             }
-            j.legs.forEach { leg -> FeatureLeg(st, leg, pal) }
+            if (expanded) {
+                Spacer(Modifier.height(12.dp))
+                Text(st.t("itinerary").uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp, color = pal.featureMuted)
+                Spacer(Modifier.height(6.dp))
+                if (j.legs.isEmpty()) {
+                    Text("—", fontSize = 12.sp, color = pal.featureMuted)
+                }
+                j.legs.forEach { leg -> FeatureLeg(st, leg, pal) }
+            }
 
             val tags = buildList {
                 if (j.dataStatus == "MOCK") add(st.t("mock"))
@@ -329,7 +345,7 @@ private fun FeatureCard(st: AppState, j: Journey, pal: AltPalette) {
                         LegendDot(pal.red, st.t("legend.known"), pal.featureMuted)
                     }
                     if (estDep != null || estArr != null) {
-                        LegendDot(pal.orange, st.t("legend.est"), pal.featureMuted)
+                        LegendDot(pal.muted, st.t("legend.est"), pal.featureMuted)
                     }
                 }
             }
@@ -357,21 +373,17 @@ private fun FeatureTime(
                     Text(known, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
+            if (known != null && est != null) Spacer(Modifier.width(6.dp))
+            if (est != null) {
+                Box(Modifier.border(1.dp, pal.muted).padding(horizontal = 6.dp, vertical = 3.dp)) {
+                    Text(est, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = pal.muted)
+                }
+            }
         }
         Spacer(Modifier.height(14.dp))
         Text(time, fontSize = 44.sp, fontWeight = FontWeight.Bold, letterSpacing = (-2).sp,
             color = pal.featureInk, maxLines = 1)
-        Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth()) {
-            if (est != null) {
-                Box(
-                    Modifier.align(Alignment.CenterEnd).background(pal.orange)
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                ) {
-                    Text("≈" + est, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF101010))
-                }
-            }
-        }
+        Spacer(Modifier.height(10.dp))
     }
 }
 
@@ -467,17 +479,16 @@ private fun Band(
                 )
             }
 
-            Column(horizontalAlignment = Alignment.End) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 if (known != null) {
                     Box(Modifier.background(pal.action).padding(horizontal = 6.dp, vertical = 2.dp)) {
                         Text(known, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
-                    Spacer(Modifier.height(3.dp))
                 }
+                if (known != null && est != null) Spacer(Modifier.width(6.dp))
                 if (est != null) {
-                    Box(Modifier.background(pal.orange).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                        Text("≈" + est, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                            color = Color(0xFF101010))
+                    Box(Modifier.border(1.dp, pal.muted).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text(est, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = pal.muted)
                     }
                 }
             }

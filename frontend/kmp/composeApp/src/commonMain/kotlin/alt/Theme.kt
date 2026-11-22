@@ -43,11 +43,11 @@ val LightAlt = AltPalette(
     action = Color(0xFFB71C1C),
     actionInk = Color(0xFFFFFFFF),
     orange = Color(0xFFFF8B56),
-    featureBg = Color(0xFF101010),
-    featureInk = Color(0xFFFFFFFF),
-    featureMuted = Color(0xFFDDDDDD),
-    featureTimeBg = Color(0xFF242424),
-    featureRule = Color(0xFF888888),
+    featureBg = Color(0xFFFFFFFF),
+    featureInk = Color(0xFF101010),
+    featureMuted = Color(0xFF555555),
+    featureTimeBg = Color(0xFFF2F2F2),
+    featureRule = Color(0xFFC7C7C7),
     clearBg = Color(0xFFF2F2F2),
 )
 
@@ -61,11 +61,11 @@ val DarkAlt = AltPalette(
     action = Color(0xFFE53935),
     actionInk = Color(0xFF101010),
     orange = Color(0xFFFF8B56),
-    featureBg = Color(0xFFFFFFFF),
-    featureInk = Color(0xFF101010),
-    featureMuted = Color(0xFF474747),
-    featureTimeBg = Color(0xFFF2F2F2),
-    featureRule = Color(0xFF888888),
+    featureBg = Color(0xFF242424),
+    featureInk = Color(0xFFFFFFFF),
+    featureMuted = Color(0xFFC7C7C7),
+    featureTimeBg = Color(0xFF101010),
+    featureRule = Color(0xFF555555),
     clearBg = Color(0xFF242424),
 )
 
