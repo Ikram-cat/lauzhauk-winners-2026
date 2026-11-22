@@ -17,6 +17,11 @@ data class AppConfig(
     val delayArtifactPath: String? = System.getenv("DELAY_ARTIFACT_PATH"),
     // Blank disables fare lookup (used by the test task to stay offline).
     val fareBaseUrl: String = System.getenv("FARE_BASE_URL") ?: "https://transport.opendata.ch",
+    /** Postgres/JDBC URL (Railway DATABASE_URL); unset -> isolated H2 in-memory DB. */
+    val databaseUrl: String? = System.getenv("DATABASE_URL"),
+    /** Optional credentials when DATABASE_URL does not embed them (jdbc: URLs). */
+    val databaseUser: String? = System.getenv("DATABASE_USER"),
+    val databasePassword: String? = System.getenv("DATABASE_PASSWORD"),
     val gtfsRtApiKey: String? = System.getenv("GTFS_RT_API_KEY"),
     /** GTFS-RT Service Alerts key (la/gtfs-sa); unset -> live alerts DISABLED in /api/journeys/impact. */
     val gtfsSaApiKey: String? = System.getenv("GTFS_SA_API_KEY"),

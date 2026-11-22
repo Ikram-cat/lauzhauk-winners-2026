@@ -2,6 +2,7 @@ package com.alt.backend.config
 
 import com.alt.backend.api.ErrorDetailDto
 import com.alt.backend.api.ErrorResponseDto
+import com.alt.backend.api.accountRoutes
 import com.alt.backend.api.configureRoutes
 import com.alt.backend.provider.DemoScenarioTransportProvider
 import com.alt.backend.gtfs.GtfsRealtimeSource
@@ -14,7 +15,11 @@ import com.alt.backend.service.JourneySearchService
 import com.alt.backend.service.duration.DurationArtifactLoader
 import com.alt.backend.service.impact.ReplayTimelineDisruptionSource
 import com.alt.backend.service.impact.ServiceAlertsSource
+import com.alt.backend.auth.Authenticator
+import com.alt.backend.auth.TokenService
+import com.alt.backend.db.Persistence
 import com.alt.backend.provider.ResilientProvider
+import io.ktor.server.routing.routing
 import com.alt.backend.service.*
 import java.nio.file.Files
 import java.nio.file.Path
@@ -48,6 +53,7 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         allowMethod(HttpMethod.Options)
         allowHeader(HttpHeaders.ContentType)
         allowHeader(HttpHeaders.Accept)
+        allowHeader(HttpHeaders.Authorization)
         if (config.corsAllowedOrigins.isEmpty()) {
             anyHost()
         } else {
@@ -60,6 +66,14 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
 
     // Status pages for unhandled exceptions
     install(StatusPages) {
+        // DB failures on the account routes map to 503 (the error envelope, never raw SQL)
+        exception<java.sql.SQLException> { call, _ ->
+            log.error("Database unavailable")
+            call.respond(
+                HttpStatusCode.ServiceUnavailable,
+                ErrorResponseDto(ErrorDetailDto("DATABASE_ERROR", "The database is unavailable"))
+            )
+        }
         exception<Throwable> { call, cause ->
             log.error("Unhandled exception: ${cause.javaClass.simpleName}", cause)
             call.respond(
@@ -124,6 +138,16 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { src.current() }
         }
     } ?: run { log.info("GTFS-RT Service Alerts disabled (no GTFS_SA_API_KEY)"); null }
+    // Accounts, saved plans and travel history (H2 in-memory unless DATABASE_URL is set)
+    val database = Persistence.connect(Persistence.parseDatabaseUrl(config.databaseUrl, config.databaseUser, config.databasePassword))
+    val accountTokens = TokenService(database, clock)
+    val accountUsers = UserService(database, clock)
+    val accountPlans = PlanService(database, clock)
+    val accountTravels = TravelService(database, clock)
+    routing {
+        accountRoutes(accountUsers, accountTokens, accountPlans, accountTravels, Authenticator(accountTokens, accountUsers))
+    }
+
     configureRoutes(searchService, clock, risk, gtfs, delay,
         durationEstimator = durationEstimator, disruptionSource = disruptionSource, serviceAlerts = serviceAlerts)
 }

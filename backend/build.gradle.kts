@@ -46,6 +46,14 @@ dependencies {
     // Logging
     implementation("ch.qos.logback:logback-classic:$logbackVersion")
 
+    // Persistence (user accounts, saved plans, travel history)
+    implementation("org.jetbrains.exposed:exposed-core:0.56.0")
+    implementation("org.jetbrains.exposed:exposed-jdbc:0.56.0")
+    implementation("org.jetbrains.exposed:exposed-java-time:0.56.0")
+    implementation("at.favre.lib:bcrypt:0.10.2")
+    implementation("com.h2database:h2:2.2.224")
+    implementation("org.postgresql:postgresql:42.7.4")
+
     // Test
     testImplementation(kotlin("test-junit5"))
     testImplementation("io.ktor:ktor-server-test-host-jvm:$ktorVersion")
