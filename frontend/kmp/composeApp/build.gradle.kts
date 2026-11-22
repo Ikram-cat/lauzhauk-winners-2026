@@ -5,10 +5,13 @@ plugins {
     kotlin("plugin.compose")
     kotlin("plugin.serialization")
     id("org.jetbrains.compose")
+    id("com.android.application")
 }
 
 kotlin {
     jvm("desktop")
+
+    androidTarget()
 
     wasmJs {
         browser()
@@ -58,10 +61,38 @@ kotlin {
                 implementation("io.ktor:ktor-client-js:3.3.3")
             }
         }
+        val androidMain by getting {
+            dependencies {
+                implementation("io.ktor:ktor-client-android:3.3.3")
+                implementation("androidx.activity:activity-compose:1.9.3")
+            }
+        }
         // Convention accessor: iosMain comes from the default hierarchy template (created after the targets).
         iosMain.dependencies {
             implementation("io.ktor:ktor-client-darwin:3.3.3")
         }
+    }
+}
+
+android {
+    namespace = "com.lauzhauk.alt"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.lauzhauk.alt"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0.0"
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
     }
 }
 
