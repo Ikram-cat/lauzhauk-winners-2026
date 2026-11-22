@@ -12,7 +12,6 @@ import java.time.Clock
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -31,12 +30,13 @@ private fun parseInstant(name: String, value: String): OffsetDateTime = try {
 fun Route.disruptionRoutes(estimator: DisruptionDurationEstimator, clock: Clock) {
     post("/api/disruptions/outlook") {
         val request = try {
-            call.receive<DisruptionOutlookRequestDto>()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            call.respond(HttpStatusCode.BadRequest,
-                ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Malformed or incomplete JSON body")))
+            call.receiveBounded<DisruptionOutlookRequestDto>().also {
+                it.disruption.reasonCode.requireWithin("disruption.reasonCode", MAX_ID_CODE_POINTS)
+                it.disruption.durationType.requireWithin("disruption.durationType", MAX_ID_CODE_POINTS)
+                it.disruption.summaryEn.requireWithin("disruption.summaryEn", MAX_SUMMARY_CODE_POINTS)
+            }
+        } catch (e: FieldError) {
+            call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", e.message!!, e.field)))
             return@post
         }
 

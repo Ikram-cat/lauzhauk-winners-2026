@@ -8,7 +8,7 @@ import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
@@ -169,33 +169,58 @@ object ServiceAlertGrouper {
         }
 }
 
-/** la/gtfs-sa, fetched at most once per [ttlMs]; a snapshot stays usable for [staleMs]. The key is only a header. */
+/**
+ * la/gtfs-sa, fetched at most once per [ttlMs]; a snapshot stays usable for [staleMs]. The key is only a header.
+ * Stale-while-revalidate like GtfsRealtimeSource: an expired snapshot is returned at once while one background fetch
+ * refreshes it; only the very first call (no snapshot yet) waits. No lock is held across the network call.
+ */
 class ServiceAlertsSource(
     private val fetch: suspend () -> ByteArray,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val ttlMs: Long = 60_000,
-    private val staleMs: Long = 300_000
+    private val staleMs: Long = 300_000,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
     private val log = LoggerFactory.getLogger(ServiceAlertsSource::class.java)
     private val mutex = Mutex()
     @Volatile private var snapshot: AlertsSnapshot? = null
     @Volatile private var lastAttemptMs = Long.MIN_VALUE / 2
+    @Volatile private var inflight: Deferred<Unit>? = null
 
-    suspend fun current(): AlertsSnapshot? = mutex.withLock {
+    private fun usable(): AlertsSnapshot? = snapshot?.takeIf { nowMs() - it.fetchedAt.toEpochMilli() < staleMs }
+
+    suspend fun current(): AlertsSnapshot? {
+        val s = snapshot
+        val age = s?.let { nowMs() - it.fetchedAt.toEpochMilli() }
+        if (s != null && age!! < ttlMs) return s
+        val refresh = refresh()
+        if (s != null && age!! < staleMs) return s
+        refresh.await()
+        return usable()
+    }
+
+    /** Wait for a running refresh (tests). */
+    internal suspend fun settle() { inflight?.await() }
+
+    // The mutex only guards starting the single in-flight job, never the fetch itself.
+    private suspend fun refresh(): Deferred<Unit> = mutex.withLock {
+        inflight?.takeIf { it.isActive } ?: scope.async { doFetch() }.also { inflight = it }
+    }
+
+    private suspend fun doFetch() {
         val now = nowMs()
-        if (now - lastAttemptMs >= ttlMs) {
-            lastAttemptMs = now
-            try {
-                snapshot = ServiceAlertsDecoder.parse(fetch(), Instant.ofEpochMilli(now))
-                log.info("Service Alerts refreshed: {} alerts", snapshot!!.alerts.size)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.warn("Service Alerts refresh failed ({}); keeping previous snapshot for up to {} s",
-                    e.javaClass.simpleName, staleMs / 1000)
-            }
+        if (now - lastAttemptMs < ttlMs) return // rate-limit guard: never a second network call within the TTL, success or not
+        lastAttemptMs = now
+        try {
+            val parsed = ServiceAlertsDecoder.parse(fetch(), Instant.ofEpochMilli(now))
+            snapshot = parsed
+            log.info("Service Alerts refreshed: {} alerts", parsed.alerts.size)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.warn("Service Alerts refresh failed ({}); keeping previous snapshot for up to {} s",
+                e.javaClass.simpleName, staleMs / 1000)
         }
-        snapshot?.takeIf { now - it.fetchedAt.toEpochMilli() < staleMs }
     }
 
     companion object {
@@ -207,7 +232,7 @@ class ServiceAlertsSource(
             return {
                 val r = client.get(url) { header(HttpHeaders.Authorization, "Bearer $apiKey") }
                 if (r.status.value != 200) error("Service Alerts HTTP ${r.status.value}")
-                r.readBytes()
+                r.readRawBytes()
             }
         }
     }

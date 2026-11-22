@@ -30,6 +30,9 @@ data class AppConfig(
     val gtfsRtEnabled: Boolean = !System.getenv("GTFS_RT_ENABLED").equals("false", ignoreCase = true) && !System.getenv("GTFS_RT_API_KEY").isNullOrBlank(),
     val cacheEnabled: Boolean = !System.getenv("CACHE_ENABLED").equals("false", ignoreCase = true)
 ) {
+    /** The generated data-class toString would print every API key. */
+    override fun toString() = "AppConfig(transportProvider=$transportProvider, riskSource=$riskSource, cacheEnabled=$cacheEnabled, keys=redacted)"
+
     companion object {
         fun fromEnv(): AppConfig = AppConfig()
     }

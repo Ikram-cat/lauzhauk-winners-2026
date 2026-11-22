@@ -25,6 +25,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.ConcurrentHashMap
+import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
 class OjpLocationResolutionException(message: String) : RuntimeException(message)
@@ -112,9 +113,9 @@ class OjpTransportProvider(
                         parseTripResponse(body)
                     }
                     401, 403 -> {
-                        log.error("OJP authentication error: HTTP {}", response.status.value)
+                        log.error("OJP authentication error: HTTP {}. Check OJP_API_KEY configuration.", response.status.value)
                         ProviderResult.AuthError(
-                            "Transport provider authentication failed. Check OJP_API_KEY configuration."
+                            "Transport provider authentication failed."
                         )
                     }
                     429 -> ProviderResult.RateLimited("OJP rate limit reached")
@@ -150,8 +151,9 @@ class OjpTransportProvider(
         val body = postLocationRequest(buildLocationRequest(name, nowTs()), timeoutMs)
         val found = parsePlaceResponse(body)
             ?: throw OjpLocationResolutionException("Could not resolve stop '$name' via OJP LocationInformationRequest")
+        if (stopCache.size >= MAX_STOP_CACHE) stopCache.clear() // keys are user text that OJP fuzzy-matches: bound memory
         stopCache[name] = found
-        log.info("Resolved stop '{}' -> '{}'", name, found.first)
+        log.debug("Resolved stop -> '{}'", found.first) // user input stays out of routine logs
         return found
     }
 
@@ -164,7 +166,7 @@ class OjpTransportProvider(
                 // The id must name a real stop. OJP has no lookup by id, but a departure board for it exists only for real stops.
                 val known = stopCache[n]
                 val (usable, name) = if (known != null) true to known.second else parseStopPlaceName(postLocationRequest(buildStopEventRequest(n, n, OffsetDateTime.now(clock), nowTs(), false), stopEventTimeoutMs), n)
-                if (!usable) PlaceResult.NotFound else { stopCache[n] = n to name; PlaceResult.Found(ResolvedPlace(input, n, name, n)) }
+                if (!usable) PlaceResult.NotFound else { if (stopCache.size >= MAX_STOP_CACHE) stopCache.clear(); stopCache[n] = n to name; PlaceResult.Found(ResolvedPlace(input, n, name, n)) }
             }
             else -> resolveText(n).let { (id, name) -> PlaceResult.Found(ResolvedPlace(input, id, name, id)) }
         }
@@ -216,9 +218,10 @@ class OjpTransportProvider(
                 }
                 when (response.status.value) {
                     200 -> response.bodyAsText()
-                    401, 403 -> throw OjpAuthenticationException(
-                        "Transport provider authentication failed. Check OJP_API_KEY configuration."
-                    )
+                    401, 403 -> {
+                        log.error("OJP authentication error: HTTP {}. Check OJP_API_KEY configuration.", response.status.value)
+                        throw OjpAuthenticationException("Transport provider authentication failed.")
+                    }
                     429 -> throw OjpRateLimitedException()
                     else -> throw OjpUpstreamException("OJP location request failed with HTTP ${response.status.value}")
                 }
@@ -674,8 +677,13 @@ class OjpTransportProvider(
     private fun stopPlaceSloid(stop: Element): String? =
         textIn(stop, "StopPointRef")?.takeIf { it.startsWith("ch:1:sloid:") }?.split(":")?.take(4)?.joinToString(":")
 
-    private fun newDocumentBuilder() =
-        DocumentBuilderFactory.newInstance().also { it.isNamespaceAware = true }.newDocumentBuilder()
+    /** No DOCTYPE at all: OJP never sends one, and refusing it closes XXE and entity-expansion attacks. */
+    private fun newDocumentBuilder() = DocumentBuilderFactory.newInstance().also {
+        it.isNamespaceAware = true
+        it.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+        it.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        it.isXIncludeAware = false; it.isExpandEntityReferences = false
+    }.newDocumentBuilder()
 
     private fun firstChildElement(parent: Element, localName: String): Element? =
         (parent.getElementsByTagNameNS("*", localName) as NodeList).item(0) as? Element
@@ -748,6 +756,7 @@ class OjpTransportProvider(
 
     companion object {
         private const val MIN_PLACE_PROBABILITY = 0.5
+        private const val MAX_STOP_CACHE = 2_000
         private val SLOID = Regex("ch:1:sloid:\\d+(:\\d+)*")
         private val COORDS = Regex("(-?\\d{1,3}(?:\\.\\d+)?)\\s*,\\s*(-?\\d{1,3}(?:\\.\\d+)?)")
         fun defaultClient(): HttpClient = HttpClient(CIO) {

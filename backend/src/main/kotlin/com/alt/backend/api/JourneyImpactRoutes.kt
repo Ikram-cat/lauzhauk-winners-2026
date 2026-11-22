@@ -17,7 +17,6 @@ import java.time.Clock
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
-import kotlin.coroutines.cancellation.CancellationException
 
 private val ISO = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
@@ -33,18 +32,19 @@ fun Route.journeyImpactRoutes(
 ) {
     post("/api/journeys/impact") {
         val request = try {
-            call.receive<JourneyImpactRequestDto>()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return@post call.respond(HttpStatusCode.BadRequest,
-                ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "Malformed or incomplete JSON body")))
+            call.receiveBounded<JourneyImpactRequestDto>().also {
+                it.origin.requireWithin("origin", MAX_ID_CODE_POINTS); it.destination.requireWithin("destination", MAX_ID_CODE_POINTS)
+                it.journeyId.requireWithin("journeyId", MAX_ID_CODE_POINTS)
+            }
+        } catch (e: FieldError) {
+            return@post call.respond(HttpStatusCode.BadRequest, ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", e.message!!, e.field)))
         }
         val origin = request.origin.trim()
         val destination = request.destination.trim()
         if (origin.isEmpty() || destination.isEmpty() || origin.length > 120 || destination.length > 120) {
             return@post call.respond(HttpStatusCode.BadRequest,
-                ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "origin and destination must be 1-120 characters")))
+                ErrorResponseDto(ErrorDetailDto("INVALID_REQUEST", "origin and destination must be 1-120 characters",
+                    if (origin.isEmpty() || origin.length > 120) "origin" else "destination")))
         }
         val (observedAt, departure) = try {
             val observed = request.observedAt?.let { OffsetDateTime.parse(it, ISO) } ?: OffsetDateTime.now(clock)

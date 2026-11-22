@@ -13,6 +13,8 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
 import java.time.Clock
@@ -117,6 +119,18 @@ class RouteTest {
     }
 
     @Test
+    fun `a malformed percent escape is a 400 not a 500`() = testApplication {
+        // the test client cannot send a bad escape, so a route fails the way Ktor's lazy query decoding does
+        application {
+            configureApp(fixedClock, AppConfig(transportProvider = "mock", fareBaseUrl = ""))
+            routing { get("/decode") { call.respondText("%zz".decodeURLQueryComponent()) } }
+        }
+        val r = client.get("/decode")
+        assertEquals(HttpStatusCode.BadRequest, r.status)
+        assertTrue(r.bodyAsText().contains("INVALID_REQUEST"))
+    }
+
+    @Test
     fun `parameters are case-insensitive enums and defaults apply`() = appTest {
         val req = parse(client.get("/api/journeys?origin=A&destination=B&preference=cheapest&discount=half_fare&fareClass=1").bodyAsText()).o("request")
         assertEquals("CHEAPEST", req.str("preference")); assertEquals("HALF_FARE", req.str("discount")); assertEquals("1", req.str("fareClass"))
@@ -175,7 +189,7 @@ class RouteTest {
     @Test
     fun `provider failures map to documented statuses`() {
         for ((r, st, code) in listOf(
-            Triple(ProviderResult.AuthError("Transport provider authentication failed. Check OJP_API_KEY configuration."), HttpStatusCode.BadGateway, "UPSTREAM_ERROR"),
+            Triple(ProviderResult.AuthError("Transport provider authentication failed."), HttpStatusCode.BadGateway, "UPSTREAM_ERROR"),
             Triple(ProviderResult.Timeout("OJP did not respond within 8000ms"), HttpStatusCode.GatewayTimeout, "UPSTREAM_TIMEOUT"),
             Triple(ProviderResult.RateLimited("OJP rate limit reached"), HttpStatusCode.ServiceUnavailable, "UPSTREAM_RATE_LIMITED"),
             Triple(ProviderResult.Failure("boom"), HttpStatusCode.BadGateway, "UPSTREAM_ERROR"),

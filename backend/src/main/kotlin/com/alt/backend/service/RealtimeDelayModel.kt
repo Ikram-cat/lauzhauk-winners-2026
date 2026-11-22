@@ -49,8 +49,8 @@ class RealtimeDelayModel(private val path: Path?) {
         synchronized(this) {
             if (mtime == seenMtime) return
             seenMtime = mtime
-            loaded = null
-            if (mtime == -1L) { log.warn("Delay artifact missing; expected delays stay unknown"); return }
+            if (mtime == -1L) {
+                loaded = null; log.warn("Delay artifact missing; expected delays stay unknown"); return }
             try {
                 val f = json.decodeFromString<DelayFile>(Files.readString(p))
                 val st = HashMap<Pair<String, Int>, DelayRow>(); val ln = HashMap<Triple<String, String, Int>, DelayRow>()
@@ -59,7 +59,7 @@ class RealtimeDelayModel(private val path: Path?) {
                     for (s in stationForms(r.station)) ln.merge(Triple(label(r.serviceLabel), s, r.hourBucket), r) { a, b -> if (b.samples > a.samples) b else a }
                 loaded = Loaded(f, st, ln)
                 log.info("Delay artifact loaded: {} portions, {} lines", f.portions.size, f.lines.size)
-            } catch (e: Exception) { log.warn("Delay artifact unreadable ({}); expected delays stay unknown", e.javaClass.simpleName) }
+            } catch (e: Exception) { loaded = null; log.warn("Delay artifact unreadable ({}); expected delays stay unknown", e.javaClass.simpleName) }
         }
     }
 

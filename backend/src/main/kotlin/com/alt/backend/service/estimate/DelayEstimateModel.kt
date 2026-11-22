@@ -133,8 +133,8 @@ class DelayEstimateModel(
         synchronized(this) {
             if (mtime == seenMtime) return
             seenMtime = mtime
-            loaded = null
-            if (mtime == -1L) { log.warn("Delay estimate artifact missing; estimates stay unknown"); return }
+            if (mtime == -1L) {
+                loaded = null; log.warn("Delay estimate artifact missing; estimates stay unknown"); return }
             try {
                 val f = json.decodeFromString<EstimateFile>(Files.readString(p))
                 val lsh = HashMap<Key, EstimateRow>(); val lsb = HashMap<Key, EstimateRow>()
@@ -180,7 +180,7 @@ class DelayEstimateModel(
                 log.info("Delay estimate artifact loaded: {} line rows, {} station rows, {} incident rows",
                     f.lines.size, f.stations.size, f.linesIncident.size + f.stationsIncident.size)
             } catch (e: Exception) {
-                log.warn("Delay estimate artifact unreadable ({}); estimates stay unknown", e.javaClass.simpleName)
+                loaded = null; log.warn("Delay estimate artifact unreadable ({}); estimates stay unknown", e.javaClass.simpleName)
             }
         }
     }

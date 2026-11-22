@@ -308,4 +308,11 @@ class OjpProviderTest {
         assertNull(r[2].y)
         assertEquals(emptyList(), provider.parseLocationSuggestions("<broken"))
     }
+
+    @Test
+    fun `a DOCTYPE is refused instead of expanded`() {
+        val xxe = """<?xml version="1.0"?><!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><OJP>&e;</OJP>"""
+        assertIs<ProviderResult.Failure>(provider.parseTripResponse(xxe))
+        assertEquals(emptyList(), provider.parseLocationSuggestions(xxe))
+    }
 }

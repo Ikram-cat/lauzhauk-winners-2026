@@ -27,7 +27,7 @@ Requests use HTTP locally and HTTPS in public deployments. The API returns UTF-8
 | `destination` | Yes | Same rules as `origin`. |
 | `departure` | No | Earliest eligible scheduled departure. Accept an RFC 3339 timestamp with `Z` or an explicit numeric UTC offset. An omitted value uses the request-time instant from the backend clock. |
 
-Encode each query value, including spaces, accented characters and any literal `+` in an offset. Empty required values, invalid timestamps, duplicate parameters and unsupported parameters return `400 INVALID_REQUEST`. The API expects stop search text rather than an app-specific station identifier. How the provider resolves that text belongs to the transport adapter.
+Encode each query value, including spaces, accented characters and any literal `+` in an offset. Empty required values, invalid timestamps, and duplicate parameters return `400 INVALID_REQUEST`. Unknown parameters are ignored (asserted by `RouteTest`). The API expects stop search text rather than an app-specific station identifier. How the provider resolves that text belongs to the transport adapter.
 
 Use this path for a fixed departure in a local fixture check.
 
@@ -443,30 +443,60 @@ These fields and endpoints were added during implementation. All are additive: a
 
 | Method and path | Purpose | Success |
 | --- | --- | --- |
-| `GET /api/locations?query=<text>` | Stop/address autocomplete for the search box, proxied from the provider and cached. Query 1–120 code points. | `200` with `{ "locations": [ { "id", "name", "kind", "x", "y" } ] }` |
-| `GET /api/alternatives?from=&to=&notBefore=[&arrivalDeadline=]` | Rescue search from an intermediate stop after a disruption. Same validation, ranking and journey shape as `/api/journeys`. | `200` with `{ "request", "alternatives", "latestFeasibleDeparture", "noFeasibleRoute", "advice" }` |
-| `GET /api/model` | Provenance of the risk artifact actually loaded by the running instance. No provider call. | `200` with `{ "modelVersion", "generatedAt", "coverage", "source", "keysLoaded", "status", "corridorsLoaded", "baselineLoaded", "byLineHourCells", "corridorKeysSample" }` |
+| `GET /api/locations?query=<text>` | Stop/address autocomplete for the search box, proxied from the provider and cached. Query 1–120 code points. | `200` with `{ "locations": [ { "id", "name", "kind", "coordinates": { "lat", "lon" } \| null } ] }` |
+| `GET /api/model` | Provenance of the risk artifact actually loaded by the running instance. No provider call. | `200` with `{ "riskModel": { "version", "generatedAt", "source", "status", "coverage", "counts": { "keys", "corridors", "baselineHours", "byLineHourCells" } }, "delayModel": { "version", "status", "counts": { "portions", "lines" } } }` |
 
 ### Additional journey fields
 
+`GET /api/journeys` answers with the nested shape below (DTOs in `backend/src/main/kotlin/com/alt/backend/api/Dtos.kt`). The response has `request`, `status`, `action`, `reasons`, `disruption`, `primaryJourney`, `recommendedJourney`, `alternatives`, `highlights`, `deadlineSummary` and `meta`. A journey appears as `primaryJourney`, `recommendedJourney` (may be the same itinerary) and in `alternatives`, always with the shape of the `JourneyDto` table. Nullable fields are serialized as `null`.
+
+| `JourneyDto` field | Type | Meaning |
+| --- | --- | --- |
+| `id` | String | Opaque itinerary identifier. |
+| `dataStatus` | `LIVE_SCHEDULE` \| `MOCK` | Provider-backed schedule or explicit demo/test source. |
+| `verified` | Boolean | True when the disruption detector checked this itinerary against live data; false means it is ranked on expectations only. |
+| `feasible` | Boolean or null | Present when `arrivalDeadline` was supplied: the expected (else scheduled) arrival is at or before the deadline. Null without a deadline. |
+| `maxOccupancy` | `LOW` \| `MEDIUM` \| `HIGH` \| null | Highest occupancy over transit legs for the requested `fareClass`. |
+| `schedule` | `{ departure, arrival, durationMinutes, transfers }` | Scheduled times (offset timestamps) and counts. Never altered by delays. |
+| `realtime` | `RealtimeDto` | Known delay and the separate estimate layer, see below and [Historical delay estimates](#historical-delay-estimates-estimated--projected). |
+| `risk` | `RiskDto` | Modelled disruption risk, see below. |
+| `fares` | `FaresDto` | Price, see below. |
+| `legs` | Array of `LegDto` | Ordered legs. |
+
+`risk` (`RiskDto`):
+
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `feasible` | Boolean | Present when `arrivalDeadline` was supplied. True when scheduled arrival is at or before the deadline. |
-| `reasons` | Array of strings, at most 3 | Short explanations derived from real data only: `earliest arrival`, `fewest transfers`, `arrives N min before your deadline`, `corridor risk N.N%`. |
-| `riskSource` | `corridor` \| `baseline` \| null | Which artifact table produced the risk values. |
-| `riskBasis` | `corridor_duration` \| `baseline_duration` \| `corridor_delay` \| null | What the numbers describe. `*_duration` means the estimate is the typical length of a disruption on that corridor, not a delay a traveller will experience. |
-| `riskConfidence` | `low` \| `medium` \| `high` \| `very_low` \| null | Sample-size band of the matched artifact row. |
-| `disruptionDurationMin` | Integer or null | Typical disruption length in minutes for the matched corridor or hour baseline. Not a predicted delay. |
-| `estimatedFareChf` | Number or null | Now populated: SBB/CFF NOVA 2nd-class full-fare single (Streckenbillett), CHF, for the journey's first-leg origin to last-leg destination. Null when no price is available. |
-| `halfFareChf` | Number or null | 2nd class with Half-Fare card, CHF. |
-| `firstClassFareChf` | Number or null | 1st class full fare, CHF. |
-| `fareProduct` | String or null | Upstream product name, e.g. `Streckenbillett`. |
-| `fareSource` | `NOVA` \| `MOCK` \| null | Price source. |
-| `fareChf` | Number or null | Price for the requested `fareClass` and `discount` (what the user would pay): 2+`NONE` = `estimatedFareChf`, 2+`HALF_FARE` = `halfFareChf`, 1+`NONE` = `firstClassFareChf`, 1+`HALF_FARE` = `firstClassHalfFareChf`. Null when that number is missing. |
-| `firstClassHalfFareChf` | Number or null | 1st class with Half-Fare card, CHF. |
-| `fareStatus` | `PRICED` \| `UNAVAILABLE` \| null | `UNAVAILABLE` when the fare lookup failed or returned no price for the requested class and discount; null when fare lookup is disabled on the instance (`FARE_BASE_URL` blank). |
+| `corridorIncidentRate` | Number in `[0, 1]` or null | Modelled disruption probability of the matched corridor (per day) or hour baseline (per hour). Not a late-arrival probability for this traveller. |
+| `typicalIncidentDurationMinutes` | Integer or null | Typical disruption length of the matched row. Not a predicted delay. |
+| `source` | `CORRIDOR` \| `BASELINE` \| `NONE` | Which artifact table produced the values; `NONE` means unknown. |
+| `basis` | `DAY_WINDOW_<n>` \| `DAY_WINDOW` \| `HOURLY_BASELINE` \| null | Observation window the rate refers to (`n` days of coverage). |
+| `confidence` | `LOW` \| `MEDIUM` \| `HIGH` \| null | Sample-size band of the matched row. |
+| `level` | `LOW` \| `MEDIUM` \| `HIGH` \| null | Banding of `corridorIncidentRate` (`< 0.02`, `< 0.06`, else). |
 
-Fares come from `transport.opendata.ch` (`/v1/connections` then `/v1/fare`, keyless; base URL `FARE_BASE_URL`, default `https://transport.opendata.ch`). Each lookup has a 3 s per-request timeout and the search spends at most 5 s on fares; a failed lookup never fails or blocks the search. Quotes are cached per trimmed, lowercased `origin|destination` for 6 h (failures for 5 min, at most 500 entries), so the price ignores departure time and journeys sharing an origin and destination share one price. The price is for the stop names, also on `MOCK` journeys.
+`fares` (`FaresDto`):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `status` | `PRICED` \| `UNAVAILABLE` \| `DISABLED` | `DISABLED` when fare lookup is off on the instance (`FARE_BASE_URL` blank); `UNAVAILABLE` when the lookup failed or has no price for the requested class and discount. |
+| `selectedChf` | Number or null | Price for the requested `fareClass` and `discount` (what the traveller would pay). |
+| `product` | String or null | Upstream product name, e.g. `Streckenbillett`. |
+| `source` | `NOVA` \| `MOCK` \| null | Price source. |
+| `catalogChf` | `CatalogFaresDto` or null | `{ secondClassFull, secondClassHalfFare, firstClassFull, firstClassHalfFare }`, each a number or null (CHF). |
+
+`reasons` is an array of objects, never prose. Only the numbers that justify the `code` are present (absent keys are omitted, not null):
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `code` | String | `REALTIME_UNAVAILABLE`, `PRIMARY_LEG_CANCELLED`, `SUPPRESSED_STOP`, `PRIMARY_LEG_DELAYED`, `EARLIER_ARRIVAL`, `EARLIER_DEPARTURE_CANCELLED`, `EXPECTED_FASTER`, `FEWER_TRANSFERS`, `CHEAPER`, `STAY_FASTEST`, `DEADLINE_MET`, `DEADLINE_MISSED`. |
+| `serviceLabel` | String | Line the reason is about. |
+| `delayMinutes` | Integer | Measured delay of that leg. |
+| `savedMinutes` | Integer | Minutes the recommendation saves versus the primary journey. |
+| `savedTransfers` | Integer | Fewer transfers versus the primary journey. |
+| `savedChf` | Number | Cheaper by this much, CHF. |
+| `marginMinutes` | Integer | Minutes of slack (`DEADLINE_MET`) or overrun (`DEADLINE_MISSED`) against `arrivalDeadline`. |
+
+Other top-level fields: `status` (`NO_DISRUPTION` \| `DISRUPTION_DETECTED` \| `UNKNOWN`), `action` (`STAY` \| `REROUTE` \| `NONE`), `disruption` (object or null: `legIndex`, `serviceLabel`, `from`, `to`, `scheduledDeparture`, `estimatedDeparture`, `delayMinutes`, `cancelled`, `basis`, `confidence`, `cause`, `severity`), `highlights` (`{ fastestId, simplestId, cheapestId }`, each an id or null; independent of `preference`), `deadlineSummary` (`{ feasible, latestFeasibleDeparture }` or null without a deadline) and `meta` (`{ computedAt, modelVersion }`).
 
 ### `preference` query parameter (`/api/journeys`)
 
@@ -475,7 +505,7 @@ Optional, one of `FASTEST` (default), `CHEAPEST`, `SIMPLEST`, case-insensitive; 
 | Preference | Order |
 | --- | --- |
 | `FASTEST` | arrival asc, transfers asc, departure asc, id |
-| `CHEAPEST` | `fareChf` asc with nulls last, arrival asc, id (`fareChf` equals `estimatedFareChf` with default `fareClass`/`discount`) |
+| `CHEAPEST` | `fares.selectedChf` asc with nulls last, arrival asc, id |
 | `SIMPLEST` | transfers asc, leg count asc, arrival asc, id |
 
 `predictedDelayMinutes` remains the field for a validated delay estimate and stays null while the only available signal is disruption duration. It is populated only when an artifact row carries `delayEstimateMin`.
@@ -487,25 +517,25 @@ Optional, one of `FASTEST` (default), `CHEAPEST`, `SIMPLEST`, case-insensitive; 
 | `fareClass` | `1` or `2` | `2` | `400 INVALID_REQUEST` `Parameter 'fareClass' must be 1 or 2` |
 | `discount` | `NONE` or `HALF_FARE`, case-insensitive | `NONE` | `400 INVALID_REQUEST` `Parameter 'discount' must be one of NONE, HALF_FARE` |
 
-Both are echoed in `request` (`fareClass` as an integer, `discount` upper-case). They select `fareChf` only; the raw price fields and the fare cache do not depend on them. Example for `fareClass=1&discount=HALF_FARE` (real NOVA numbers, Lausanne to Zürich HB):
+Both are echoed in `request` (`fareClass` as an integer, `discount` upper-case). They select `fares.selectedChf` only; the raw price fields and the fare cache do not depend on them. Example for `fareClass=1&discount=HALF_FARE` (real NOVA numbers, Lausanne to Zürich HB):
 
 ```json
-"request": { "origin": "Lausanne", "destination": "Zürich", "preference": "CHEAPEST", "fareClass": 1, "discount": "HALF_FARE", "...": "..." },
-"journeys": [{ "id": "mock-direct-1", "estimatedFareChf": 77.0, "halfFareChf": 38.5, "firstClassFareChf": 131.0,
-               "firstClassHalfFareChf": 65.5, "fareChf": 65.5, "fareStatus": "PRICED", "...": "..." }]
+"request": { "origin": { "input": "Lausanne", "resolvedName": "Lausanne", "id": "ch:1:sloid:1120" }, "preference": "CHEAPEST", "fareClass": 1, "discount": "HALF_FARE", "...": "..." },
+"primaryJourney": { "id": "mock-direct-1", "fares": { "status": "PRICED", "selectedChf": 65.5, "product": "Streckenbillett", "source": "NOVA",
+  "catalogChf": { "secondClassFull": 77.0, "secondClassHalfFare": 38.5, "firstClassFull": 131.0, "firstClassHalfFare": 65.5 } }, "...": "..." }
 ```
 
 `FARE_BASE_URL=mock` replaces NOVA with fixed demo prices (42.00 / 21.00 / 72.00 / 36.00, `fareSource` `MOCK`) for offline demos.
 
 ### Additional response fields
 
-`recommendations` (`/api/journeys` only) is `{ "fastest", "cheapest", "simplest" }`, each the id of the best journey under that preference over the same candidate set, or null when there are no journeys. It does not depend on the requested `preference`.
+`highlights` (`/api/journeys` only) is `{ "fastestId", "simplestId", "cheapestId" }`, each the id of the best journey under that preference over the journeys shown, or null (`cheapestId` is null when no shown journey has a price). It does not depend on the requested `preference`.
 
 ```json
-"recommendations": { "fastest": "mock-direct-1", "cheapest": "mock-direct-1", "simplest": "mock-direct-1" }
+"highlights": { "fastestId": "mock-direct-1", "simplestId": "mock-direct-1", "cheapestId": "mock-direct-1" }
 ```
 
-`latestFeasibleDeparture` (offset timestamp or null) is the latest departure among journeys that still meet `arrivalDeadline`; `noFeasibleRoute` (Boolean) is true when a deadline was supplied and nothing qualifies; `advice` is one sentence, at most 240 characters, built only from data present in the response, and states explicitly when risk is unknown.
+`deadlineSummary.latestFeasibleDeparture` (offset timestamp or null) is the latest scheduled departure among candidates that still meet `arrivalDeadline`; `deadlineSummary.feasible` is false when none qualifies. There is no free-text `advice` field on `/api/journeys`: the explanation is `reasons`.
 
 Risk data comes from an offline artifact built from public SBB liveticker incidents (2024-2026, 142 corridors, ~91% incident coverage). Coverage, model version and confidence limits are reported by `GET /api/model` and must be shown or linked wherever a modelled number is displayed.
 
