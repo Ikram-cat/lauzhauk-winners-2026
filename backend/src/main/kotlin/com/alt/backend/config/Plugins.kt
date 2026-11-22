@@ -154,4 +154,15 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     } else {
         log.info("Web UI directory '{}' not found; serving API only", config.webDir)
     }
+
+    // Kotlin Multiplatform (Compose) app, frontend/kmp/dist, served same-origin at /kmp (WEB_KMP_DIR).
+    // Same missing-dir rule as above: absent directory -> no /kmp routes at all. The JS UI at / stays
+    // untouched; the KMP app calls the same relative /api endpoints.
+    val webKmpDir = java.io.File(config.webKmpDir)
+    if (webKmpDir.isDirectory) {
+        routing { staticFiles("/kmp", webKmpDir) }
+        log.info("Serving KMP app at /kmp from {}", webKmpDir.absolutePath)
+    } else {
+        log.info("KMP directory '{}' not found; /kmp not served", config.webKmpDir)
+    }
 }

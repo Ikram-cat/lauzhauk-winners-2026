@@ -193,6 +193,12 @@ fun Application.configureRoutes(
                 is PlaceResult.Failure -> return@get call.fail(HttpStatusCode.BadGateway, "UPSTREAM_ERROR", r.message)
             }
             val o = (from as PlaceResult.Found).place; val d = (to as PlaceResult.Found).place
+            // Same station both ends is not a journey (matches SBB behaviour: no journey).
+            // Mock/coordinate places carry no id, so the guard only fires on resolved stop ids.
+            if (!o.id.isNullOrEmpty() && o.id == d.id) {
+                return@get call.fail(HttpStatusCode.BadRequest, "SAME_ORIGIN_DESTINATION",
+                    "Origin and destination are the same station", "destination")
+            }
 
             val req = SearchRequest(o.query, d.query, departure, fareClass, discount)
             // A demo perturbation carries a per-request profile in the coroutine context so the provider's search

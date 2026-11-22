@@ -20,6 +20,8 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY --from=builder /app/build/install/alt-backend/ ./
 COPY frontend/web/ web/
+# Kotlin Multiplatform (Compose) wasm app served at /kmp (WEB_KMP_DIR=web-kmp)
+COPY frontend/kmp/dist web-kmp/
 
 USER appuser
 
