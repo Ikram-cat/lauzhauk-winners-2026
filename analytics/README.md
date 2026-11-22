@@ -211,11 +211,13 @@ Current results on the test period (104 incidents, 639 snapshots after 2026-04-0
 
 ## Live mode: not implemented
 
-There is no live mode; the Renens replay remains the main demo. Checked on 2026-11-21, after merging `main`:
+There is no live mode; the Renens replay remains the main demo. Checked on 2026-11-22 with the team's key (`GTFS_RT_API_KEY` in `.env`, 120 characters, never printed or committed):
 
-1. **No usable key in this checkout.** `.env` exists but is empty (0 bytes), so `GTFS_RT_API_KEY` (the variable used by the team's `backend/.../gtfs/GtfsRealtimeSource.kt`) is not set. Without a key nothing could be inspected:
-   - `https://api.opentransportdata.swiss/la/gtfs-rt` (TripUpdates, used by the team) answers `401` without a key;
-   - `https://api.opentransportdata.swiss/la/gtfs-sa` (Service Alerts) also answers `401`, so the endpoint exists. Whether the same key opens it is unverified.
+1. **The key has no access to Service Alerts.**
+   - `https://api.opentransportdata.swiss/la/gtfs-rt` (TripUpdates, used by the team): `200`, `application/x-protobuf`, 2.55 MB.
+   - `https://api.opentransportdata.swiss/la/gtfs-sa` (Service Alerts): `403 Forbidden`, body `{"error": "Access to this API has been disallowed"}`.
+
+   The key is valid but not subscribed to the Service Alerts API, so no real alert could be read. No alert decoder was written, because there is nothing to verify it on. To unblock: subscribe the key (or a new one) to GTFS-RT Service Alerts on the opentransportdata.swiss API manager, then rerun this check.
 2. **The team's GTFS code reads TripUpdates only.** `GtfsDecoder` decodes `FeedEntity.trip_update` (field 3), not `alert` (field 5). Our model needs a cause, an announced end and the affected stations. TripUpdates carry none of the first two: delays, cancellations and skipped stops are effects, not causes or announced ends. A live mode needs the Service Alerts feed.
 3. **The mapping of a Service Alert to our features is unproven**, even with a key:
 
@@ -224,7 +226,7 @@ There is no live mode; the Renens replay remains the main demo. Checked on 2026-
    | `reasonCode` | SBB cause `EG_xxx` | `cause` is a 12-value enum (`ACCIDENT`, `TECHNICAL_PROBLEM`, …) with no published mapping to the 31 `EG_xxx` codes. An unmapped cause becomes a missing category. |
    | `announcedEndAt` | `duration_to` | `active_period.end` is the validity window of the alert. That it equals the announced end of the disruption is unverified. |
    | `startedAt`, `updatesSoFar` | `created_at_source`, number of published versions | `active_period.start`; the version history must be rebuilt by polling (5 requests per minute at most). |
-   | affected stations | VIA UIC → sloid | `informed_entity.stop_id`: GTFS-RT stop ids are platform sloids (`ch:1:sloid:1026:2:4` in the team's captured fixture), which the team's `GtfsMatch.sameStop` already matches to UIC/sloid. This part is reliable. |
+   | affected stations | VIA UIC → sloid | `informed_entity.stop_id`. In the real TripUpdates feed (2026-11-22), all 53,268 stop ids are sloids: 27,284 platform-level (`ch:1:sloid:1118:…:…`) and 25,984 stop-place (`ch:1:sloid:1118`), over 10,013 stop places, including Renens VD, Morges, Lausanne and Genève. Assuming alerts use the same ids, the team's `GtfsMatch.sameStop` matches them to VIA UIC codes. This part is likely reliable; it is verified on TripUpdates only. |
    | identifier | `alea_fall_id` | No evidence that the alert id carries the liveticker / VIA id, so live predictions cannot be checked against training labels. |
 4. **No GTFS journey search exists.** Journeys come from OJP or the mock. The team's GTFS-RT matching itself links a leg to a GTFS trip through OJP stop events (`lineRef`, timetabled origin departure). `detourExtraMinutes` therefore cannot be computed "with GTFS". The demo keeps `TRANSPORT_PROVIDER=demo`.
 
