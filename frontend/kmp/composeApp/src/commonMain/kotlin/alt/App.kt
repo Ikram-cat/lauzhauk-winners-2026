@@ -111,9 +111,9 @@ private fun Masthead(st: AppState, pal: AltPalette) {
                     }
                     Spacer(Modifier.width(if (compact) 8.dp else 18.dp))
                 }
-                // The SVG is transparent, so the tile carries the mark: black tile on the
-                // light theme, white tile on the dark theme; the glyph is knocked out in
-                // the page colour.
+                // The SVG is transparent, so the tile carries the mark: the glyph is dark on
+                // the light theme and light on the dark theme, and the tile is the opposite
+                // tone so the mark stays legible.
                 Box(
                     Modifier.size(44.dp).background(pal.logoTile).border(1.dp, pal.rule),
                     contentAlignment = Alignment.Center,
@@ -122,25 +122,18 @@ private fun Masthead(st: AppState, pal: AltPalette) {
                         painter = painterResource(Res.drawable.alt_mark),
                         contentDescription = "ALT",
                         modifier = Modifier.size(40.dp),
-                        colorFilter = ColorFilter.tint(pal.canvas),
+                        colorFilter = ColorFilter.tint(pal.ink),
                     )
                 }
                 Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
-                Column {
-                    Text("ALT", fontSize = 20.sp, fontWeight = FontWeight.Black,
-                        letterSpacing = (-1.3).sp, color = pal.ink)
-                    if (!compact) Text(
-                        st.t("app.sub").uppercase(),
-                        fontSize = 9.sp, letterSpacing = 1.1.sp, fontWeight = FontWeight.Bold,
-                        color = pal.muted, maxLines = 1,
-                    )
-                }
+                Text("ALT", fontSize = 20.sp, fontWeight = FontWeight.Black,
+                    letterSpacing = (-1.3).sp, color = pal.ink)
                 Spacer(Modifier.weight(1f))
                 if (!(compact && st.page == PAGE_RESULTS)) {
                     SwissClock(pal, if (compact) 44.dp else 56.dp)
                     Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
                 }
-                LangSwitch(st, pal, if (compact) 26.dp else 32.dp)
+                LangSwitch(st, pal, if (compact) 24.dp else 30.dp)
                 Spacer(Modifier.width(if (compact) 6.dp else 8.dp))
                 HeaderToggle(
                     text = if (st.dark) "LIGHT" else "DARK",
@@ -164,8 +157,8 @@ private fun LangSwitch(st: AppState, pal: AltPalette, cell: androidx.compose.ui.
                     .clickable { st.switchLang(l) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(l.name, fontSize = 10.sp, fontWeight = if (on) FontWeight.Black else FontWeight.Normal,
-                    letterSpacing = 0.4.sp, color = pal.ink)
+                Text(l.name, fontSize = 9.sp, fontWeight = if (on) FontWeight.Black else FontWeight.Normal,
+                    letterSpacing = 0.2.sp, color = pal.ink, maxLines = 1, softWrap = false)
                 if (on) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp).background(pal.red))
             }
         }
@@ -202,6 +195,21 @@ private fun SiteFooter(st: AppState, pal: AltPalette) {
 
 @Composable
 private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
+    // The loader IS the loading state: while a search is in flight the form is replaced by
+    // the journey map, centred in the viewport, so it can never hide below the fold.
+    if (st.loading) {
+        Box(modifier.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+            Column(
+                Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Eyebrow(st.t("loading"), pal)
+                Spacer(Modifier.height(20.dp))
+                RouteLoader(st.fromSel, st.toSel, st.fromText, st.toText, pal, st.t("loading"))
+            }
+        }
+        return
+    }
     Column(
         modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp),
@@ -329,10 +337,6 @@ private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
 
             Spacer(Modifier.height(20.dp))
             SearchButton(st, pal)
-            if (st.loading) {
-                Spacer(Modifier.height(16.dp))
-                RouteLoader(st.fromSel, st.toSel, st.fromText, st.toText, pal, st.t("loading"))
-            }
         }
     }
 }
