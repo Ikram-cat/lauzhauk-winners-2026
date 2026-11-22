@@ -95,3 +95,7 @@ model/
 # iOS host: generated Xcode project and local demo recordings
 frontend/kmp/iosApp/iosApp.xcodeproj/
 *.xcresult/
+# Screen recordings — the submitted desktop-app demo recording is committed once
+# (desktop-app-recording.mp4); future recordings stay local.
+*.mp4
+!desktop-app-recording.mp4
