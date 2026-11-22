@@ -78,11 +78,22 @@ artifact — not a new model):
 Per conditioned bucket emit: median/p90/shareLate (seconds-resolution, 1
 decimal, same as Phase 1), samples, incidentCount (distinct incidents),
 cancellationShare (FAELLT_AUS_TF=true trips at matching stops during
-windows / all matching trips). MIN_SAMPLES 10 pooled over all incidents.
+windows / all matching trips) and suppressionShare (DURCHFAHRT_TF=true rows
+with target times — a PLANNED stop that the train actually skipped — over
+the same denominator). MIN_SAMPLES 10 pooled over all incidents. A zero
+share is a measured zero, not fabricated.
+
+Suppressed stops are the Swiss recovery tactic (delayed trains skip stops
+to catch up); the risk is learnable from the SAME Ist-Daten pass — one
+extra counter on rows we already drop from delay stats. Keep
+cancellationShare and suppressionShare as SEPARATE wire fields: the right
+action differs (cancelled = do not count on that train at all; suppressed =
+the train runs but will not halt at your stop — board elsewhere or wait).
 
 Survivor-bias honesty (contract wording): conditioned delays are measured
 only on trips that ran and reported; cancelled trips are excluded from the
-delay numbers but counted in cancellationShare.
+delay numbers but counted in cancellationShare and suppressionShare
+denominators.
 
 ## 4. Backend changes (additive)
 
@@ -96,9 +107,10 @@ delay numbers but counted in cancellationShare.
   estimateFor; compose projected* from the CONDITIONED estimate; emit the new
   fields. Known layer and all Phase-1 fields untouched.
 - Wire: legs[].realtime and journeys[].realtime gain
-  `incidentExtraMinutes`, `incidentCancellationRisk`, `incidentSamples`,
-  `incidentCount`, `estimatedBasis`. Null + basis STATION/LINE as today when
-  no incident. /health estimates feed gains `incidentBuckets`.
+  `incidentExtraMinutes`, `incidentCancellationRisk`,
+  `incidentSuppressedStopRisk`, `incidentSamples`, `incidentCount`,
+  `estimatedBasis`. Null + basis STATION/LINE as today when no incident.
+  /health estimates feed gains `incidentBuckets`.
 - Contract: new subsection under the Phase-1 estimates section.
 
 ## 5. Tests
@@ -135,3 +147,25 @@ delay numbers but counted in cancellationShare.
   (including cancelled), not just reporting ones.
 - Do not modify Phase-1 bucket semantics; the artifact grows a new top-level
   array, existing consumers ignore it.
+
+## 8. Phase 2b (LATER, separate approval): "any train, any station" propagation POC
+
+Lead asked whether the full spatial version is doable DESPITE thin incident
+data. Verdict: doable as a MEASURED coarse model — not as a fine-grained one.
+
+- 2b-1 (recommended, honest): INTERSECTING-line conditioning. Any train whose
+  route touches the incident corridor at >= 1 station (but is not itself the
+  affected line) gets an amplification pooled over ALL incidents nationally:
+  "trains that share the Lausanne-Bern corridor with an active incident run
+  +N minutes late typically". Same join as Phase 2, one more relation class,
+  one more conditioned table (intersectingLine). This IS 'any train' — every
+  train geometrically related to the incident gets an estimate, just pooled,
+  not per-bucket. Measured, explainable, verifiable in the demo.
+- 2b-2 (not recommended): heuristic decay model (distance-bucketed
+  amplification factors set by hand). Faster to build but the numbers would
+  be invented; if ever used it must be labeled HEURISTIC_PROPAGATION in
+  estimatedBasis per the contract's honesty rules.
+- 2b-3 (out of reach): a per-(train, station, time) learned propagation
+  model needs years of incident history; do not attempt.
+
+Trigger: ask the lead. Until then Phase 2 ships without it.
