@@ -99,6 +99,9 @@ private val EN = mapOf(
     "info.easiest" to "Easiest prioritizes journeys with the fewest transfers, making your trip simpler and more convenient.",
     "info.fastest" to "Fastest prioritizes journeys that get you to your destination as early as possible.",
     "info.label" to "More about this option",
+    "geo.locating" to "Locating…",
+    "geo.denied" to "Location unavailable — allow access in your browser and try again.",
+    "geo.use" to "Use my current location",
 )
 
 private val FR = mapOf(
@@ -197,6 +200,9 @@ private val FR = mapOf(
     "info.easiest" to "« Le plus simple » privilégie les trajets avec le moins de correspondances, pour un voyage plus simple et plus confortable.",
     "info.fastest" to "« Le plus rapide » privilégie les trajets qui vous amènent à destination le plus tôt possible.",
     "info.label" to "En savoir plus sur cette option",
+    "geo.locating" to "Localisation…",
+    "geo.denied" to "Position indisponible — autorisez l'accès dans votre navigateur et réessayez.",
+    "geo.use" to "Utiliser ma position actuelle",
 )
 
 private val IT = mapOf(
@@ -295,6 +301,9 @@ private val IT = mapOf(
     "info.easiest" to "«Più semplice» privilegia i viaggi con meno cambi, rendendo il tuo viaggio più semplice e comodo.",
     "info.fastest" to "«Più veloce» privilegia i viaggi che ti portano a destinazione il prima possibile.",
     "info.label" to "Maggiori informazioni su questa opzione",
+    "geo.locating" to "Localizzazione…",
+    "geo.denied" to "Posizione non disponibile — consenti l'accesso nel browser e riprova.",
+    "geo.use" to "Usa la mia posizione attuale",
 )
 
 private val DE = mapOf(
@@ -393,6 +402,9 @@ private val DE = mapOf(
     "info.easiest" to "«Einfachste» bevorzugt Verbindungen mit den wenigsten Umstiegen, damit Ihre Reise einfacher und bequemer wird.",
     "info.fastest" to "«Schnellste» bevorzugt Verbindungen, mit denen Sie so früh wie möglich ankommen.",
     "info.label" to "Mehr zu dieser Option",
+    "geo.locating" to "Standort wird ermittelt…",
+    "geo.denied" to "Standort nicht verfügbar — erlauben Sie den Zugriff im Browser und versuchen Sie es erneut.",
+    "geo.use" to "Meinen aktuellen Standort verwenden",
 )
 
 private val WELCOME_DE = listOf(

@@ -44,6 +44,14 @@ class AppState(private val scope: CoroutineScope) {
     var result by mutableStateOf<JourneyResponse?>(null)
     var simActive by mutableStateOf(false)
 
+    // "Use my current location" state, per field.
+    var geoFromBusy by mutableStateOf(false)
+    var geoToBusy by mutableStateOf(false)
+    var geoFromActive by mutableStateOf(false)
+    var geoToActive by mutableStateOf(false)
+    var geoFromMsg by mutableStateOf<String?>(null)
+    var geoToMsg by mutableStateOf<String?>(null)
+
     private var lastQuery: SearchQuery? = null
     private var searchJob: Job? = null
     private var fromJob: Job? = null
@@ -54,6 +62,8 @@ class AppState(private val scope: CoroutineScope) {
     fun onFromChange(text: String) {
         fromText = text
         fromSel = null
+        geoFromActive = false
+        geoFromMsg = null
         fromJob?.cancel()
         if (text.trim().length < 3) { fromSug = emptyList(); fromSearching = false; return }
         fromSearching = true
@@ -69,6 +79,8 @@ class AppState(private val scope: CoroutineScope) {
     fun onToChange(text: String) {
         toText = text
         toSel = null
+        geoToActive = false
+        geoToMsg = null
         toJob?.cancel()
         if (text.trim().length < 3) { toSug = emptyList(); toSearching = false; return }
         toSearching = true
@@ -83,6 +95,44 @@ class AppState(private val scope: CoroutineScope) {
 
     fun pickFrom(loc: Location) { fromSel = loc; fromText = loc.name; fromSug = emptyList() }
     fun pickTo(loc: Location) { toSel = loc; toText = loc.name; toSug = emptyList() }
+
+    /** "Use my current location" for FROM: fills "lat,lon"; the backend resolves it to a stop. */
+    fun locateFrom() = locate(fromField = true)
+
+    /** "Use my current location" for TO. */
+    fun locateTo() = locate(fromField = false)
+
+    private fun locate(fromField: Boolean) {
+        if (!geoSupported) return
+        if (fromField) {
+            if (geoFromBusy) return
+            geoFromBusy = true; geoFromMsg = t("geo.locating")
+        } else {
+            if (geoToBusy) return
+            geoToBusy = true; geoToMsg = t("geo.locating")
+        }
+        requestPosition { coord ->
+            scope.launch {
+                if (fromField) geoFromBusy = false else geoToBusy = false
+                val msg = if (coord != null) null else t("geo.denied")
+                if (fromField) {
+                    geoFromMsg = msg
+                    if (coord != null) {
+                        fromJob?.cancel()
+                        fromText = coord; fromSel = null; fromSug = emptyList(); fromSearching = false
+                        geoFromActive = true
+                    }
+                } else {
+                    geoToMsg = msg
+                    if (coord != null) {
+                        toJob?.cancel()
+                        toText = coord; toSel = null; toSug = emptyList(); toSearching = false
+                        geoToActive = true
+                    }
+                }
+            }
+        }
+    }
 
     fun swap() {
         val f = fromText; fromText = toText; toText = f

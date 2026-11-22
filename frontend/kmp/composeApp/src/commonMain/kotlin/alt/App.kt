@@ -28,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -233,17 +234,26 @@ private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
             Spacer(Modifier.height(24.dp))
 
             // FROM
-            EditorialField(
-                label = st.t("from"),
-                value = st.fromText,
-                onValue = st::onFromChange,
-                placeholder = st.t("from.ph"),
-                suggestions = st.fromSug,
-                onPick = st::pickFrom,
-                pal = pal,
-                hint = st.fromSel?.kind?.lowercase(),
-                searching = st.fromSearching,
-            )
+            Row(verticalAlignment = Alignment.Bottom) {
+                Box(Modifier.weight(1f)) {
+                    EditorialField(
+                        label = st.t("from"),
+                        value = st.fromText,
+                        onValue = st::onFromChange,
+                        placeholder = st.t("from.ph"),
+                        suggestions = st.fromSug,
+                        onPick = st::pickFrom,
+                        pal = pal,
+                        hint = if (st.geoFromActive) "GPS" else st.fromSel?.kind?.lowercase(),
+                        searching = st.fromSearching,
+                    )
+                }
+                if (geoSupported) {
+                    Spacer(Modifier.width(8.dp))
+                    GpsButton(pal, busy = st.geoFromBusy, active = st.geoFromActive) { st.locateFrom() }
+                }
+            }
+            st.geoFromMsg?.let { GeoNote(it, pal) }
             Spacer(Modifier.height(12.dp))
 
             // TO + swap
@@ -257,7 +267,7 @@ private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
                         suggestions = st.toSug,
                         onPick = st::pickTo,
                         pal = pal,
-                        hint = st.toSel?.kind?.lowercase(),
+                        hint = if (st.geoToActive) "GPS" else st.toSel?.kind?.lowercase(),
                         searching = st.toSearching,
                     )
                 }
@@ -268,7 +278,12 @@ private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
                 ) {
                     SwapIcon(pal.ink)
                 }
+                if (geoSupported) {
+                    Spacer(Modifier.width(8.dp))
+                    GpsButton(pal, busy = st.geoToBusy, active = st.geoToActive) { st.locateTo() }
+                }
             }
+            st.geoToMsg?.let { GeoNote(it, pal) }
 
             Spacer(Modifier.height(24.dp))
             Row(verticalAlignment = Alignment.Bottom) {
@@ -339,6 +354,41 @@ private fun PlannerPage(st: AppState, pal: AltPalette, modifier: Modifier) {
             SearchButton(st, pal)
         }
     }
+}
+
+@Composable
+private fun GpsButton(pal: AltPalette, busy: Boolean, active: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).background(if (active) pal.surface else pal.canvas)
+            .border(1.dp, if (active) pal.ink else pal.rule)
+            .clickable(enabled = !busy) { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (busy) {
+            Text("...", fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, color = pal.red)
+        } else {
+            GeoIcon(if (active) pal.red else pal.muted)
+        }
+    }
+}
+
+/** Concentric-circle location glyph (the wasm font has no icon glyphs, so it is drawn). */
+@Composable
+private fun GeoIcon(color: androidx.compose.ui.graphics.Color) {
+    Canvas(Modifier.size(18.dp)) {
+        val r = size.minDimension / 2f
+        val sw = 1.6.dp.toPx()
+        drawCircle(color, radius = r * 0.92f, center = center, style = Stroke(sw))
+        drawCircle(color, radius = r * 0.30f, center = center, style = Stroke(sw))
+        drawCircle(color, radius = r * 0.10f, center = center)
+    }
+}
+
+/** Small inline note under a FROM/TO field (geolocation status/errors) — not the search error panel. */
+@Composable
+private fun GeoNote(text: String, pal: AltPalette) {
+    Spacer(Modifier.height(4.dp))
+    Text(text, fontSize = 11.sp, lineHeight = 15.sp, color = pal.red, maxLines = 2)
 }
 
 @Composable
