@@ -53,6 +53,7 @@ from analytics.corridors import fold  # noqa: E402  (single source of truth for 
 MIN_SAMPLES = 10
 MAX_ABS_DELAY = 180
 WEEKDAY_CLASSES = ("MON_FRI", "SAT", "SUN")
+NONRAIL_PRODUCTS = frozenset({"BUS", "TRAM", "METRO"})
 BLOCK_STARTS = (0, 4, 8, 12, 16, 20)
 HOUR = "HOUR"
 BLOCK4 = "BLOCK4"
@@ -64,6 +65,9 @@ DEFAULT_ZIPS = [
 DEFAULT_INCIDENTS_DIR = os.path.expanduser("~/Downloads/Daten/extern-liveticker")
 DEFAULT_OUT = os.path.join(os.path.dirname(__file__), "..", "..",
                            "backend", "src", "main", "resources", "realtime", "delay_estimates_v2.json")
+# Phase 2b ships as a SEPARATE artifact on purpose: the backend loader for delay_estimates_v2.json
+# is not touched, so the frozen wire format cannot regress.
+DEFAULT_PROP_OUT = os.path.join(os.path.dirname(__file__), "..", "output", "propagation_services.json")
 
 # Major Swiss hubs + the demo corridor (Lausanne, Genève, Renens VD, Morges, Allaman,
 # Zürich Stadelhofen, Stettbach). Ist-Daten HALTESTELLEN_NAME is a clean proper name,
@@ -83,6 +87,42 @@ STATIONS = [
     "Bulle", "Montbovon",
 ]
 WHITELIST = frozenset(STATIONS)
+
+# ---------------------------------------------------------------- Phase 2b: service-name towns
+#
+# Ist-Daten gives rail rows a clean station name ("Renens VD") but non-rail rows a
+# "Town, stop" name ("Morges, Gare"). Propagation joins the two on the TOWN prefix only —
+# never on coordinates (the brief forbids it and Ist-Daten carries no usable coordinates here).
+
+
+def _fold_no_sep(s: str) -> str:
+    """Fold to letters+digits, uppercase, keeping word separators for prefix splitting."""
+    return " ".join(s.upper().replace("-", " ").replace("/", " ").split())
+
+
+def town_key(station_name: str) -> str:
+    """Rail station / bus stop name -> the town key both sides share ('Renens VD'->'RENENS')."""
+    s = station_name.split(",")[0].strip()
+    words = _fold_no_sep(s).split()
+    if not words:
+        return ""
+    if len(words) > 1 and words[0] == "ST" and words[1] == "GALLEN":
+        return "STGALLEN"
+    return words[0]
+
+
+WHITELIST_TOWNS = frozenset(town_key(s) for s in STATIONS) - {""}
+
+
+def incident_town(folded_station: str) -> str | None:
+    """Incident corridor stations arrive already folded ('zürichhb', 'renensvd'); longest
+    whitelisted town prefix wins. Unknown towns return None (not propagated)."""
+    s = folded_station.upper()
+    best = None
+    for t in WHITELIST_TOWNS:
+        if s.startswith(t) and (best is None or len(t) > len(best)):
+            best = t
+    return best
 
 FLAG_TRUE = "true"
 ZURICH = ZoneInfo("Europe/Zurich")
@@ -158,6 +198,10 @@ class Agg:
         self.carr = {}
         # key -> {"rows": int, "cancelled": int, "suppressed": int, "incidents": set}
         self.cmeta = {}
+        # Phase 2b: (line, town, product, block) histograms; conditioned vs unconditional
+        self.pdep = {}
+        self.updep = {}
+        self.pmeta = {}
 
     def add(self, table, key, delay):
         d = (self.dep if table == 0 else self.arr).setdefault(key, Counter())
@@ -170,6 +214,25 @@ class Agg:
 
     def risk(self, key, cancelled: bool, suppressed: bool):
         m = self.cmeta.setdefault(key, {"rows": 0, "cancelled": 0, "suppressed": 0, "incidents": set()})
+        m["rows"] += 1
+        if cancelled:
+            m["cancelled"] += 1
+        if suppressed:
+            m["suppressed"] += 1
+
+    def add_prop(self, key, delay, incident_id=None):
+        if delay is not None:
+            self.pdep.setdefault(key, Counter())[delay] += 1
+        if incident_id is not None:
+            self.pmeta.setdefault(key, {"rows": 0, "cancelled": 0, "suppressed": 0,
+                                        "incidents": set()})["incidents"].add(incident_id)
+
+    def add_uncond(self, key, delay):
+        if delay is not None:
+            self.updep.setdefault(key, Counter())[delay] += 1
+
+    def prop_risk(self, key, cancelled: bool, suppressed: bool):
+        m = self.pmeta.setdefault(key, {"rows": 0, "cancelled": 0, "suppressed": 0, "incidents": set()})
         m["rows"] += 1
         if cancelled:
             m["cancelled"] += 1
@@ -280,23 +343,152 @@ def reader_for(zf: zipfile.ZipFile, name: str):
     return csv.DictReader(io.TextIOWrapper(raw, encoding="utf-8-sig", newline=""), delimiter=";")
 
 
+# ---------------------------------------------------------------- Phase 2b: propagation
+
+def build_prop_index(incidents: list[dict]):
+    """(town, ISO day) -> [(incident id, start, end)], the towns involved, and each incident's days.
+
+    A non-rail row propagates when it serves a TOWN on an incident corridor inside the
+    incident window. Windows are indexed over their calendar day +/-1 so a trip that
+    departs before midnight and is caught mid-incident still matches.
+    """
+    windows: dict = {}
+    towns: set = set()
+    inc_days: dict = {}
+    for inc in incidents:
+        inc_towns = {t for t in (incident_town(st) for st in inc["stations"]) if t}
+        if not inc_towns:
+            continue
+        towns |= inc_towns
+        d0 = datetime.fromtimestamp(inc["start"], ZURICH).date() - timedelta(days=1)
+        d1 = datetime.fromtimestamp(inc["end"], ZURICH).date() + timedelta(days=1)
+        days = []
+        day = d0
+        while day <= d1:
+            days.append(day.isoformat())
+            day += timedelta(days=1)
+        inc_days[inc["id"]] = days
+        for d in days:
+            for t in inc_towns:
+                windows.setdefault((t, d), []).append((inc["id"], inc["start"], inc["end"]))
+    return windows, towns, inc_days
+
+
+def augment_prop_index(window_idx, towns: set, inc_days: dict, routes: dict, cands_of: dict) -> set:
+    """Widen the corridor to the towns actually traversed by the affected rail trips.
+
+    Incident descriptions only yield the two endpoint stations (e.g. "Yverdon - Lausanne"),
+    while the affected trains run through Morges, Renens, ... in between. A town therefore
+    counts as "on the corridor" when a train whose route intersects the corridor at >= 2
+    stations calls there during the window. This is the join that makes the 701-at-Morges
+    question answerable at all; it is measured, not assumed.
+    """
+    extra: set = set()
+    for trip, cands in cands_of.items():
+        route = routes.get(trip)
+        if not route:
+            continue
+        route_towns = {t for t in (incident_town(s) for s in route) if t}
+        if not route_towns:
+            continue
+        for iid, start, end, _ in cands:
+            for day in inc_days.get(iid, ()):
+                for t in route_towns:
+                    lst = window_idx.setdefault((t, day), [])
+                    if not any(c[0] == iid for c in lst):
+                        lst.append((iid, start, end))
+                    extra.add(t)
+    return extra
+
+
+def _prop_row(row, agg: Agg, prop_ctx, state: dict):
+    """One non-rail row (Bus/Tram/Metro): unconditional baseline + incident-window conditioning."""
+    window_idx, prop_towns = prop_ctx
+    product = row["PRODUKT_ID"].strip().upper()
+    if product not in NONRAIL_PRODUCTS:
+        return
+    station = row["HALTESTELLEN_NAME"].strip()
+    if not station:
+        return
+    town = town_key(station)
+    if town not in prop_towns:
+        return
+    try:
+        op_day = datetime.strptime(row["BETRIEBSTAG"].strip(), "%d.%m.%Y").date()
+    except ValueError:
+        return
+    label = _norm_label(row["LINIEN_TEXT"])
+    if not label:
+        return
+    dep_dt = _parse_dt(row["ABFAHRTSZEIT"])
+    arr_dt = _parse_dt(row["ANKUNFTSZEIT"])
+    hour = (dep_dt[1] // 3600) % 24 if dep_dt else ((arr_dt[1] // 3600) % 24 if arr_dt else None)
+    if hour is None:
+        return
+    block = (hour // 4) * 4
+    key = (label, town, product, block)
+    zusatz = row["ZUSATZFAHRT_TF"].lower() == FLAG_TRUE
+    faellt = row["FAELLT_AUS_TF"].lower() == FLAG_TRUE
+    durchfahrt = row["DURCHFAHRT_TF"].lower() == FLAG_TRUE
+
+    delay = None
+    if not zusatz and row["AB_PROGNOSE_STATUS"].strip().upper() == "REAL":
+        prog = _parse_dt(row["AB_PROGNOSE"])
+        if dep_dt and prog:
+            dm = (prog[0] - dep_dt[0]) * 86400 + (prog[1] - dep_dt[1])
+            if abs(dm) <= MAX_ABS_DELAY * 60:
+                delay = dm
+    state["prop_rows"] += 1
+    if delay is not None:
+        state["prop_samples"] += 1
+        agg.add_uncond(key, delay)
+
+    incs = window_idx.get((town, op_day.isoformat()))
+    if not incs:
+        return
+    dep_ep = _epoch_utc(*dep_dt) if dep_dt else None
+    arr_ep = _epoch_utc(*arr_dt) if arr_dt else None
+    iid = None
+    for cid, start, end in incs:
+        if (dep_ep is not None and start <= dep_ep <= end) or (arr_ep is not None and start <= arr_ep <= end):
+            iid = cid
+            break
+    if iid is None:
+        return
+    state["prop_cond_rows"] += 1
+    agg.prop_risk(key, faellt, durchfahrt)
+    if faellt or durchfahrt or zusatz:
+        agg.add_prop(key, None, iid)
+    else:
+        agg.add_prop(key, delay, iid)
+
+
 def process_day(reader_factory, agg: Agg, state: dict, incidents: list[dict] | None = None):
-    """One daily CSV: base Phase-1 histograms plus the Phase-2 conditioned tables.
+    """One daily CSV: base Phase-1 histograms plus the Phase-2 and 2b conditioned tables.
 
     reader_factory() returns a fresh DictReader; it is called twice (routes, then measurements).
     """
-    cands_of = trip_candidates(collect_routes(reader_factory), incidents) if incidents else {}
-    _consume(reader_factory(), agg, state, cands_of)
+    prop_ctx = None
+    cands_of = {}
+    if incidents:
+        window_idx, prop_towns, inc_days = build_prop_index(incidents)
+        routes = collect_routes(reader_factory)
+        cands_of = trip_candidates(routes, incidents)
+        prop_towns = prop_towns | augment_prop_index(window_idx, prop_towns, inc_days, routes, cands_of)
+        prop_ctx = (window_idx, prop_towns)
+    _consume(reader_factory(), agg, state, cands_of, prop_ctx)
 
 
 def rows_from_day(zf: zipfile.ZipFile, name: str, agg: Agg, state: dict, incidents=None):
     process_day(lambda: reader_for(zf, name), agg, state, incidents)
 
 
-def _consume(reader, agg: Agg, state: dict, cands_of: dict):
+def _consume(reader, agg: Agg, state: dict, cands_of: dict, prop_ctx=None):
     for row in reader:
         state["rows_read"] += 1
-        if row["PRODUKT_ID"].upper() != "ZUG":
+        if row["PRODUKT_ID"].strip().upper() != "ZUG":
+            if prop_ctx is not None:
+                _prop_row(row, agg, prop_ctx, state)
             continue
         zusatz = row["ZUSATZFAHRT_TF"].lower() == FLAG_TRUE
         faellt = row["FAELLT_AUS_TF"].lower() == FLAG_TRUE
@@ -375,7 +567,8 @@ def _day_task(task):
     zip_path, name, incidents = task
     agg = Agg()
     state = {"rows_read": 0, "whitelist_rows": 0, "dep_samples": 0, "arr_samples": 0,
-             "trip_keys": set(), "labels": set()}
+             "trip_keys": set(), "labels": set(),
+             "prop_rows": 0, "prop_samples": 0, "prop_cond_rows": 0}
     with zipfile.ZipFile(zip_path) as zf:
         rows_from_day(zf, name, agg, state, incidents)
     return name, agg, state
@@ -400,6 +593,18 @@ def _merge(agg: Agg, name: str, day: Agg, state: dict, total: dict):
         total[k] += state[k]
     total["trip_keys"] |= state["trip_keys"]
     total["labels"] |= state["labels"]
+    for key, counter in day.pdep.items():
+        agg.pdep.setdefault(key, Counter()).update(counter)
+    for key, counter in day.updep.items():
+        agg.updep.setdefault(key, Counter()).update(counter)
+    for key, meta in day.pmeta.items():
+        m = agg.pmeta.setdefault(key, {"rows": 0, "cancelled": 0, "suppressed": 0, "incidents": set()})
+        m["rows"] += meta["rows"]
+        m["cancelled"] += meta["cancelled"]
+        m["suppressed"] += meta["suppressed"]
+        m["incidents"] |= meta["incidents"]
+    for k in ("prop_rows", "prop_samples", "prop_cond_rows"):
+        total[k] = total.get(k, 0) + state.get(k, 0)
 
 
 def _EMPTY():
@@ -498,6 +703,39 @@ def emit_conditioned(agg: Agg):
     return out_lines, out_stations
 
 
+def emit_propagation(agg: Agg):
+    """Phase 2b table: non-rail services (Bus/Tram/Metro) per (line, town, product, 4h block)
+    conditioned on an incident touching that town, plus the unconditional median for the delta."""
+    rows = {}
+    for key, counter in agg.pdep.items():
+        if sum(counter.values()) < MIN_SAMPLES:
+            continue
+        label, town, product, block = key
+        meta = agg.pmeta.get(key, {"rows": 0, "cancelled": 0, "suppressed": 0, "incidents": set()})
+        dep = _stats(counter)
+        base = agg.updep.get(key)
+        uncond = _stats(base) if base else _EMPTY()
+        n = meta["rows"]
+        rows[key] = {
+            "serviceLine": label,
+            "town": town,
+            "product": product,
+            "hourBucket": block,
+            "bucketType": BLOCK4,
+            "weekdayClass": "ANY",
+            "dep": dep,
+            "unconditionalMedian": uncond["median"],
+            "unconditionalSamples": uncond["samples"],
+            "deltaMedian": (round(dep["median"] - uncond["median"], 1)
+                            if dep["median"] is not None and uncond["median"] is not None else None),
+            "incidentCount": len(meta["incidents"]),
+            "cancellationShare": round(meta["cancelled"] / n, 3) if n else 0.0,
+            "suppressionShare": round(meta["suppressed"] / n, 3) if n else 0.0,
+            "plannedStops": n,
+        }
+    return sorted(rows.values(), key=lambda r: (r["product"], r["town"], r["serviceLine"], r["hourBucket"]))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--zip", action="append", default=None, help="Ist-Daten v2 monthly ZIP (repeatable)")
@@ -506,6 +744,8 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=1, help="parallel day-file processes (default 1)")
     ap.add_argument("--incidents-dir", default=DEFAULT_INCIDENTS_DIR,
                     help="extern-liveticker CSV dir for the Phase-2 incident windows (empty string disables)")
+    ap.add_argument("--prop-out", default=DEFAULT_PROP_OUT,
+                    help="Phase-2b non-rail propagation artifact (separate file; no artifact shape change)")
     args = ap.parse_args(argv)
     zips = args.zip or DEFAULT_ZIPS
 
@@ -515,7 +755,8 @@ def main(argv=None):
         print(f"incidents reconstructed: {len(incidents)}")
 
     state = {"rows_read": 0, "whitelist_rows": 0, "dep_samples": 0, "arr_samples": 0,
-             "trip_keys": set(), "labels": set()}
+             "trip_keys": set(), "labels": set(),
+             "prop_rows": 0, "prop_samples": 0, "prop_cond_rows": 0}
     agg = Agg()
     tasks = []
     for path in zips:
@@ -551,6 +792,7 @@ def main(argv=None):
         print("no buckets emitted", file=sys.stderr)
         return 3
     lines_inc, stations_inc = emit_conditioned(agg)
+    prop_rows = emit_propagation(agg)
 
     distinct_labels = len(state["labels"])
     line_station_pairs = {(r.get("serviceLabel"), r.get("station")) for r in lines if r.get("serviceLabel")}
@@ -585,6 +827,29 @@ def main(argv=None):
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(artifact, fh, ensure_ascii=False, separators=(",", ":"))
 
+    prop_artifact = {
+        "modelVersion": artifact["modelVersion"],
+        "generatedAt": artifact["generatedAt"],
+        "source": "ist-daten-v2 (opentransportdata.swiss), status REAL only, PRODUKT_ID Bus/Tram/Metro",
+        "join": "service HALTESTELLEN_NAME town prefix x incident corridor town; no coordinates",
+        "unit": "minutes",
+        "window": {"from": days[0][:10], "to": days[-1][:10], "days": len(days)},
+        "minSamples": MIN_SAMPLES,
+        "coverage": {
+            "nonRailRowsSeen": state["prop_rows"],
+            "nonRailMeasurements": state["prop_samples"],
+            "rowsInsideIncidentWindows": state["prop_cond_rows"],
+            "buckets": len(prop_rows),
+            "incidentsTotal": len(incidents),
+            "incidentsUsed": len({i for m in agg.pmeta.values() for i in m["incidents"]}),
+        },
+        "propagationServices": prop_rows,
+    }
+    prop_out = os.path.abspath(args.prop_out)
+    os.makedirs(os.path.dirname(prop_out), exist_ok=True)
+    with open(prop_out, "w", encoding="utf-8") as fh:
+        json.dump(prop_artifact, fh, ensure_ascii=False, separators=(",", ":"))
+
     size = os.path.getsize(out)
     print("\n--- build report ---")
     print(f"days: {len(days)}  ({days[0][:10]} .. {days[-1][:10]})")
@@ -594,6 +859,8 @@ def main(argv=None):
     print(f"incident buckets: lines {len(lines_inc):,}  stations {len(stations_inc):,}"
           f"  incidents used {len(incident_ids)}/{len(incidents)}")
     print(f"artifact: {out}  {size / 1e6:.2f} MB  in {time.time() - t0:.0f}s")
+    print(f"propagation: {len(prop_rows):,} buckets, {state['prop_cond_rows']:,} non-rail rows inside "
+          f"incident windows / {state['prop_rows']:,} seen -> {prop_out}")
     top_lines = sorted(((r.get("serviceLabel") or "", r.get("station") or "", r["weekdayClass"], r["hourBucket"],
                          r["dep"]["samples"] or r["arr"]["samples"]) for r in lines),
                        key=lambda x: -(x[4] or 0))[:8]
