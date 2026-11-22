@@ -15,7 +15,10 @@ data class ErrorResponseDto(val error: ErrorDetailDto)
 data class GtfsRtHealthDto(val enabled: Boolean, val status: String, val ageSeconds: Long?, val activeTripUpdates: Int?, val cancelledTrips: Int?)
 
 @Serializable
-data class FeedsDto(val ojp: String, val nova: String, val gtfsRt: GtfsRtHealthDto)
+data class EstimatesHealthDto(val status: String, val lineBuckets: Int, val stationBuckets: Int)
+
+@Serializable
+data class FeedsDto(val ojp: String, val nova: String, val gtfsRt: GtfsRtHealthDto, val estimates: EstimatesHealthDto)
 
 @Serializable
 data class HealthResponseDto(val status: String, val feeds: FeedsDto)
@@ -72,10 +75,18 @@ data class DisruptionDto(
 @Serializable
 data class ScheduleDto(val departure: String, val arrival: String, val durationMinutes: Int, val transfers: Int)
 
+/**
+ * Additive delay-estimate layer (docs/API_CONTRACT.md): [estimated*] carry the separate historical component
+ * (clamped -10..+30, source HISTORICAL_ACTUALS | LIVE_SAMPLE | NONE) and [projected*] are scheduled + known +
+ * estimated. Every new field is optional/null; the older fields keep their exact meaning.
+ */
 @Serializable
 data class RealtimeDto(
     val expectedDeparture: String?, val departureDelayMinutes: Int?, val expectedArrival: String?, val arrivalDelayMinutes: Int?,
-    val source: String, val sampleCount: Int?
+    val source: String, val sampleCount: Int?,
+    val estimatedDepartureDelayMinutes: Int? = null, val estimatedArrivalDelayMinutes: Int? = null,
+    val estimatedSource: String = "NONE", val estimatedSamples: Int? = null,
+    val projectedDeparture: String? = null, val projectedArrival: String? = null
 )
 
 @Serializable
@@ -97,7 +108,10 @@ data class OccupancyDto(val firstClass: String?, val secondClass: String?)
 data class LegDto(
     val mode: String, val origin: String, val destination: String, val departure: String, val arrival: String,
     val expectedDeparture: String?, val departureDelayMinutes: Int?, val expectedArrival: String?, val arrivalDelayMinutes: Int?,
-    val serviceLabel: String?, val departurePlatform: String?, val arrivalPlatform: String?, val occupancy: OccupancyDto?
+    val serviceLabel: String?, val departurePlatform: String?, val arrivalPlatform: String?, val occupancy: OccupancyDto?,
+    val estimatedDepartureDelayMinutes: Int? = null, val estimatedArrivalDelayMinutes: Int? = null,
+    val estimatedSource: String = "NONE", val estimatedSamples: Int? = null,
+    val projectedDeparture: String? = null, val projectedArrival: String? = null
 )
 
 @Serializable

@@ -1,0 +1,32 @@
+{
+  "modelVersion": "fixture-estimates-1",
+  "generatedAt": "2026-11-22T00:00:00Z",
+  "lines": [
+    {"serviceLabel": "IR 90", "station": "Lausanne", "weekdayClass": "SAT", "hourBucket": 16, "bucketType": "HOUR",
+     "dep": {"median": 3.0, "p90": 6.0, "shareLate": 0.4, "samples": 40}, "arr": {"median": 2.0, "p90": 4.0, "shareLate": 0.2, "samples": 40}},
+    {"serviceLabel": "IC 5", "station": "Lausanne", "weekdayClass": "SAT", "hourBucket": 16, "bucketType": "HOUR",
+     "dep": {"median": 9.0, "p90": 12.0, "shareLate": 0.6, "samples": 9}, "arr": {"median": 9.0, "p90": 12.0, "shareLate": 0.6, "samples": 9}},
+    {"serviceLabel": "IC 5", "station": "Lausanne", "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "HOUR",
+     "dep": {"median": 4.0, "p90": 8.0, "shareLate": 0.5, "samples": 30}},
+    {"serviceLabel": "S 1", "station": "Bern", "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "BLOCK4",
+     "dep": {"median": -5.0, "p90": 1.0, "shareLate": 0.1, "samples": 12}},
+    {"serviceLabel": "RE 7", "station": null, "weekdayClass": "SAT", "hourBucket": 16, "bucketType": "HOUR",
+     "dep": {"median": 6.0, "p90": 10.0, "shareLate": 0.5, "samples": 25}},
+    {"serviceLabel": "RE 8", "station": null, "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "BLOCK4",
+     "dep": {"median": 5.0, "p90": 9.0, "shareLate": 0.5, "samples": 20}},
+    {"serviceLabel": "S 8", "station": "Olten", "weekdayClass": "ANY", "hourBucket": 17, "bucketType": "HOUR",
+     "dep": {"median": -40.0, "p90": -10.0, "shareLate": 0.0, "samples": 20}},
+    {"serviceLabel": "S 9", "station": "Olten", "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "HOUR",
+     "dep": {"median": 45.0, "p90": 70.0, "shareLate": 0.9, "samples": 20}},
+    {"serviceLabel": "IR 90", "station": "Genève", "weekdayClass": "SAT", "hourBucket": 17, "bucketType": "HOUR",
+     "arr": {"median": 2.0, "p90": 5.0, "shareLate": 0.3, "samples": 35}}
+  ],
+  "stations": [
+    {"station": "Zürich HB", "weekdayClass": "SAT", "hourBucket": 16, "bucketType": "HOUR",
+     "dep": {"median": 1.5, "p90": 3.0, "shareLate": 0.2, "samples": 100}},
+    {"station": "Zürich HB", "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "HOUR",
+     "dep": {"median": 1.0, "p90": 3.0, "shareLate": 0.2, "samples": 50}},
+    {"station": "Brig", "weekdayClass": "ANY", "hourBucket": 16, "bucketType": "BLOCK4",
+     "dep": {"median": 2.0, "p90": 4.0, "shareLate": 0.3, "samples": 20}}
+  ]
+}

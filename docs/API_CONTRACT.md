@@ -508,3 +508,33 @@ Both are echoed in `request` (`fareClass` as an integer, `discount` upper-case).
 `latestFeasibleDeparture` (offset timestamp or null) is the latest departure among journeys that still meet `arrivalDeadline`; `noFeasibleRoute` (Boolean) is true when a deadline was supplied and nothing qualifies; `advice` is one sentence, at most 240 characters, built only from data present in the response, and states explicitly when risk is unknown.
 
 Risk data comes from an offline artifact built from public SBB liveticker incidents (2024-2026, 142 corridors, ~91% incident coverage). Coverage, model version and confidence limits are reported by `GET /api/model` and must be shown or linked wherever a modelled number is displayed.
+
+### Historical delay estimates (`estimated*` / `projected*`)
+
+A second, statistical delay signal is exposed next to the known live delay. The known layer is untouched: `departureDelayMinutes` / `arrivalDelayMinutes` and `expectedDeparture` / `expectedArrival` keep their exact meaning and source (`GTFS_RT`, `OJP`, `DELAY_MODEL`). The new layer is separate and additive, so a v1 client can ignore it.
+
+Applies to `journeys[].realtime` and every entry of `journeys[].legs[]`:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `estimatedDepartureDelayMinutes` | Integer or null | Historical statistical median delay at this leg's boarding stop, clamped to `-10 … +30` minutes. Signed: negative means the train is typically early. Null when no bucket matched — never a fabricated 0. |
+| `estimatedArrivalDelayMinutes` | Integer or null | Same for the alighting stop. Looked up separately from the departure side. |
+| `estimatedSource` | `HISTORICAL_ACTUALS` \| `LIVE_SAMPLE` \| `NONE` | Which table produced the estimate. `LIVE_SAMPLE` is the existing realtime sampler filling a gap the historical artifact misses; `NONE` means unknown. |
+| `estimatedSamples` | Integer or null | Measurements behind the matched bucket (at least 10). |
+| `projectedDeparture` | RFC 3339 string or null | `scheduled departure + known delay + estimated delay`. Equals `expectedDeparture` when both delays are 0 or absent. |
+| `projectedArrival` | RFC 3339 string or null | Same for arrival. Recommendation ranking uses this as the arrival instant, then falls back to `expectedArrival`, then the scheduled arrival. |
+
+At journey level the fields mirror the existing rule: departure values come from the first transit leg, arrival values from the last transit leg.
+
+Projection is additive by default: the known live delay and the chronic historical delay are both applied. Set `ESTIMATE_OVERLAP=known_wins` to drop the estimated component from `projected*` on legs that already carry a known live delay (the estimate stays visible in `estimated*`). The default is `additive`.
+
+Source of the numbers: SBB/open data `ist-daten-v2` (Actual data v2) for September and October 2026, 61 operating days, `PRODUKT_ID = Zug` only, `*_PROGNOSE_STATUS = REAL` only, cancelled/extra/through rows and `|delay| > 180` minutes dropped. Buckets are `(line, station, weekday class, hour)` for ~70 Swiss hubs and every line serving them, with weekday classes `MON_FRI` / `SAT` / `SUN` plus a pooled `ANY`, and 4-hour blocks (`00-03 … 20-23`) for thin hours. A lookup walks line-at-station → line (pooled stations) → station, each most-specific bucket first, and the first bucket with at least 10 samples wins. Ist-Daten often stores the last forecast rather than a true actual, so treat these numbers as delay distributions, not guarantees.
+
+`GET /health` gains one additive feed:
+
+```json
+"feeds": { "ojp": "…", "nova": "…", "gtfsRt": { "…": "…" },
+           "estimates": { "status": "OK", "lineBuckets": 18234, "stationBuckets": 2411 } }
+```
+
+`status` is `OK` when the artifact loaded, `MISSING` when it did not. Bucket counts are the artifact's emitted rows, not the number of live lookups.
