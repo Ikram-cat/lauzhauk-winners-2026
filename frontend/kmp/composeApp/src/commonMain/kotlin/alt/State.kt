@@ -1,0 +1,152 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
+
+package alt
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.toLocalDateTime
+
+class AppState(private val scope: CoroutineScope) {
+    val api = AltApi(defaultApiBase())
+
+    var lang by mutableStateOf(Lang.EN)
+    var dark by mutableStateOf(false)
+
+    var fromText by mutableStateOf("Lausanne")
+    var toText by mutableStateOf("Genève")
+    var fromSel by mutableStateOf<Location?>(null)
+    var toSel by mutableStateOf<Location?>(null)
+    var fromSug by mutableStateOf<List<Location>>(emptyList())
+    var toSug by mutableStateOf<List<Location>>(emptyList())
+
+    var dateText by mutableStateOf("")
+    var timeText by mutableStateOf("")
+    var deadlineText by mutableStateOf("")
+
+    var preference by mutableStateOf("FASTEST")
+    var firstClass by mutableStateOf(false)
+    var halfFare by mutableStateOf(false)
+
+    var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
+    var result by mutableStateOf<JourneyResponse?>(null)
+    var simActive by mutableStateOf(false)
+
+    private var lastQuery: SearchQuery? = null
+    private var searchJob: Job? = null
+    private var fromJob: Job? = null
+    private var toJob: Job? = null
+
+    fun t(key: String): String = s(key, lang)
+
+    fun onFromChange(text: String) {
+        fromText = text
+        fromSel = null
+        fromJob?.cancel()
+        if (text.trim().length < 3) { fromSug = emptyList(); return }
+        fromJob = scope.launch {
+            delay(280)
+            runCatching { api.locations(text.trim(), 6) }
+                .onSuccess { if (fromText == text) fromSug = it }
+                .onFailure { fromSug = emptyList() }
+        }
+    }
+
+    fun onToChange(text: String) {
+        toText = text
+        toSel = null
+        toJob?.cancel()
+        if (text.trim().length < 3) { toSug = emptyList(); return }
+        toJob = scope.launch {
+            delay(280)
+            runCatching { api.locations(text.trim(), 6) }
+                .onSuccess { if (toText == text) toSug = it }
+                .onFailure { toSug = emptyList() }
+        }
+    }
+
+    fun pickFrom(loc: Location) { fromSel = loc; fromText = loc.name; fromSug = emptyList() }
+    fun pickTo(loc: Location) { toSel = loc; toText = loc.name; toSug = emptyList() }
+
+    fun swap() {
+        val f = fromText; fromText = toText; toText = f
+        val fs = fromSel; fromSel = toSel; toSel = fs
+        fromSug = emptyList(); toSug = emptyList()
+    }
+
+    fun switchLang(l: Lang) { lang = l }
+    fun toggleTheme() { dark = !dark }
+
+    private fun timestamp(date: String, time: String): String? {
+        if (date.isBlank() && time.isBlank()) return null
+        if (date.isBlank() || time.isBlank()) return "INVALID"
+        val iso = "${date.trim()}T${time.trim()}"
+        return runCatching { LocalDateTime.parse(iso).toApiInstant() }.getOrNull() ?: "INVALID"
+    }
+
+    fun search(simulate: Boolean = false) {
+        if (fromText.isBlank() || toText.isBlank()) { error = t("enterboth"); return }
+        val dep = timestamp(dateText, timeText)
+        if (dep == "INVALID") { error = t("badtime"); return }
+        val deadline = timestamp(dateText.ifBlank { todayText() }, deadlineText)
+        if (deadline == "INVALID") { error = t("badtime"); return }
+
+        val q = SearchQuery(
+            origin = fromText.trim(),
+            destination = toText.trim(),
+            departure = dep.takeIf { it != null },
+            arrivalDeadline = deadline.takeIf { it != null },
+            preference = preference,
+            firstClass = firstClass,
+            halfFare = halfFare,
+            demoPerturbation = if (simulate) 12345L else null,
+        )
+        lastQuery = q
+        loading = true
+        error = null
+        searchJob?.cancel()
+        searchJob = scope.launch {
+            try {
+                val res = api.search(q)
+                result = res
+                simActive = res.demoPerturbation?.active == true
+            } catch (e: ApiException) {
+                error = "${e.code} — ${e.userMessage}"
+            } catch (e: Throwable) {
+                error = e.message ?: "Network error"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun retry() {
+        val q = lastQuery
+        if (q != null) {
+            loading = true; error = null
+            searchJob?.cancel()
+            searchJob = scope.launch {
+                try { result = api.search(q); simActive = result?.demoPerturbation?.active == true }
+                catch (e: ApiException) { error = "${e.code} — ${e.userMessage}" }
+                catch (e: Throwable) { error = e.message ?: "Network error" }
+                finally { loading = false }
+            }
+        } else search()
+    }
+
+    fun simulate() = search(simulate = true)
+
+    private fun todayText(): String {
+        val now = kotlin.time.Clock.System.now().toLocalDateTime(ZURICH)
+        val mn = now.month.ordinal + 1
+        val m = if (mn < 10) "0$mn" else "$mn"
+        val d = if (now.day < 10) "0${now.day}" else "${now.day}"
+        return "${now.year}-$m-$d"
+    }
+}
