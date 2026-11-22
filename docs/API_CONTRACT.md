@@ -446,6 +446,9 @@ These fields and endpoints were added during implementation. All are additive: a
 | `GET /api/locations?query=<text>` | Stop/address autocomplete for the search box, proxied from the provider and cached. Query 1–120 code points. | `200` with `{ "locations": [ { "id", "name", "kind", "x", "y" } ] }` |
 | `GET /api/alternatives?from=&to=&notBefore=[&arrivalDeadline=]` | Rescue search from an intermediate stop after a disruption. Same validation, ranking and journey shape as `/api/journeys`. | `200` with `{ "request", "alternatives", "latestFeasibleDeparture", "noFeasibleRoute", "advice" }` |
 | `GET /api/model` | Provenance of the risk artifact actually loaded by the running instance. No provider call. | `200` with `{ "modelVersion", "generatedAt", "coverage", "source", "keysLoaded", "status", "corridorsLoaded", "baselineLoaded", "byLineHourCells", "corridorKeysSample" }` |
+| `POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me` · `POST /api/auth/logout` | Bearer-token accounts. | See [Accounts, saved plans and travel history](#accounts-saved-plans-and-travel-history-implemented). |
+| `POST /api/plans` · `GET /api/plans` · `DELETE /api/plans/{id}` | Saved trips per user, ownership-scoped. | See [Accounts, saved plans and travel history](#accounts-saved-plans-and-travel-history-implemented). |
+| `POST /api/travels` · `GET /api/travels` | Past-travel log, from a saved plan or standalone. | See [Accounts, saved plans and travel history](#accounts-saved-plans-and-travel-history-implemented). |
 
 ### Additional journey fields
 
@@ -508,3 +511,39 @@ Both are echoed in `request` (`fareClass` as an integer, `discount` upper-case).
 `latestFeasibleDeparture` (offset timestamp or null) is the latest departure among journeys that still meet `arrivalDeadline`; `noFeasibleRoute` (Boolean) is true when a deadline was supplied and nothing qualifies; `advice` is one sentence, at most 240 characters, built only from data present in the response, and states explicitly when risk is unknown.
 
 Risk data comes from an offline artifact built from public SBB liveticker incidents (2024-2026, 142 corridors, ~91% incident coverage). Coverage, model version and confidence limits are reported by `GET /api/model` and must be shown or linked wherever a modelled number is displayed.
+
+## Accounts, saved plans and travel history (implemented)
+
+Bearer-token accounts plus per-user saved trips and a past-travel log. Fully additive: every endpoint above behaves exactly as before and stays public. Persistence is PostgreSQL in production (`DATABASE_URL`, Railway style `postgres://user:password@host:port/db`) and an isolated H2 in-memory database when the variable is unset, so local runs need no configuration.
+
+### Authentication
+
+| Method and path | Request | Success body |
+| --- | --- | --- |
+| `POST /api/auth/register` | `{ "email", "password", "displayName"? }` JSON | `200 { "status": "OK", "user": { "id", "email", "displayName" }, "token", "expiresAt" }` |
+| `POST /api/auth/login` | `{ "email", "password" }` JSON | `200` same shape as register |
+| `GET /api/auth/me` | `Authorization: Bearer <token>` | `200 { "status": "OK", "user": { ... } }` |
+| `POST /api/auth/logout` | `Authorization: Bearer <token>` | `200 { "status": "OK" }` (revokes only this token) |
+
+Rules: emails are trimmed and lowercased; passwords must be 8–128 characters and are stored as BCrypt hashes; the token is 64 hex characters, returned once, stored only as a SHA-256 digest, and valid 30 days. CORS now allows the `Authorization` header. Unknown JSON body fields are ignored; a body that is not JSON returns `400 INVALID_REQUEST`.
+
+Errors: missing/invalid/expired token and bad credentials return `401 UNAUTHORIZED` in the standard error envelope; login returns the same message for an unknown email and a wrong password. Validation failures return `400 INVALID_REQUEST` with `field` set (`email`, `password`, `displayName`); a duplicate email returns `400 INVALID_REQUEST` with `field: "email"`. A database failure returns `503 DATABASE_ERROR`.
+
+### Saved plans
+
+| Method and path | Request | Success body |
+| --- | --- | --- |
+| `POST /api/plans` | Bearer + `{ "origin": { "input"?, "name", "id"? }, "destination": { ... }, "departure", "label"?, "journey"? }` | `200 { "plan" }` |
+| `GET /api/plans?limit=` | Bearer | `200 { "plans": [ ... ] }` newest first, `limit` default 20 max 100 |
+| `DELETE /api/plans/{id}` | Bearer | `200 { "status": "OK" }`; `404 NOT_FOUND` for unknown or another user's plan |
+
+`origin`/`destination` mirror the place echo the client received from `/api/journeys` (`input`, `name`, `id`); `name` is required. `departure` must be RFC 3339 with an offset and is stored exactly as sent. `journey` is an opaque snapshot (the journey object the user chose) stored and returned unchanged, at most 65536 serialized characters. Deleting a plan keeps travel log entries.
+
+### Past travels
+
+| Method and path | Request | Success body |
+| --- | --- | --- |
+| `POST /api/travels` | Bearer + `{ "planId" }` or `{ "origin": { "name" }, "destination": { "name" }, "departure", "arrival"? }`, plus optional `{ "rating"?, "note"?, "delayMinutes"? }` | `200 { "travel" }` |
+| `GET /api/travels?limit=` | Bearer | `200 { "travels": [ ... ] }` newest first, `limit` as plans |
+
+With `planId` the plan's places and departure are copied; the plan must belong to the caller (`400 INVALID_REQUEST` `field: "planId"` otherwise, including a malformed UUID). `rating` must be 1–5, `note` at most 500 code points, `delayMinutes` non-negative; `arrival` must be RFC 3339 with an offset. Account data stays out of routine logs.
