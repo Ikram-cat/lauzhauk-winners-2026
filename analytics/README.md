@@ -1,5 +1,53 @@
 # Analytics
 
+## Démarrage rapide pour l'équipe
+
+Ces étapes servent les deux routes de durée des perturbations (`sbb_duration`). Les données et le modèle ne sont pas dans Git : il faut les recevoir ou les régénérer.
+
+**1. Obtenir le modèle.** Choisis une des deux options.
+- **Recevoir les fichiers.** Récupère `duration_model.v1.eval.json` (modèle pour les rejeux) ou `duration_model.v1.json` (modèle entraîné sur tout), et, pour la démo, le dossier `timelines/`. Indique leur emplacement au backend :
+  ```sh
+  DURATION_ARTIFACT_PATH=/chemin/duration_model.v1.eval.json
+  DISRUPTION_TIMELINES_DIR=/chemin/timelines
+  ```
+- **Régénérer depuis `Daten.zip`.** Décompresse l'archive dans `analytics/` pour obtenir `analytics/Daten/Daten/extern-liveticker/…` (dossier ignoré par Git), puis lance, depuis `analytics/` :
+  ```sh
+  python -m pip install -r requirements.txt
+  python -m sbb_duration.train      # metrics.json + duration_model.joblib
+  python -m sbb_duration.export     # duration_model.v1.json, duration_model.v1.eval.json, golden_vectors.json
+  ```
+  Les rejeux de la démo (`timelines/`) sont produits par `python -m sbb_duration.sources`. Le script de démo les génère s'ils manquent.
+
+**2. Remplir `.env`** à la racine. Il est ignoré par Git : n'y mets jamais de clé dans un fichier suivi. Il faut une clé par flux opentransportdata.swiss, car chaque clé est refusée (`403`) sur l'autre flux.
+```sh
+GTFS_RT_API_KEY=...   # GTFS-RT TripUpdates (la/gtfs-rt): retards et suppressions
+GTFS_SA_API_KEY=...   # GTFS-RT Service Alerts (la/gtfs-sa): alertes live dans /api/journeys/impact
+```
+Les deux sont facultatives. Sans elles, ou avec `--offline`, la démo fonctionne quand même : le rejeu n'en dépend pas.
+
+**3. Lancer la démo.** Depuis la racine du dépôt :
+```sh
+python analytics/scripts/run_demo.py      # génère ce qui manque, puis démarre le backend sur :8080
+```
+JDK 21 et Python 3.14 sont nécessaires. Le backend est prêt quand le script affiche `Backend on http://localhost:8080` ; la ligne indique aussi `gtfs-rt=on/off` et `service-alerts=on/off`. Le déroulé complet est dans [DEMO.md](../docs/DEMO.md).
+
+**4. Les deux routes.** Sous Windows, utilise `curl.exe` et des noms de gares en ASCII (`Geneve`).
+```sh
+# Le trajet est-il touché, de combien est le détour, et que conseiller ?
+# Rejeu de Renens (MOCK) avec observedAt ; liveAlerts (LIVE) est rempli sans observedAt.
+curl -X POST http://localhost:8080/api/journeys/impact -H "Content-Type: application/json" \
+  -d '{"origin":"Lausanne","destination":"Geneve","observedAt":"2026-09-17T18:31:00+02:00"}'
+
+# Combien de temps durera encore cette perturbation ?
+curl -X POST http://localhost:8080/api/disruptions/outlook -H "Content-Type: application/json" \
+  -d '{"disruption":{"reasonCode":"EG_011","durationType":"UNTIL_APPROX_DATE_TIME","startedAt":"2026-09-17T17:22:29+02:00","announcedEndAt":"2026-09-17T20:30:00+02:00","updatesSoFar":1,"summaryEn":"Interrupted service: Renens VD - Morges"},"observedAt":"2026-09-17T18:31:00+02:00","detourExtraMinutes":60}'
+```
+Résultats attendus :
+- impact : `affected: true`, `detourExtraMinutes: 100`, `advice.code: TAKE_DETOUR` ;
+- outlook : `remainingMinutes: {p50: 139, pessimistic: 174}`.
+
+Le contrat complet est dans [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal). Pour les tests, lance `python -m pytest analytics -q` depuis la racine, et `./gradlew test` dans `backend/`.
+
 Offline pipeline that turns the SBB extern-liveticker CSVs into two artifacts for the backend. Python never runs online.
 
 ## Rebuild
@@ -163,6 +211,12 @@ The model reads `incident` and `incident_audit` only; the other files are hashed
 - Remaining uncertainty for the backend: only 3 corridors reach n >= 20 and 40 corridors exist, so most journeys will fall back to the nationwide `hourBaseline`. Endpoint matching is exact; a journey sharing track with a corridor but not its endpoints does not match. No multi-stop corridor text occurs in this data (`via` is implemented and unit-tested, never emitted). `windowDays` assumes the liveticker covered every day between first and last incident, which is unverified; if it had gaps the probabilities are underestimates. Disruptions over 24 h or without a known end are excluded, which biases probabilities low. Pooling both directions assumes an interruption hits both.
 - Data are public-liveticker incidents only (not intern-liveticker or Ereignismeldungen).
 
+## Disruption-duration package `sbb_duration` (role C)
+
+The `sbb_duration` package trains a model of the remaining duration of SBB disruptions on the public liveticker export (2024–2026), evaluates it chronologically, calibrates its pessimistic estimate, and exports it as JSON for the Kotlin backend (`POST /api/disruptions/outlook`, `POST /api/journeys/impact`). It also joins the three sources (public liveticker, VIA, internal liveticker) into replay timelines for the demo. Its commands, modules and results are in [Planned layout and setup](#planned-layout-and-setup) below, its demo in [DEMO.md](../docs/DEMO.md).
+
+The data's usage rights are not yet reviewed: the CSVs, the trained model and every generated file stay local in `analytics/output/`, out of Git. The package is separate from `duration_model.py` / `build_artifacts.py` above; both are trained on the same liveticker export.
+
 ## Original work order (kept from the scaffold)
 
 
@@ -176,7 +230,68 @@ The model reads `incident` and `incident_audit` only; the other files are hashed
 
 Use `scripts/` for repeatable inspection, validation and export entry points, `tests/` for synthetic test cases, and optional `notebooks/` for exploration. Keep raw CSV under the private, ignored `analytics/data/` directory and stage generated outputs in ignored `analytics/output/`. Promote a derived file to a reviewed tracked location after its data-use and version review.
 
-Choose and record the Python version with the first scaffold. From `analytics/`, create an isolated environment with `python -m venv .venv`. Invoke the environment’s Python directly via `.venv/bin/python` on POSIX or `.\.venv\Scripts\python.exe` in PowerShell. Pin dependencies once required and record the exact install, run, and test commands then. There are currently no scripts or test entry points here.
+Python 3.14, with dependencies pinned in `requirements.txt`. The liveticker CSVs go in `analytics/Daten/Daten/extern-liveticker/` (ignored), or in a directory set by `SBB_DATA_DIR`. Outputs go to `analytics/output/` (ignored), or `SBB_OUTPUT_DIR`. From `analytics/`:
+
+```sh
+python -m pip install -r requirements.txt   # or inside python -m venv .venv
+python -m sbb_duration.train                # metrics.json + duration_model.joblib
+python -m sbb_duration.export               # duration_model.v1.json + golden_vectors.json
+cd .. && python -m pytest analytics -q       # from the repo root (as CI): our tests and main's pipeline tests
+python -m sbb_duration.replay [--detour 60] # 3 past incidents, terminal table + output/replay/replay-0N.json (MOCK)
+python -m sbb_duration.sources [--detour 60] # 3-source timelines -> output/timelines/timeline-<id>.json + index.json (MOCK)
+python scripts/run_demo.py [--offline]       # builds missing outputs, then starts the backend with the model (docs/DEMO.md)
+python -m sbb_duration.pitch                  # output/pitch_numbers.md: key figures with one-sentence definitions
+```
+
+| Module | Role |
+| --- | --- |
+| `data.py` | Loads all incident versions (audit + current) ordered by `last_modified_date`; SHA-256 provenance. |
+| `features.py` | `build_features`, shared by training, prediction and export; the Kotlin port mirrors it. |
+| `train.py` | Snapshots of ongoing versions, chronological 80/20 split by incident start, P50 and pessimistic (0.85) quantile models. Metrics are measured on the split; the exported model is refitted on all snapshots. |
+| `predict.py`, `advice.py` | sklearn prediction; advice codes `TAKE_DETOUR`, `DETOUR_IF_DEADLINE`, `WAIT`, `UNKNOWN`. |
+| `artifact.py`, `export.py` | JSON artifact (trees, categories, regexes, provenance, metrics, explanations, limitations) and its dependency-free reference evaluator. `export` also writes `duration_model.v1.eval.json`, the split models that never saw the test period, used for replays of past incidents. |
+| `explain.py` | Per-cause values from the training data: past incidents, median duration, median gap between real and announced end. |
+| `replay.py` | Version-by-version replay of three test-period incidents, chosen by rule, using the split models that never saw them. |
+| `sources.py` | Joins the public liveticker, VIA (`Daten/Daten/Ereignismeldungen/`) and the internal liveticker (`Daten/Daten/intern-liveticker/`). Builds one timeline per incident present in all three sources, with stations (UIC + sloid), lines, outlook, advice and `notify`. It downloads the opentransportdata.swiss service-points export to the ignored `analytics/data/service_points/` when missing; `--no-fetch` disables the download. |
+| `messages.py` | Sanitizes internal messages (HTML, phone numbers, e-mails, names, user ids) and extracts replacement bus, stops, resumption forecast and resumed service with keyword rules. |
+
+Current results on the test period (104 incidents, 639 snapshots after 2026-04-06): the P50 error is 97.9 min against 112.7 for the official announcement and 127.0 for the median per cause. The pessimistic estimate covers 83.1% of cases after a split-conformal calibration on the most recent training incidents (73.7% before; target 85%, `metrics.evaluation.calibration`). The official announcement is too optimistic in 69% of snapshots. Robustness test (`metrics.evaluation.robustness`): 80 incidents close 0–2 min after their last announced end, which looks like an automatic close at the announced time. With them removed and the split redone, the P50 error is 103.6 min against 120.1 for the announcement (88 test incidents). The API contract is in [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal). The timeline format is in [API_CONTRACT.md](../docs/API_CONTRACT.md#multi-source-incident-timeline-proposal).
+
+## Live mode: alerts only, no prediction
+
+Live **detection** is implemented, live **prediction** is not. `POST /api/journeys/impact` returns `liveAlerts` (`LIVE`): the current Service Alerts whose stops touch the journey, with text, validity periods and stations, and `prediction: null` with the reason. The backend uses `GTFS_SA_API_KEY` for `la/gtfs-sa` and the team's `GTFS_RT_API_KEY` for `la/gtfs-rt`. On 2026-11-22 both answered `200` with their own key; each key gets `403` on the other feed. The analysis below explains why no duration is predicted live.
+
+### Analysis of the Service Alerts feed
+
+There is no live mode; the Renens replay remains the main demo. Checked on 2026-11-22 with the key in `.env` (`GTFS_RT_API_KEY`, never printed or committed).
+
+**Access.** Each feed needs its own subscription. `la/gtfs-sa` answers `200` (12.6 MB) with `GTFS_SA_API_KEY` and `403` with the TripUpdates key. `la/gtfs-rt` answers `200` (1.8 MB) with `GTFS_RT_API_KEY` and `403` with the Service Alerts key.
+
+**Decoder.** `sbb_duration/gtfs_alerts.py` decodes `alert` entities. It is separate from the team's TripUpdates decoder, uses the official field numbers, and is tested on a hand-encoded message: `python -m sbb_duration.gtfs_alerts data/gtfs/la_gtfs-sa.pb`. The raw feed stays in the ignored `analytics/data/`.
+
+**What the real feed contains** (header time 2026-11-21 23:00 UTC):
+- 1,470 alerts, 679 from SBB (agency `11`); headers in de, fr, it and en, phrased like the liveticker ("Interrupted service: A - B").
+- `cause`: 982 CONSTRUCTION, 438 OTHER_CAUSE, 20 MAINTENANCE, 15 TECHNICAL_PROBLEM, 11 WEATHER, 4 UNKNOWN_CAUSE.
+- `effect`: UNKNOWN_EFFECT for all 1,470.
+- `active_period`: 1,423 alerts have an end, but 418 have several periods (up to 41 recurring night windows of planned works).
+- `informed_entity.stop_id`: 942 alerts name stops; 8,541 of 8,579 stop ids (99.6%) are sloids.
+- Alert ids are UUIDs (`22fede4f-…`).
+
+**Why the mapping to our features is not reliable:**
+
+| Feature | Verdict |
+| --- | --- |
+| affected stations | Reliable: sloids map to VIA UIC (`ch:1:sloid:<UIC − 8500000>`), as for TripUpdates. |
+| `reasonCode` | Not available: the GTFS enum is coarse (30% OTHER_CAUSE) and has no mapping to the 31 `EG_xxx` codes, so it would be a missing category for every alert. |
+| `announcedEndAt` | Not verified: `active_period.end` is a validity window. For planned works it is the work schedule, not an announced end. For unplanned incidents it might be the liveticker's `duration_to`, but no such alert was available to check. |
+| `startedAt`, `updatesSoFar`, `durationType` | `startedAt` ≈ first period start. `updatesSoFar` needs a polled history. `durationType` is absent. |
+| population | Out of distribution: of the 414 alerts active at fetch time, none is an unplanned SBB rail incident. The 10 that look unplanned (single period, started < 24 h, not works) concern buses, a lift and wheelchair access. The model was trained only on unplanned rail incidents shorter than 24 h. |
+| validation | Impossible now: there is no shared id with the liveticker or VIA, and the feed holds current alerts only, while the training export ends on 2026-10-12. Predictions on live alerts cannot be compared with known ends. |
+
+**To make it reliable:**
+1. Poll `la/gtfs-sa` every few minutes for some days (the version history gives `updatesSoFar`), and keep SBB alerts with cause ≠ CONSTRUCTION/MAINTENANCE and a single period.
+2. Obtain a liveticker or VIA export covering the same days, and match alerts by header text, stops and start time. Then measure whether `active_period.end` equals `duration_to`, and the model error.
+3. Only then feed live alerts into the model as a `LIVE` `DisruptionSource` with predictions. Today they are only listed (`liveAlerts`, `prediction: null`).
 
 ## Evaluation and reproducibility
 

@@ -9,11 +9,16 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 
+# Shared with the `sbb_duration` package (single source of truth): feature lists, text-flag
+# rules, the p50 <= upper-estimate guarantee and the advice thresholds. Public interface unchanged.
+from .sbb_duration.advice import Advice, advice as _advice_code
+from .sbb_duration.artifact import finalize as _finalize
+from .sbb_duration.features import CATEGORICAL, NUMERIC, TEXT_FLAGS
+
 TZ = "Europe/Zurich"
 QUANTILES = (0.5, 0.8)
-CAT = ["reason_id_fk", "duration_type"]
-NUM = ["elapsed", "announced_remaining", "has_announcement", "hour", "weekday",
-       "n_updates_so_far", "is_interruption", "is_restriction"]
+CAT = list(CATEGORICAL)
+NUM = list(NUMERIC)
 COLS = ["id", "duration_type", "duration_to", "duration_at_least", "reason_id_fk",
         "last_modified_date", "created_at_source", "updated_at_source",
         "lifecycle", "summary_en", "description_en", "description_de"]
@@ -73,8 +78,8 @@ def build_snapshots(v: pd.DataFrame) -> pd.DataFrame:
     snap["weekday"] = local_t.dt.day_of_week
     snap["n_updates_so_far"] = snap.groupby("id").cumcount()
     s = snap.summary_en.fillna("").str.lower()
-    snap["is_interruption"] = s.str.contains("interrupt|disruption|no service").astype(int)
-    snap["is_restriction"] = s.str.contains("limited|restrict").astype(int)
+    for flag, pattern in TEXT_FLAGS.items():
+        snap[flag] = s.str.contains(pattern).astype(int)
     # drop data errors and multi-day disruptions
     return snap[(snap.y_remaining > 0) & (snap.y_remaining < 24 * 60) & (snap.elapsed >= 0)]
 
@@ -142,13 +147,15 @@ def predict_remaining(features: dict, bundle: dict):
     """features: dict with CAT + NUM keys. Returns (P50, P80) minutes remaining."""
     row = pd.DataFrame([features])
     X = _prep(row, bundle["categories"])
-    return tuple(float(np.expm1(bundle["models"][q].predict(X))[0]) for q in QUANTILES)
+    raw50, raw80 = (float(bundle["models"][q].predict(X)[0]) for q in QUANTILES)
+    return _finalize(raw50, raw80)  # (P50, P80) minutes with 0 <= P50 <= P80
 
 
 def advice(p50, p80, detour_extra_min):
     """detour_extra_min: extra travel time of the best alternative (from OJP)."""
-    if detour_extra_min < p50:
-        return "Take the detour: the disruption will probably last longer."
-    if detour_extra_min < p80:
-        return "Detour recommended if you can't afford to be late (real risk it lasts longer)."
-    return "Wait: the disruption should be over before the detour pays off."
+    code = _advice_code(p50, p80, detour_extra_min)
+    return {
+        Advice.TAKE_DETOUR: "Take the detour: the disruption will probably last longer.",
+        Advice.DETOUR_IF_DEADLINE: "Detour recommended if you can't afford to be late (real risk it lasts longer).",
+        Advice.WAIT: "Wait: the disruption should be over before the detour pays off.",
+    }[code]

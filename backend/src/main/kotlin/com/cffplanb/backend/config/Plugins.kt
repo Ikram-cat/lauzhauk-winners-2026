@@ -3,12 +3,17 @@ package com.cffplanb.backend.config
 import com.cffplanb.backend.api.ErrorDetailDto
 import com.cffplanb.backend.api.ErrorResponseDto
 import com.cffplanb.backend.api.configureRoutes
+import com.cffplanb.backend.provider.DemoScenarioTransportProvider
 import com.cffplanb.backend.gtfs.GtfsRealtimeSource
 import kotlinx.coroutines.launch
 import com.cffplanb.backend.provider.MockFareProvider
 import com.cffplanb.backend.provider.MockTransportProvider
 import com.cffplanb.backend.provider.NovaFareProvider
 import com.cffplanb.backend.provider.OjpTransportProvider
+import com.cffplanb.backend.service.JourneySearchService
+import com.cffplanb.backend.service.duration.DurationArtifactLoader
+import com.cffplanb.backend.service.impact.ReplayTimelineDisruptionSource
+import com.cffplanb.backend.service.impact.ServiceAlertsSource
 import com.cffplanb.backend.provider.ResilientProvider
 import com.cffplanb.backend.service.*
 import java.nio.file.Files
@@ -39,6 +44,7 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     // CORS
     install(CORS) {
         allowMethod(HttpMethod.Get)
+        allowMethod(HttpMethod.Post)
         allowMethod(HttpMethod.Options)
         allowHeader(HttpHeaders.ContentType)
         allowHeader(HttpHeaders.Accept)
@@ -70,6 +76,10 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
                 ?: error("OJP_API_KEY environment variable is required when TRANSPORT_PROVIDER=ojp")
             log.info("Using OJP transport provider")
             OjpTransportProvider(apiKey = apiKey, clock = clock)
+        }
+        "demo" -> {
+            log.info("Using demo scenario transport provider (MOCK journeys for the disruption replays)")
+            DemoScenarioTransportProvider()
         }
         else -> {
             log.info("Using Mock transport provider")
@@ -106,5 +116,14 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
         } ?: config.delayArtifactPath?.let { Path.of(it) }
     val delay = RealtimeDelayModel(delayPath)
     log.info("Delay artifact status={} modelVersion={}", delay.info().status, delay.info().modelVersion)
-    configureRoutes(searchService, clock, risk, gtfs, delay)
+    val durationEstimator = DurationArtifactLoader.load(config.durationArtifactPath)
+    val disruptionSource = ReplayTimelineDisruptionSource.load(config.disruptionTimelinesDir)
+    val serviceAlerts = config.gtfsSaApiKey?.trim()?.takeIf { it.isNotEmpty() }?.let { key ->
+        log.info("GTFS-RT Service Alerts enabled for live alerts (1 fetch per 60 s)")
+        ServiceAlertsSource(ServiceAlertsSource.httpFetch(config.gtfsSaUrl, key)).also { src ->
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { src.current() }
+        }
+    } ?: run { log.info("GTFS-RT Service Alerts disabled (no GTFS_SA_API_KEY)"); null }
+    configureRoutes(searchService, clock, risk, gtfs, delay,
+        durationEstimator = durationEstimator, disruptionSource = disruptionSource, serviceAlerts = serviceAlerts)
 }

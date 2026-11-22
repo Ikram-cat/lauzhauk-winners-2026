@@ -595,6 +595,10 @@ class OjpTransportProvider(
                     ?: it.getElementsByTagNameNS("*", "LineRef").item(0)?.textContent?.trim()?.ifBlank { null }
             }
 
+            val intermediates = timedLeg.getElementsByTagNameNS("*", "LegIntermediate").let { nodes ->
+                (0 until nodes.length).mapNotNull { i -> (nodes.item(i) as? Element)?.let { stopPlaceSloid(it) } }
+            }
+
             val depPlatform = textIn(board, "PlannedQuay") ?: textIn(board, "EstimatedQuay")
             val arrPlatform = textIn(alight, "PlannedQuay") ?: textIn(alight, "EstimatedQuay")
 
@@ -608,6 +612,9 @@ class OjpTransportProvider(
                 serviceLabel = serviceLabel,
                 departurePlatform = depPlatform,
                 arrivalPlatform = arrPlatform,
+                originSloid = stopPlaceSloid(board),
+                destinationSloid = stopPlaceSloid(alight),
+                intermediateSloids = intermediates,
                 expectedDeparture = estimatedAt(board, "ServiceDeparture"),
                 expectedArrival = estimatedAt(alight, "ServiceArrival"),
                 occupancyFirst = occ["firstClass"],
@@ -662,6 +669,10 @@ class OjpTransportProvider(
     // -------------------------------------------------------------------------
     // XML & parsing helpers
     // -------------------------------------------------------------------------
+
+    /** StopPointRef of a LegBoard/LegAlight/LegIntermediate reduced to its stop place: ch:1:sloid:7000:3:5 -> ch:1:sloid:7000. */
+    private fun stopPlaceSloid(stop: Element): String? =
+        textIn(stop, "StopPointRef")?.takeIf { it.startsWith("ch:1:sloid:") }?.split(":")?.take(4)?.joinToString(":")
 
     private fun newDocumentBuilder() =
         DocumentBuilderFactory.newInstance().also { it.isNamespaceAware = true }.newDocumentBuilder()

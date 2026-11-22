@@ -48,21 +48,25 @@ Deploy verification (21 checks, covering all four endpoints and the 400/404 path
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `8080` | Listen port, bound on `0.0.0.0`. |
-| `TRANSPORT_PROVIDER` | `mock` | `ojp` for live timetables, `mock` for labelled demo data. |
+| `TRANSPORT_PROVIDER` | `mock` | `ojp` for live timetables, `mock` for labelled demo data, `demo` for the MOCK journeys of the disruption replays (Lausanne → Genève and Zürich Stadelhofen → Stettbach, each with an alternative avoiding the section; the team mock for any other request). |
 | `OJP_API_KEY` | — | Bearer token for opentransportdata. Required when `TRANSPORT_PROVIDER=ojp`. |
 | `GTFS_RT_API_KEY` | — | Enables network-wide realtime. Absent → feature silently disabled. |
 | `GTFS_RT_URL` | `https://api.opentransportdata.swiss/la/gtfs-rt` | Feed URL (302 redirect is followed). |
 | `GTFS_RT_ENABLED` | on when a key exists | `false` forces the feed off. |
+| `GTFS_SA_API_KEY` | — | Separate key subscribed to GTFS-RT Service Alerts. Enables `liveAlerts` (LIVE, no prediction) in `POST /api/journeys/impact`; absent → `DISABLED`. |
+| `GTFS_SA_URL` | `https://api.opentransportdata.swiss/la/gtfs-sa` | Service Alerts feed URL. |
 | `CORS_ALLOWED_ORIGINS` | empty | Comma-separated exact browser origins, no trailing slash. |
 | `CACHE_ENABLED` | `true` | 60 s search cache, 10 min location cache, circuit breaker. |
 | `RISK_SOURCE` | `artifact` | `none` disables historical risk. |
 | `RISK_ARTIFACT_PATH` | bundled resource | Override path for `predictions.json`. |
 | `DELAY_ARTIFACT_PATH` | bundled resource | Override path for `realtime_delays.json`. |
 | `FARE_BASE_URL` | `https://transport.opendata.ch` | Fare provider base; blank disables fares. |
+| `DURATION_ARTIFACT_PATH` | unset | Path to `analytics/output/duration_model.v1.json` (or `.eval.json` for replays). Unset or invalid: one warning, `/api/disruptions/outlook` answers `status: UNAVAILABLE`. |
+| `DISRUPTION_TIMELINES_DIR` | unset | Directory of analytics `timeline-*.json`, replayed as active disruptions (`MOCK`) by `POST /api/journeys/impact`. Unset: no journey is affected. |
 
 ## API
 
-Four endpoints, all `GET`, read-only, UTF-8 JSON, no authentication, no cookies. Base URL is the
+Four `GET` endpoints below (plus the two `POST` disruption routes of the section "Disruption duration and journey impact"), read-only, UTF-8 JSON, no authentication, no cookies. Base URL is the
 service origin, **no `/api` in the base**. Percent-encode every value, including accents and the `+`
 of an offset (`Gen%C3%A8ve`, `2026-11-21T23%3A00%3A00%2B01%3A00`).
 
@@ -312,6 +316,26 @@ Every failure uses one envelope; `field` names the offending query parameter, or
 | 504 | `UPSTREAM_TIMEOUT` | Provider exceeded its time bound (8 s). |
 
 Provider bodies, query text and credentials never appear in responses or logs.
+
+## Disruption duration and journey impact (proposal, role C)
+
+Two `POST` routes, specified in [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal), use the offline duration model from `analytics/sbb_duration`:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/disruptions/outlook` | Remaining-duration estimate (P50 and calibrated pessimistic), official remaining time, `advice.code` (`TAKE_DETOUR`, `DETOUR_IF_DEADLINE`, `WAIT`, `UNKNOWN`) and a per-cause `explanation`. |
+| `POST /api/journeys/impact` | Checks the best journey against the active disruptions, computes `detourExtraMinutes` from the best unaffected journey of the same search, returns the outlook. |
+
+```bash
+cd analytics && python -m sbb_duration.train && python -m sbb_duration.export && python -m sbb_duration.sources && cd ..
+python analytics/scripts/run_demo.py --offline     # backend with the eval artifact, replayed timelines, TRANSPORT_PROVIDER=demo
+curl -X POST localhost:8080/api/journeys/impact -H "Content-Type: application/json" \
+  -d '{"origin":"Lausanne","destination":"Geneve","observedAt":"2026-09-17T18:31:00+02:00"}'
+```
+
+- `DurationGoldenVectorsTest` checks the Kotlin tree evaluator against `../analytics/output/golden_vectors.json` (100 cases, 1e-6). The replay tests read `../analytics/output/timelines/`. Both are skipped when the outputs have not been generated locally.
+- Code: `service/duration/` (artifact DTOs, loader, features, tree evaluator), `service/impact/` (timeline replay source, journey matcher, impact service), `service/AdviceService.kt`, `api/DisruptionRoutes.kt`, `api/JourneyImpactRoutes.kt`, `provider/DemoScenarioTransportProvider.kt`.
+- The artifact and timelines are not committed and the Docker image does not include them. Until the data-use review, a deployed backend answers `UNAVAILABLE` and has no replayed disruptions. There is no live disruption feed for these routes; see [analytics README, Live mode](../analytics/README.md#live-mode-alerts-only-no-prediction).
 
 ## Layout
 

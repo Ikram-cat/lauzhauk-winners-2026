@@ -10,6 +10,12 @@ import com.cffplanb.backend.provider.LocationsResult
 import com.cffplanb.backend.provider.PlaceResult
 import com.cffplanb.backend.provider.ResolvedPlace
 import com.cffplanb.backend.service.*
+import com.cffplanb.backend.service.SearchResult
+import com.cffplanb.backend.service.duration.DisruptionDurationEstimator
+import com.cffplanb.backend.service.duration.NoDurationEstimator
+import com.cffplanb.backend.service.impact.DisruptionSource
+import com.cffplanb.backend.service.impact.EmptyDisruptionSource
+import com.cffplanb.backend.service.impact.JourneyImpactService
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -68,7 +74,16 @@ private fun Parameters.ranked(): Preference = this["preference"]?.let { v ->
     Preference.entries.firstOrNull { it.name.equals(v.trim(), ignoreCase = true) } ?: throw ParamError("preference", "Parameter 'preference' must be one of FASTEST, CHEAPEST, SIMPLEST")
 } ?: Preference.FASTEST
 
-fun Application.configureRoutes(searchService: JourneySearchService, clock: Clock, risk: RiskEstimator = NoRiskEstimator, gtfs: GtfsRealtimeSource? = null, delay: RealtimeDelayModel = RealtimeDelayModel.NONE) {
+fun Application.configureRoutes(
+    searchService: JourneySearchService,
+    clock: Clock,
+    risk: RiskEstimator = NoRiskEstimator,
+    gtfs: GtfsRealtimeSource? = null,
+    delay: RealtimeDelayModel = RealtimeDelayModel.NONE,
+    durationEstimator: DisruptionDurationEstimator = NoDurationEstimator,
+    disruptionSource: DisruptionSource = EmptyDisruptionSource,
+    serviceAlerts: com.cffplanb.backend.service.impact.ServiceAlertsSource? = null
+) {
     val snap: (suspend () -> com.cffplanb.backend.gtfs.GtfsSnapshot?)? = gtfs?.let { g -> { g.current() } }
     val planner = JourneyPlanService(searchService, DisruptionDetector(searchService::stopEvents, gtfs = snap), clock, delay)
 
@@ -80,6 +95,9 @@ fun Application.configureRoutes(searchService: JourneySearchService, clock: Cloc
             val ok = listOf(feeds.ojp, feeds.nova, rt.status).all { it == "OK" || it == "DEGRADED" || it == "DISABLED" }
             call.respond(HttpStatusCode.OK, HealthResponseDto(if (ok) "OK" else "DEGRADED", feeds))
         }
+
+        disruptionRoutes(durationEstimator, clock)
+        journeyImpactRoutes(JourneyImpactService(searchService, disruptionSource), durationEstimator, clock, serviceAlerts)
 
         get("/api/model") {
             val i = risk.info(); val d = delay.info()

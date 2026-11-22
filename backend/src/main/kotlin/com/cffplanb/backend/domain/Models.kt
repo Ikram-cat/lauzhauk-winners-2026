@@ -15,6 +15,10 @@ data class JourneyLeg(
     val serviceLabel: String?,
     val departurePlatform: String?,
     val arrivalPlatform: String?,
+    /** Stop-place sloids (ch:1:sloid:<n>) when the provider supplies them; used to match disruptions. */
+    val originSloid: String? = null,
+    val destinationSloid: String? = null,
+    val intermediateSloids: List<String> = emptyList(),
     /** Provider estimates (OJP EstimatedTime); null when the provider gave none. */
     val expectedDeparture: OffsetDateTime? = null,
     val expectedArrival: OffsetDateTime? = null,
