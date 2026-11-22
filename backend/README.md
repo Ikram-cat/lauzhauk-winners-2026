@@ -53,6 +53,8 @@ Deploy verification (10 checks against any base URL):
 | `GTFS_RT_API_KEY` | — | Enables network-wide realtime. Absent → feature silently disabled. |
 | `GTFS_RT_URL` | `https://api.opentransportdata.swiss/la/gtfs-rt` | Feed URL (302 redirect is followed). |
 | `GTFS_RT_ENABLED` | on when a key exists | `false` forces the feed off. |
+| `GTFS_SA_API_KEY` | — | Separate key subscribed to GTFS-RT Service Alerts. Enables `liveAlerts` (LIVE, no prediction) in `POST /api/journeys/impact`; absent → `DISABLED`. |
+| `GTFS_SA_URL` | `https://api.opentransportdata.swiss/la/gtfs-sa` | Service Alerts feed URL. |
 | `CORS_ALLOWED_ORIGINS` | empty | Comma-separated exact browser origins, no trailing slash. |
 | `CACHE_ENABLED` | `true` | 60 s search cache, 10 min location cache, circuit breaker. |
 | `RISK_SOURCE` | `artifact` | `none` disables historical risk. |
@@ -289,7 +291,7 @@ curl -X POST localhost:8080/api/journeys/impact -H "Content-Type: application/js
 
 - `DurationGoldenVectorsTest` checks the Kotlin tree evaluator against `../analytics/output/golden_vectors.json` (100 cases, 1e-6). The replay tests read `../analytics/output/timelines/`. Both are skipped when the outputs have not been generated locally.
 - Code: `service/duration/` (artifact DTOs, loader, features, tree evaluator), `service/impact/` (timeline replay source, journey matcher, impact service), `service/AdviceService.kt`, `api/DisruptionRoutes.kt`, `api/JourneyImpactRoutes.kt`, `provider/DemoScenarioTransportProvider.kt`.
-- The artifact and timelines are not committed and the Docker image does not include them. Until the data-use review, a deployed backend answers `UNAVAILABLE` and has no replayed disruptions. There is no live disruption feed for these routes; see [analytics README, Live mode](../analytics/README.md#live-mode-not-implemented).
+- The artifact and timelines are not committed and the Docker image does not include them. Until the data-use review, a deployed backend answers `UNAVAILABLE` and has no replayed disruptions. There is no live disruption feed for these routes; see [analytics README, Live mode](../analytics/README.md#live-mode-alerts-only-no-prediction).
 
 ## Layout
 

@@ -6,6 +6,8 @@ import com.cffplanb.backend.service.SearchResult
 import com.cffplanb.backend.service.duration.DisruptionDurationEstimator
 import com.cffplanb.backend.service.impact.ImpactResult
 import com.cffplanb.backend.service.impact.JourneyImpactService
+import com.cffplanb.backend.service.impact.ServiceAlertMatcher
+import com.cffplanb.backend.service.impact.ServiceAlertsSource
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -22,7 +24,12 @@ private val ISO = DateTimeFormatter.ISO_OFFSET_DATE_TIME
  * POST /api/journeys/impact (proposal): searches the journey, finds the active disruptions that touch
  * it, computes detourExtraMinutes from the best unaffected alternative, and returns the outlook.
  */
-fun Route.journeyImpactRoutes(impact: JourneyImpactService, estimator: DisruptionDurationEstimator, clock: Clock) {
+fun Route.journeyImpactRoutes(
+    impact: JourneyImpactService,
+    estimator: DisruptionDurationEstimator,
+    clock: Clock,
+    serviceAlerts: ServiceAlertsSource? = null
+) {
     post("/api/journeys/impact") {
         val request = try {
             call.receive<JourneyImpactRequestDto>()
@@ -57,11 +64,13 @@ fun Route.journeyImpactRoutes(impact: JourneyImpactService, estimator: Disruptio
             }
             is ImpactResult.Success -> {
                 val mock = impact.dataStatus == "MOCK" || result.planned?.dataStatus?.name == "MOCK"
+                val live = liveAlerts(serviceAlerts, result.planned, observedAt)
                 call.respond(HttpStatusCode.OK, JourneyImpactResponseDto(
                     dataStatus = if (mock) "MOCK" else result.planned?.dataStatus?.name ?: impact.dataStatus,
                     observedAt = ISO.format(observedAt),
                     journey = result.planned?.toDto(),
                     affected = result.impacts.isNotEmpty(),
+                    liveAlerts = live,
                     impacts = result.impacts.map { i ->
                         val d = i.match.disruption
                         JourneyDisruptionImpactDto(
@@ -86,4 +95,30 @@ fun Route.journeyImpactRoutes(impact: JourneyImpactService, estimator: Disruptio
             }
         }
     }
+}
+
+/** Live alerts touching the planned journey at observedAt; past observedAt (replays) normally matches none. */
+private suspend fun liveAlerts(source: ServiceAlertsSource?, planned: com.cffplanb.backend.domain.Journey?, observedAt: OffsetDateTime): LiveAlertsDto {
+    if (source == null) return LiveAlertsDto.disabled()
+    val snapshot = source.current() ?: return LiveAlertsDto(status = "UNAVAILABLE")
+    val matches = planned?.let { ServiceAlertMatcher.match(it, snapshot, observedAt.toInstant()) } ?: emptyList()
+    val iso = { t: java.time.Instant? -> t?.atOffset(observedAt.offset)?.let(ISO::format) }
+    return LiveAlertsDto(
+        status = "OK",
+        fetchedAt = iso(snapshot.fetchedAt),
+        feedTimestamp = iso(snapshot.feedTimestamp),
+        alerts = matches.map { m ->
+            LiveAlertDto(
+                id = m.alert.id,
+                headerText = m.alert.header,
+                descriptionText = m.alert.description.mapValues { it.value.take(1000) },
+                cause = m.alert.cause,
+                effect = m.alert.effect,
+                activePeriods = m.alert.periods.map { (s, e) -> ActivePeriodDto(iso(s), iso(e)) },
+                matchedStations = m.stops.map { (leg, sloid) ->
+                    LiveAlertStopDto(leg, sloid, sloid.substringAfterLast(":").toIntOrNull()?.let { 8500000 + it })
+                }
+            )
+        }
+    )
 }

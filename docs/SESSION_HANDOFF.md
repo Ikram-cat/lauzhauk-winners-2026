@@ -6,6 +6,13 @@ Check the branch, revision, and affected files before relying on an entry. Use t
 
 Add dated entries with the newest first. Include the responsible role, branch and latest relevant commit, what was completed, paths changed, commands and results, current implementation status, known bugs and blockers, pending decisions, dependencies affecting other owners, and prioritized next actions. Link to evidence when available. Identify uncommitted changes explicitly. For concurrent sessions, send the entry and task IDs to D for consolidation in the relevant PR and preserve other entries during conflict resolution.
 
+## 2026-11-22 · C · Live alerts in the journey check (LIVE, no prediction)
+
+- **Keys.** `.env` has two keys. `GTFS_RT_API_KEY` gives `la/gtfs-rt` `200` (1.8 MB); `GTFS_SA_API_KEY` gives `la/gtfs-sa` `200` (12.6 MB). Each key gets `403` on the other feed. The second line of `.env` was saved as `GTFS_RT_API_KEY`; only its name was changed to `GTFS_SA_API_KEY`, and its value was not read out. `.env` stays ignored, and `.env.example` has `GTFS_SA_API_KEY=`.
+- **Backend.** New `service/impact/ServiceAlerts.kt`: a decoder separate from the team's TripUpdates decoder, a cached `ServiceAlertsSource` (one fetch per minute) and `ServiceAlertMatcher` (alert stop places against leg stops, active at `observedAt`). `POST /api/journeys/impact` returns `liveAlerts` (`dataStatus: LIVE`, `status` `OK`/`DISABLED`/`UNAVAILABLE`, SBB texts, periods, stations), always with `prediction: null` and `predictionReason`. New settings `GTFS_SA_API_KEY` and `GTFS_SA_URL`. `run_demo.py` passes both keys and prints `gtfs-rt=on service-alerts=on`.
+- **Checks.** Kotlin: 182 passed (new `ServiceAlertsTest` with a hand-encoded feed and the IC 1 via Morges; the route test asserts `DISABLED` without a key). Python: `python -m pytest analytics` 39 passed, 3 skipped. Live run on 2026-11-22 00:41 UTC: both feeds refreshed (2,588 trip updates, 1,470 alerts). Lausanne → Genève now has 9 live alerts ("Interrupted service: Renens VD - Allaman", planned works, matched at Morges). The Renens replay is unchanged (+100 min, `TAKE_DETOUR`, no live alert at that past time). No key appears in the log.
+- **Not done, by decision.** No live duration prediction (reasons in the analytics README). The live alerts are not deduplicated (the same text can appear once per operator or direction).
+
 ## 2026-11-22 · C · Service Alerts decoded; live mode not reliable yet
 
 - **New key** (`.env`, never committed). `la/gtfs-sa`: `200` (12.6 MB). `la/gtfs-rt`: `403` "Access to this API has been disallowed", confirmed after a minute. The team's TripUpdates feature is therefore off with this key; the previous key had the opposite subscriptions. A key with both is needed.
@@ -108,7 +115,7 @@ All are pushed to `origin/prediction`. `Daten/`, `analytics/output/`, `analytics
    - `JourneyLegDto.originSloid` and `destinationSloid` (optional); the OJP adapter reads board, alight and intermediate stops.
    - New `service/impact/`: `ReplayTimelineDisruptionSource`, `JourneyDisruptionMatcher`, `JourneyImpactService`, exposed as `POST /api/journeys/impact`.
    - Renens test: at 18:30, Lausanne → Genève on an IC 1 via Morges is affected; a lake alternative gives +95 min; advice `DETOUR_IF_DEADLINE`.
-4. **Live mode: not implemented.** There is no `.env` and no API key. The reasons and the missing checks are in `analytics/README.md#live-mode-not-implemented`.
+4. **Live mode: not implemented.** There is no `.env` and no API key. The reasons and the missing checks are in `analytics/README.md#live-mode-alerts-only-no-prediction`.
 5. **Demo.**
    - `python analytics/scripts/run_demo.py [--offline]`.
    - `export` also writes `duration_model.v1.eval.json` (split models) so replays are never predicted by a model that saw the incident.

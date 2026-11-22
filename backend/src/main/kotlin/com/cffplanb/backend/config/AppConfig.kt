@@ -19,6 +19,9 @@ data class AppConfig(
     // Blank disables fare lookup (used by the test task to stay offline).
     val fareBaseUrl: String = System.getenv("FARE_BASE_URL") ?: "https://transport.opendata.ch",
     val gtfsRtApiKey: String? = System.getenv("GTFS_RT_API_KEY"),
+    /** GTFS-RT Service Alerts key (la/gtfs-sa); unset -> live alerts DISABLED in /api/journeys/impact. */
+    val gtfsSaApiKey: String? = System.getenv("GTFS_SA_API_KEY"),
+    val gtfsSaUrl: String = System.getenv("GTFS_SA_URL")?.takeIf { it.isNotBlank() } ?: "https://api.opentransportdata.swiss/la/gtfs-sa",
     val gtfsRtUrl: String = System.getenv("GTFS_RT_URL")?.takeIf { it.isNotBlank() } ?: "https://api.opentransportdata.swiss/la/gtfs-rt",
     // Default: on exactly when a key is present; GTFS_RT_ENABLED=false forces it off.
     val gtfsRtEnabled: Boolean = !System.getenv("GTFS_RT_ENABLED").equals("false", ignoreCase = true) && !System.getenv("GTFS_RT_API_KEY").isNullOrBlank(),

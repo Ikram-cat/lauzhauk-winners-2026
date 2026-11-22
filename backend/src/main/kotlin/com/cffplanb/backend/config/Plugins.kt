@@ -13,6 +13,7 @@ import com.cffplanb.backend.provider.OjpTransportProvider
 import com.cffplanb.backend.service.JourneySearchService
 import com.cffplanb.backend.service.duration.DurationArtifactLoader
 import com.cffplanb.backend.service.impact.ReplayTimelineDisruptionSource
+import com.cffplanb.backend.service.impact.ServiceAlertsSource
 import com.cffplanb.backend.provider.ResilientProvider
 import com.cffplanb.backend.service.*
 import java.nio.file.Files
@@ -117,6 +118,12 @@ fun Application.configureApp(clock: Clock, config: AppConfig = AppConfig.fromEnv
     log.info("Delay artifact status={} modelVersion={}", delay.info().status, delay.info().modelVersion)
     val durationEstimator = DurationArtifactLoader.load(config.durationArtifactPath)
     val disruptionSource = ReplayTimelineDisruptionSource.load(config.disruptionTimelinesDir)
+    val serviceAlerts = config.gtfsSaApiKey?.trim()?.takeIf { it.isNotEmpty() }?.let { key ->
+        log.info("GTFS-RT Service Alerts enabled for live alerts (1 fetch per 60 s)")
+        ServiceAlertsSource(ServiceAlertsSource.httpFetch(config.gtfsSaUrl, key)).also { src ->
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { src.current() }
+        }
+    } ?: run { log.info("GTFS-RT Service Alerts disabled (no GTFS_SA_API_KEY)"); null }
     configureRoutes(searchService, clock, risk, gtfs, delay,
-        durationEstimator = durationEstimator, disruptionSource = disruptionSource)
+        durationEstimator = durationEstimator, disruptionSource = disruptionSource, serviceAlerts = serviceAlerts)
 }

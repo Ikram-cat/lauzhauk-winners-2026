@@ -41,5 +41,44 @@ data class JourneyImpactResponseDto(
     val observedAt: String,
     val journey: JourneyDto?,
     val affected: Boolean,
-    val impacts: List<JourneyDisruptionImpactDto>
+    val impacts: List<JourneyDisruptionImpactDto>,
+    val liveAlerts: LiveAlertsDto = LiveAlertsDto.disabled()
 )
+
+@Serializable
+data class ActivePeriodDto(val start: String?, val end: String?)
+
+@Serializable
+data class LiveAlertStopDto(val legIndex: Int, val sloid: String, val uic: Int?)
+
+/** A live GTFS-RT Service Alert touching the journey. No duration is predicted for live alerts. */
+@Serializable
+data class LiveAlertDto(
+    val id: String,
+    val headerText: Map<String, String>,
+    val descriptionText: Map<String, String>,
+    val cause: String?,
+    val effect: String?,
+    val activePeriods: List<ActivePeriodDto>,
+    val matchedStations: List<LiveAlertStopDto>,
+    val prediction: RemainingMinutesDto? = null,
+    val predictionReason: String = LiveAlertsDto.NO_PREDICTION_REASON
+)
+
+@Serializable
+data class LiveAlertsDto(
+    val dataStatus: String = "LIVE",
+    /** OK, DISABLED (no GTFS_SA_API_KEY) or UNAVAILABLE (feed not reachable). */
+    val status: String,
+    val source: String = "GTFS-RT Service Alerts, opentransportdata.swiss la/gtfs-sa",
+    val fetchedAt: String? = null,
+    val feedTimestamp: String? = null,
+    val alerts: List<LiveAlertDto> = emptyList()
+) {
+    companion object {
+        const val NO_PREDICTION_REASON = "No duration is predicted for live alerts: the alert cause has no mapping to " +
+            "the SBB cause codes the model was trained on, active_period is a validity window rather than a verified " +
+            "announced end, and live alerts cannot yet be validated against known ends."
+        fun disabled() = LiveAlertsDto(status = "DISABLED")
+    }
+}

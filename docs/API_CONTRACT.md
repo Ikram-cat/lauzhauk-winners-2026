@@ -403,6 +403,26 @@ These values come from the backend test that replays Renens at 18:30 with a fake
 - An invalid body or timestamp returns `400 INVALID_REQUEST`.
 - The outlook uses whichever artifact the backend loaded. For historical replays, load the evaluation artifact (see [DEMO.md](DEMO.md)), which never saw the replayed incident.
 
+### Live alerts (`liveAlerts`)
+
+Every journey-impact response also carries `liveAlerts`. It lists the current GTFS-RT Service Alerts (`la/gtfs-sa`) that touch the planned journey, and is labelled **`dataStatus: "LIVE"`**, separately from the replayed `MOCK` impacts.
+- **Matching:** an alert touches the journey when one of its `informed_entity.stop_id` stop places (sloid, platform suffix removed) is boarded, passed or alighted by a transit leg, and one of its `active_period` windows contains `observedAt`. A replayed past `observedAt` therefore normally gives no live alert.
+- **`status`:** `OK`, `DISABLED` (no `GTFS_SA_API_KEY`) or `UNAVAILABLE` (feed not reachable). `fetchedAt` and `feedTimestamp` describe the snapshot, which is refreshed at most once a minute.
+- **Each alert:** `id` (UUID), `headerText` and `descriptionText` (language → SBB text, description truncated to 1,000 characters), `cause`, `effect`, `activePeriods` (`start`, `end`), `matchedStations` (`legIndex`, `sloid`, `uic`).
+- **No prediction:** `prediction` is always `null`, and `predictionReason` explains why. The alert cause has no mapping to the SBB cause codes the model was trained on, `active_period` is a validity window rather than a verified announced end, and live alerts cannot yet be validated against known ends.
+- **Duplicates:** the feed can carry the same text several times (for example one alert per operator or direction). Clients may group alerts by `headerText`.
+
+```json
+"liveAlerts": {
+  "dataStatus": "LIVE", "status": "OK", "source": "GTFS-RT Service Alerts, opentransportdata.swiss la/gtfs-sa",
+  "fetchedAt": "2026-11-22T00:41:05Z", "feedTimestamp": "2026-11-21T23:38:59Z",
+  "alerts": [ { "id": "…", "headerText": { "en": "Interrupted service: Renens VD - Allaman", "fr": "…", "de": "…", "it": "…" },
+                "cause": "CONSTRUCTION", "effect": "UNKNOWN_EFFECT", "activePeriods": [ { "start": "…", "end": "…" } ],
+                "matchedStations": [ { "legIndex": 0, "sloid": "ch:1:sloid:1037", "uic": 8501037 } ],
+                "prediction": null, "predictionReason": "No duration is predicted for live alerts: …" } ]
+}
+```
+
 ## Changes and future endpoints
 
 Use the same baseline JSON examples in frontend decoding, backend serialization and integration smoke checks. For additive output fields, define default behavior for clients that encounter missing or unfamiliar values. Any change to required fields, types, null semantics, ranking or supported queries needs review from frontend, backend and integration owners. Use a coordinated migration or new version for breaking changes. [Shared interfaces](../shared/INTERFACES.md) · [Development workflow](DEVELOPMENT_WORKFLOW.md)

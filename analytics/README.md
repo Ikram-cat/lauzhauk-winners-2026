@@ -209,15 +209,15 @@ python -m sbb_duration.pitch                  # output/pitch_numbers.md: key fig
 
 Current results on the test period (104 incidents, 639 snapshots after 2026-04-06): the P50 error is 97.9 min against 112.7 for the official announcement and 127.0 for the median per cause. The pessimistic estimate covers 83.1% of cases after a split-conformal calibration on the most recent training incidents (73.7% before; target 85%, `metrics.evaluation.calibration`). The official announcement is too optimistic in 69% of snapshots. Robustness test (`metrics.evaluation.robustness`): 80 incidents close 0–2 min after their last announced end, which looks like an automatic close at the announced time. With them removed and the split redone, the P50 error is 103.6 min against 120.1 for the announcement (88 test incidents). The API contract is in [API_CONTRACT.md](../docs/API_CONTRACT.md#disruption-outlook-proposal). The timeline format is in [API_CONTRACT.md](../docs/API_CONTRACT.md#multi-source-incident-timeline-proposal).
 
-## Live mode: not implemented
+## Live mode: alerts only, no prediction
+
+Live **detection** is implemented, live **prediction** is not. `POST /api/journeys/impact` returns `liveAlerts` (`LIVE`): the current Service Alerts whose stops touch the journey, with text, validity periods and stations, and `prediction: null` with the reason. The backend uses `GTFS_SA_API_KEY` for `la/gtfs-sa` and the team's `GTFS_RT_API_KEY` for `la/gtfs-rt`. On 2026-11-22 both answered `200` with their own key; each key gets `403` on the other feed. The analysis below explains why no duration is predicted live.
+
+### Analysis of the Service Alerts feed
 
 There is no live mode; the Renens replay remains the main demo. Checked on 2026-11-22 with the key in `.env` (`GTFS_RT_API_KEY`, never printed or committed).
 
-**Access with the current key.**
-- `la/gtfs-sa` (Service Alerts): `200`, 12.6 MB.
-- `la/gtfs-rt` (TripUpdates, used by the team's `GtfsRealtimeSource`): `403` "Access to this API has been disallowed", confirmed after one minute.
-
-The previous key had the opposite subscriptions. With this key, the team's TripUpdates feature stays off.
+**Access.** Each feed needs its own subscription. `la/gtfs-sa` answers `200` (12.6 MB) with `GTFS_SA_API_KEY` and `403` with the TripUpdates key. `la/gtfs-rt` answers `200` (1.8 MB) with `GTFS_RT_API_KEY` and `403` with the Service Alerts key.
 
 **Decoder.** `sbb_duration/gtfs_alerts.py` decodes `alert` entities. It is separate from the team's TripUpdates decoder, uses the official field numbers, and is tested on a hand-encoded message: `python -m sbb_duration.gtfs_alerts data/gtfs/la_gtfs-sa.pb`. The raw feed stays in the ignored `analytics/data/`.
 
@@ -241,10 +241,9 @@ The previous key had the opposite subscriptions. With this key, the team's TripU
 | validation | Impossible now: there is no shared id with the liveticker or VIA, and the feed holds current alerts only, while the training export ends on 2026-10-12. Predictions on live alerts cannot be compared with known ends. |
 
 **To make it reliable:**
-1. Get a key with both subscriptions, so that the TripUpdates feature works again.
-2. Poll `la/gtfs-sa` every few minutes for some days (the version history gives `updatesSoFar`), and keep SBB alerts with cause ≠ CONSTRUCTION/MAINTENANCE and a single period.
-3. Obtain a liveticker or VIA export covering the same days, and match alerts by header text, stops and start time. Then measure whether `active_period.end` equals `duration_to`, and the model error.
-4. Only then add a `LIVE` `DisruptionSource` (Kotlin), next to `ReplayTimelineDisruptionSource`.
+1. Poll `la/gtfs-sa` every few minutes for some days (the version history gives `updatesSoFar`), and keep SBB alerts with cause ≠ CONSTRUCTION/MAINTENANCE and a single period.
+2. Obtain a liveticker or VIA export covering the same days, and match alerts by header text, stops and start time. Then measure whether `active_period.end` equals `duration_to`, and the model error.
+3. Only then feed live alerts into the model as a `LIVE` `DisruptionSource` with predictions. Today they are only listed (`liveAlerts`, `prediction: null`).
 
 ## Evaluation and reproducibility
 

@@ -1,6 +1,6 @@
 # Disruption demo: Renens VD – Morges, 17 September 2026
 
-This is the run sheet for the disruption-duration demo (SBB challenge). The journey-search demo is in [DEMO_SCRIPT.md](DEMO_SCRIPT.md). Everything shown here is a **replay of a past incident, labelled `MOCK`**: no live disruption feed is used (see [analytics README, Live mode](../analytics/README.md#live-mode-not-implemented)). Predictions come from the **evaluation models**, trained only on incidents before 2026-04-06, which never saw this incident.
+This is the run sheet for the disruption-duration demo (SBB challenge). The journey-search demo is in [DEMO_SCRIPT.md](DEMO_SCRIPT.md). The demo is a **replay of a past incident, labelled `MOCK`**. The only live element is the optional `liveAlerts` step, labelled `LIVE`, which lists current alerts without any prediction (see [analytics README, Live mode](../analytics/README.md#live-mode-alerts-only-no-prediction)). Predictions come from the **evaluation models**, trained only on incidents before 2026-04-06, which never saw this incident.
 
 ## Start: one command
 
@@ -25,7 +25,7 @@ The `demo` provider (`backend/.../provider/DemoScenarioTransportProvider.kt`) is
 - **Zürich Stadelhofen → Stettbach:** S11, 6 min, and a tram alternative (Tram 11 + Tram 7) arriving 23 min later.
 - **Any other request:** the team mock, unchanged.
 
-`--provider ojp` uses the live timetable once a key is available. When `.env` holds `GTFS_RT_API_KEY`, the script also enables the team's GTFS-RT TripUpdates feed (startup line `gtfs-rt=on`); the replay does not depend on it, and `--offline` keeps it off. There is no live disruption mode. Service Alerts are readable with the current key, but the feed cannot yet give our model's inputs reliably, and that key gets `403` on TripUpdates, so `gtfs-rt` stays off in practice (see the analytics README, Live mode).
+`--provider ojp` uses the live timetable once a key is available. When `.env` holds `GTFS_RT_API_KEY`, the script also enables the team's GTFS-RT TripUpdates feed (startup line `gtfs-rt=on`); the replay does not depend on it, and `--offline` keeps it off. With both keys in `.env` (`GTFS_RT_API_KEY` for TripUpdates, `GTFS_SA_API_KEY` for Service Alerts), the startup line shows `gtfs-rt=on  service-alerts=on`. `POST /api/journeys/impact` then also returns `liveAlerts`: current Service Alerts that touch the journey, labelled `LIVE`, with SBB text, validity periods and stations, and `prediction: null`. No duration is predicted live. The replay does not depend on these feeds, and `--offline` turns them off.
 
 It finds JDK 21 through `JAVA_HOME`, or `%LOCALAPPDATA%\Programs\Temurin\jdk-21*` on Windows. Ready when it prints `Backend on http://localhost:8080`. Stop it with Ctrl+C.
 
@@ -59,6 +59,10 @@ Between 17:43 and 21:04, Lausanne → Genève is affected:
 - the advice is never `UNKNOWN` in this window. The backend test `DemoScenarioTransportProviderTest` checks the demo instants of both incidents.
 
 Before 17:43 there is no public announcement, so there is no prediction and the advice is `UNKNOWN`; show the VIA detection only. From 21:04 the journey is no longer affected, because the real resumption has happened.
+
+### Optional live step
+
+After the replay, show that the same check works on today's network: send the journey-impact request **without** `observedAt`. `liveAlerts` lists the alerts active now on Lausanne → Genève. On 2026-11-22 at 00:41 UTC there were 9, all "Interrupted service: Renens VD - Allaman" (planned works) matched at Morges. Say clearly that these are `LIVE` and that no duration is predicted for them (`prediction: null`, with the reason).
 
 ## Fallback requests (curl)
 

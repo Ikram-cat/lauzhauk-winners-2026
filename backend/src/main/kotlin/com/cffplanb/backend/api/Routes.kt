@@ -34,7 +34,8 @@ fun Application.configureRoutes(
     gtfs: GtfsRealtimeSource? = null,
     delay: RealtimeDelayModel = RealtimeDelayModel.NONE,
     durationEstimator: DisruptionDurationEstimator = NoDurationEstimator,
-    disruptionSource: DisruptionSource = EmptyDisruptionSource
+    disruptionSource: DisruptionSource = EmptyDisruptionSource,
+    serviceAlerts: com.cffplanb.backend.service.impact.ServiceAlertsSource? = null
 ) {
     routing {
         redirectRoute(searchService, clock, risk, gtfs, delay)
@@ -43,7 +44,7 @@ fun Application.configureRoutes(
         }
 
         disruptionRoutes(durationEstimator, clock)
-        journeyImpactRoutes(JourneyImpactService(searchService, disruptionSource), durationEstimator, clock)
+        journeyImpactRoutes(JourneyImpactService(searchService, disruptionSource), durationEstimator, clock, serviceAlerts)
 
         get("/api/model") {
             val i = risk.info()

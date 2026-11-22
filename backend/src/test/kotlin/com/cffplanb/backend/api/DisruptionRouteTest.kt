@@ -58,5 +58,8 @@ class DisruptionRouteTest {
         assertEquals(false, body["affected"]!!.jsonPrimitive.boolean)
         assertEquals("MOCK", body["dataStatus"]!!.jsonPrimitive.content)
         assertEquals(0, body["impacts"]!!.jsonArray.size)
+        val live = body["liveAlerts"]!!.jsonObject
+        assertEquals("LIVE", live["dataStatus"]!!.jsonPrimitive.content)
+        assertEquals("DISABLED", live["status"]!!.jsonPrimitive.content)
     }
 }
