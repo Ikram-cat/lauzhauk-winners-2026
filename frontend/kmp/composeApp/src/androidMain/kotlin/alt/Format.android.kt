@@ -40,3 +40,5 @@ actual fun prefersReducedMotion(): Boolean = false
 private val kv = HashMap<String, String>()
 actual fun kvGet(key: String, session: Boolean): String = kv[key] ?: ""
 actual fun kvSet(key: String, value: String, session: Boolean) { kv[key] = value }
+
+actual val canLoadSvgResources: Boolean = false
