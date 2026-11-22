@@ -32,8 +32,30 @@ Free, same platform as our OJP/GTFS-RT keys. Per journey per stop:
     ABFAHRTSZEIT vs AB_PROGNOSE + AB_PROGNOSE_STATUS,
     FAELLT_AUS_TF, DURCHFAHRT_TF, ZUSATZFAHRT_TF
 
-Window: 3 months (fallback 1 month if download/time tight; minimum 3 weeks —
-fewer weeks cannot support weekday classes).
+Window: 2 months — September + October 2026 (61 days; same annual timetable as
+the demo month, no timetable change between them; weekday-class buckets need
+~4-5 same-weekday samples each — 1 month is borderline, 2 months makes the
+fine line@station@hour@weekday buckets fire). Minimum viable: 3 full weeks;
+below that the weekday signal dies. Never take months containing the June or
+December timetable changes.
+
+Scope (decided 2026-11-22): NO geographic bbox. Station whitelist of ~40-60
+Swiss hubs (Zurich HB, Bern, Basel SBB, Lausanne, Geneve, Lucerne, Winterthur,
+St. Gallen, Brig, Olten, ... plus demo corridor stations) and EVERY rail line
+serving them, both directions, all operators, all 24 hours — night buckets
+just pool. Parse cost is the full day file either way, so a wide whitelist is
+free; restricting to very few stations would break the station-level fallback.
+All trains, all day parts, all weekdays — the only real lever is DAYS.
+
+Source mechanics: daily CSVs from the CKAN catalog (data.opentransportdata.swiss,
+dataset ist-daten-v2) or monthly ZIPs from archive.opentransportdata.swiss —
+resolve the exact URL/size as build task #1.
+
+Compute budget (this PC, raw pandas in ~/code/venv-analytics, no ML, no
+pyarrow): chunked single pass reading ~10 of 24 columns, ~15-40 s per 2M-row
+day -> 61 days ~= 15-40 min; filter to trains in-flight (PRODUKT_ID=Train,
+~300-600k rows/day), accumulate per-bucket running stats in a dict -> RAM
+< 2 GB; ~2-4 GB transient disk for CSVs, deleted after aggregation.
 
 Delay computation per (journey, stop):
     departure delay = AB_PROGNOSE - ABFAHRTSZEIT
